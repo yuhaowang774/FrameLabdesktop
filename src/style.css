@@ -1,0 +1,47 @@
+:root {
+  /* 布局变量（useCssVars 运行时动态写入，此处为回退默认值） */
+  --frame-padding: 80px;
+  --img-scale: 90%;
+  --dist-photo-logo: 40px;
+  --dist-logo-text: 15px;
+  --dist-bottom: 60px;
+  --border-radius: 20px;
+  --shadow-opacity: 0.5;
+  --font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  --font-size: 16px;
+  --text-weight: 600;
+  --text-opacity: 1;
+  --footer-text-color: rgba(255, 255, 255, 0.95);
+  --logo-size: 30px;
+  --logo-opacity: 1;
+  --logo-display: block;
+  --camera-model-size: 14px;
+  --camera-model-weight: 600;
+  --camera-model-gap: 8px;
+  --camera-model-opacity: 1;
+  --camera-model-italic: normal;
+  --camera-model-display: none;
+  --camera-model-font-family: var(--font-family);
+  --camera-model-offset-x: 0px;
+  --camera-model-offset-y: 0px;
+  --exif-display: none;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+}
+
+body {
+  background: #0a0a0a;
+  font-family: var(--font-family);
+  color: #fff;
+  overflow: hidden;
+}
