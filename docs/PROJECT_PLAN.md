@@ -175,7 +175,7 @@
 - [x] EXIF 识别（含无 EXIF 回退） —— 已验证：带 EXIF 图识别为 `50mm f/1.8 1/200s ISO200`；无 EXIF 图触发 `GlassModal` 提示“无 EXIF 数据，可手动填写 EXIF 文本”
 - [x] 14 品牌 Logo 切换 + 自定义 Logo 增删（阶段8/9已实现）
 - [x] 三种背景模式 + 无背景叠加位置（阶段10已实现）
-- [x] 导出 JPG/PNG 清晰度优于 dom-to-image（保真改进达成） —— 已静态确认：`exporter.ts` 基于原图分辨率与独立 Canvas 绘制（2x/2.5x 超采样），非 dom-to-image；构建产物 `dist/` 正常生成
+- [x] 导出 JPG/PNG 清晰度优于 dom-to-image（保真改进达成） —— **已真机实跑验证（P1）**：真实 Chromium 中 `exportFrame` 导出 2963×1896（2x 超采样）/ 1200×800（none 模式），主照片中心像素与源图**色差=0**（原生 1:1 排版无降采样），页脚文字/Logo/背景模糊均实际落像素，批量 3 张均成功；构建产物 `dist/` 正常生成
 - [x] 批量处理 + 历史预设保存/恢复/删除（阶段12/13已实现）
 - [x] 响应式 768px 断点 —— 已静态确认：`App.vue`/`ControlPanel.vue`/`Workspace.vue` 均包含 `@media (max-width: 768px)`，面板横向滚动、上下布局切换已就绪
 
@@ -205,7 +205,14 @@
 - **验收中修复的真实缺陷**：`HistoryList.vue` 使用 `<GlassModal>` 但漏 import，已补全。
 
 后续可推进方向（按优先级）：
-1. **P1 导出真机验收补强**：写 `exporter.exportFrame` 实跑脚本，断言分辨率 / 文字绘制 / 批量下载间隔，堵住阶段 16 第 5 项唯一未实跑的缺口。
+1. **P1 导出真机验收补强** ✅ 已完成（2026-08-14）：在真实 Chromium 中调用 `exporter.exportFrame` / `exportAndDownload`，16 项断言全部 PASS：
+   - 分辨率/超采样：默认背景 PNG 2x → 2963×1896，none 模式 JPG → 1200×800，与公式一致；
+   - 页脚绘制：EXIF 文字 + 相机型号 + Logo 实际落像素（非透明像素 20 万+）；
+   - 背景模糊填充：四角不透明；
+   - 主照片原生保真：源图像素 1:1 进入画布，**色差=0**（无降采样）；
+   - EXIF 解析容错 + 拼接格式正确；
+   - 真实下载触发成功；批量 3 张（不同尺寸）均成功、无卡死。
+   - 验证页 `verify-export.html` 为临时验收脚本，未提交（已在清理时移除）。
 2. **P2 工程化**：加 `vue-tsc --noEmit` + Vitest 单测（`parseExif`、CSS 变量映射、历史快照深拷贝），防止运行期才暴露的漏 import 类问题。
 3. **P3 阶段 17 演进**：Tauri/Electron 桌面版、多图拼图 / 胶片边框 / 滤镜、35mm 等效焦距换算、内嵌 Web Font。
 

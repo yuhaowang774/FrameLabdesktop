@@ -7,3 +7,6 @@ dist-ssr
 !.vscode/extensions.json
 *.log
 .gitmsg
+verify-export.html
+devserver.log
+devserver.err
