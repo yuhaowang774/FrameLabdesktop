@@ -1,5 +1,5 @@
 :root {
-  /* 布局变量（useCssVars 运行时动态写入，此处为回退默认值） */
+  /* 布局变量（useCssVars 运行时动态写入，此处为回退默认值，与 types.ts 默认值 + useCssVars VAR_MAP 对齐） */
   --frame-padding: 80px;
   --img-scale: 90%;
   --dist-photo-logo: 40px;
@@ -11,7 +11,7 @@
   --font-size: 16px;
   --text-weight: 600;
   --text-opacity: 1;
-  --footer-text-color: rgba(255, 255, 255, 0.95);
+  --footer-text-color: rgba(0, 0, 0, 0.95);
   --logo-size: 30px;
   --logo-opacity: 1;
   --logo-display: block;
@@ -20,11 +20,31 @@
   --camera-model-gap: 8px;
   --camera-model-opacity: 1;
   --camera-model-italic: normal;
-  --camera-model-display: none;
+  --camera-model-display: block;
   --camera-model-font-family: var(--font-family);
   --camera-model-offset-x: 0px;
   --camera-model-offset-y: 0px;
   --exif-display: none;
+
+  /* 通用 UI token（面板 / 文本 / 描边，由主题类覆盖） */
+  --panel-bg: rgba(255, 255, 255, 0.05);
+  --panel-border: rgba(255, 255, 255, 0.1);
+  --panel-hover: rgba(255, 255, 255, 0.12);
+  --text-muted: #aaa;
+  --text-normal: #fff;
+  --accent: rgba(120, 170, 255, 0.85);
+  --accent-border: rgba(120, 170, 255, 0.9);
+  --accent-bg: rgba(120, 170, 255, 0.18);
+}
+body.theme-light {
+  --panel-bg: rgba(255, 255, 255, 0.55);
+  --panel-border: rgba(0, 0, 0, 0.12);
+  --panel-hover: rgba(0, 0, 0, 0.06);
+  --text-muted: #666;
+  --text-normal: #1a1a1a;
+  --accent: rgba(40, 110, 230, 0.9);
+  --accent-border: rgba(40, 110, 230, 1);
+  --accent-bg: rgba(40, 110, 230, 0.14);
 }
 
 * {
@@ -39,9 +59,18 @@ body,
   height: 100%;
 }
 
-body {
+/* ===== 主题：亮 / 暗 ===== */
+body.theme-dark {
   background: #0a0a0a;
-  font-family: var(--font-family);
   color: #fff;
+}
+body.theme-light {
+  background: #e9e9ec;
+  color: #1a1a1a;
+}
+
+body {
+  font-family: var(--font-family);
   overflow: hidden;
+  transition: background 0.25s ease, color 0.25s ease;
 }
