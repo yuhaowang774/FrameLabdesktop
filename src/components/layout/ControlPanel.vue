@@ -9,6 +9,7 @@ import ImageLayout from '../controls/ImageLayout.vue'
 import BackgroundMode from '../controls/BackgroundMode.vue'
 import BrandExif from '../controls/BrandExif.vue'
 import EffectsPanel from '../controls/EffectsPanel.vue'
+import InfoLayerPanel from '../controls/InfoLayerPanel.vue'
 
 const app = useAppState()
 const P = app.state.rightPanels
@@ -36,6 +37,10 @@ const P = app.state.rightPanels
       <EffectsPanel />
       <div class="sub-divider">品牌与信息</div>
       <BrandExif />
+    </CollapsiblePanel>
+
+    <CollapsiblePanel title="顶层INFO信息设置" :open="P.info" @toggle="app.togglePanel('right', 'info')">
+      <InfoLayerPanel />
     </CollapsiblePanel>
   </aside>
 </template>

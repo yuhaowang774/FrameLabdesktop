@@ -49,7 +49,22 @@ export function drawImageProp(
  * @param zoom 背景缩放倍数（1 = cover 铺满）
  * @param offsetX 背景水平平移（画布像素）
  * @param offsetY 背景垂直平移（画布像素）
+ *
+ * 性能：模糊滤镜（ctx.filter=blur）开销很大，这里使用 OffscreenCanvas（降级为普通 canvas）
+ * 缓存上一次模糊结果，参数不变时直接 blit，避免重复模糊。
  */
+let blurCache: {
+  img: ImgSource
+  w: number
+  h: number
+  blurPx: number
+  dim: number
+  zoom: number
+  offsetX: number
+  offsetY: number
+  canvas: HTMLCanvasElement | OffscreenCanvas
+} | null = null
+
 export function drawBlurredBackground(
   ctx: CanvasRenderingContext2D,
   img: ImgSource,
@@ -65,19 +80,55 @@ export function drawBlurredBackground(
   const ih = imgHeight(img)
   if (iw === 0 || ih === 0) return
 
+  // 命中缓存：参数与图像引用完全一致 → 直接复用
+  if (
+    blurCache &&
+    blurCache.img === img &&
+    blurCache.w === w &&
+    blurCache.h === h &&
+    blurCache.blurPx === blurPx &&
+    blurCache.dim === dim &&
+    blurCache.zoom === zoom &&
+    blurCache.offsetX === offsetX &&
+    blurCache.offsetY === offsetY
+  ) {
+    ctx.drawImage(blurCache.canvas as CanvasImageSource, 0, 0, w, h)
+    return
+  }
+
   const s0 = Math.max(w / iw, h / ih)
   const s = s0 * zoom
   const nw = iw * s
   const nh = ih * s
   // 以画布中心为锚点，叠加平移
-  let cx = w / 2 + offsetX - nw / 2
-  let cy = h / 2 + offsetY - nh / 2
+  const cx = w / 2 + offsetX - nw / 2
+  const cy = h / 2 + offsetY - nh / 2
 
   const expand = blurPx * 3
-  ctx.save()
-  ctx.filter = `blur(${blurPx}px) brightness(${dim})`
-  ctx.drawImage(img, cx - expand, cy - expand, nw + expand * 2, nh + expand * 2)
-  ctx.restore()
+
+  // 在离屏画布中渲染模糊结果，供缓存复用
+  const off = createOffscreen(w, h)
+  const octx = (off as any).getContext('2d') as CanvasRenderingContext2D
+  if (octx) {
+    octx.save()
+    octx.filter = `blur(${blurPx}px) brightness(${dim})`
+    octx.drawImage(img, cx - expand, cy - expand, nw + expand * 2, nh + expand * 2)
+    octx.restore()
+  }
+  blurCache = { img, w, h, blurPx, dim, zoom, offsetX, offsetY, canvas: off }
+
+  ctx.drawImage(off as CanvasImageSource, 0, 0, w, h)
+}
+
+/** 创建离屏画布，优先 OffscreenCanvas，不支持则回退到普通 canvas */
+function createOffscreen(w: number, h: number): HTMLCanvasElement | OffscreenCanvas {
+  if (typeof OffscreenCanvas !== 'undefined') {
+    return new OffscreenCanvas(w, h)
+  }
+  const c = document.createElement('canvas')
+  c.width = w
+  c.height = h
+  return c
 }
 
 /**

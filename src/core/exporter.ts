@@ -4,6 +4,7 @@
 import type { FrameConfig } from './types'
 import { drawBlurredBackground, drawVignette, drawGrain, drawWatermark, type ImgSource } from './bgRenderer'
 import { resolveLogo, preloadBrandLogo } from '../composables/useLogoStore'
+import { drawInfoLayer, preloadInfoLogos } from './infoRenderer'
 import { DESIGN_CONTAINER } from './constants'
 import { rotatedSize, drawRotatedCropped } from './photoEdit'
 
@@ -57,46 +58,35 @@ async function drawFooter(
   config: FrameConfig,
   unitScale: number,
   logo: ImgSource | undefined,
-  geom: {
-    canvasW: number
-    canvasH: number
-    padPx: number
-    photoY: number
-    photoH: number
-    distPhotoLogoPx: number
-    distLogoTextPx: number
-    overlayBottomPx: number
-    align: 'left' | 'center' | 'right'
-    /** 三项独立绝对位置（设计坐标，左上角）。为 null 时按默认布局自动定位 */
-    logoX: number | null
-    logoY: number | null
-    modelX: number | null
-    modelY: number | null
-    exifX: number | null
-    exifY: number | null
-  },
+  designCanvasH: number,
+  effectivePad: number,
 ): Promise<void> {
   const themeColor = 255
   const logoH = config.logoSize * unitScale
   const modelH = config.cameraModelSize * unitScale
   const exifH = config.fontSize * unitScale
 
-  // 默认自动定位（未拖动时）：行1 logo+model 同排，行2 exif；
-  // 以画布底边为基准（distBottom），保证页脚始终在可视区内，与预览一致
-  const baseX =
-    geom.align === 'left' ? geom.padPx : geom.align === 'right' ? geom.canvasW - geom.padPx : geom.canvasW / 2
-  const dExifX = geom.exifX ?? baseX
-  const dExifY = geom.exifY ?? Math.max(0, geom.canvasH - geom.overlayBottomPx - exifH)
-  const dLogoX = geom.logoX ?? baseX
-  const dLogoY = geom.logoY ?? Math.max(0, dExifY - geom.distLogoTextPx - logoH)
-  const dModelX = geom.modelX ?? baseX
-  const dModelY = geom.modelY ?? dLogoY
+  // 内容区设计尺寸（与预览 FrameContainer 的内容区坐标系一致）
+  const availW = DESIGN_CONTAINER - 2 * effectivePad
+  const contentH = designCanvasH - 2 * effectivePad
+  // 内容区 → 画布（border-box）的像素偏移
+  const ox = effectivePad * unitScale
+
+  // 非 none 模式页脚固定水平居中；none 模式遵循 overlayAlign
+  const align: 'left' | 'center' | 'right' = config.bgMode === 'none' ? config.overlayAlign : 'center'
+  const baseX = align === 'left' ? 0 : align === 'right' ? availW : availW / 2
+  const dExifX = config.exifX ?? baseX
+  const dExifY = config.exifY ?? Math.max(0, contentH - config.overlayBottom - config.fontSize)
+  const dLogoX = config.logoX ?? baseX
+  const dLogoY = config.logoY ?? Math.max(0, dExifY - config.distLogoText - config.logoSize)
+  const dModelX = config.modelX ?? baseX
+  const dModelY = config.modelY ?? dLogoY
 
   if (config.showLogo && logo) {
     const lw = logoH * (sourceSize(logo).w / sourceSize(logo).h)
     ctx.save()
     ctx.globalAlpha = config.logoOpacity
-    ctx.drawImage(logo, dLogoX * unitScale, dLogoY * unitScale, lw, logoH)
+    ctx.drawImage(logo, ox + dLogoX * unitScale, ox + dLogoY * unitScale, lw, logoH)
     ctx.restore()
   }
   if (config.showCameraModel && config.cameraModel) {
@@ -107,8 +97,8 @@ async function drawFooter(
     ctx.textBaseline = 'top'
     ctx.fillText(
       config.cameraModel,
-      dModelX * unitScale + config.cameraModelOffsetX * unitScale,
-      dModelY * unitScale + config.cameraModelOffsetY * unitScale,
+      ox + dModelX * unitScale + config.cameraModelOffsetX * unitScale,
+      ox + dModelY * unitScale + config.cameraModelOffsetY * unitScale,
     )
     ctx.restore()
   }
@@ -118,7 +108,7 @@ async function drawFooter(
     ctx.font = fontStr(config.textWeight, exifH, config.fontFamily)
     ctx.textAlign = 'left'
     ctx.textBaseline = 'top'
-    ctx.fillText(config.exifText, dExifX * unitScale, dExifY * unitScale)
+    ctx.fillText(config.exifText, ox + dExifX * unitScale, ox + dExifY * unitScale)
     ctx.restore()
   }
 }
@@ -167,9 +157,13 @@ export async function exportFrame(
   // unitScale：把设计坐标（1200 宽）映射到像素；照片以原生裁剪像素 1:1 进入
   const unitScale = (displayW / photoDesignW) * supersample
 
-  const padPx = effectivePad * unitScale
   const canvasW = Math.round(DESIGN_CONTAINER * unitScale)
-  const canvasH = Math.round((photoDesignH + 2 * effectivePad) * unitScale)
+  // 画布高度：非 none 模式使用固定 canvasH（照片缩放不改变画布/背景）；none 模式画布=照片
+  const designCanvasH =
+    config.bgMode === 'none'
+      ? photoDesignH
+      : config.canvasH || photoDesignH + 2 * effectivePad
+  const canvasH = Math.round(designCanvasH * unitScale)
   const photoW = Math.round(displayW * supersample)
   const photoH = Math.round(displayH * supersample)
 
@@ -207,8 +201,9 @@ export async function exportFrame(
   const photoVisible = config.layerVisible.photo !== false
   // 主照片位置：若用户手动拖动过（photoX/photoY 非 null），按绝对设计坐标放置；否则默认 padding 居中
   // （提到块外，信息层定位也依赖 py）
-  const px = (config.photoX != null ? config.photoX : effectivePad) * unitScale
-  const py = (config.photoY != null ? config.photoY : effectivePad) * unitScale
+  // 照片位置：photoX/photoY 为内容区坐标（相对 padding box），加 effectivePad 得画布坐标
+  const px = (effectivePad + (config.photoX != null ? config.photoX : 0)) * unitScale
+  const py = (effectivePad + (config.photoY != null ? config.photoY : 0)) * unitScale
   if (photoVisible) {
     const photoCanvas = document.createElement('canvas')
     photoCanvas.width = photoW
@@ -239,23 +234,30 @@ export async function exportFrame(
   if (infoVisible) {
     // 若调用方未显式传入 logo（如自定义 Logo），则使用内置品牌 Logo（暗白双版）
     const footerLogo = options.logo ?? (config.showLogo ? resolveLogo(config.brand) : undefined)
-    await drawFooter(ctx, config, unitScale, footerLogo, {
-    canvasW,
-    canvasH,
-    padPx,
-    photoY: py,
-    photoH,
-    distPhotoLogoPx: config.distPhotoLogo * unitScale,
-    distLogoTextPx: config.distLogoText * unitScale,
-    overlayBottomPx: config.overlayBottom * unitScale,
-    align: config.bgMode === 'none' ? config.overlayAlign : 'center',
-    logoX: config.logoX,
-    logoY: config.logoY,
-    modelX: config.modelX,
-    modelY: config.modelY,
-    exifX: config.exifX,
-    exifY: config.exifY,
-  })
+    await drawFooter(ctx, config, unitScale, footerLogo, designCanvasH, effectivePad)
+  }
+
+  // 3.5) 顶层 INFO 多元素容器层（自由拖拽排版）：与预览 InfoLayerDisplay 一致
+  if (infoVisible && config.infoLayer?.enabled) {
+    // 预载内置品牌 Logo，确保导出拿到完整画布
+    await preloadInfoLogos(config.infoLayer)
+    const canvasCenter = { x: DESIGN_CONTAINER / 2, y: designCanvasH / 2 }
+    // 照片变换矩阵（设计 px 空间，未含 unitScale）：先平移到照片中心（含 pad），再旋转
+    const photoCx = effectivePad + (config.photoX != null ? config.photoX : 0) + photoDesignW / 2
+    const photoCy = effectivePad + (config.photoY != null ? config.photoY : 0) + photoDesignH / 2
+    const outerMatrix = new DOMMatrix()
+      .translate(photoCx, photoCy)
+      .rotate(config.photoRotation)
+    ctx.save()
+    ctx.scale(unitScale, unitScale)
+    drawInfoLayer(ctx, config.infoLayer, {
+      exifRaw: config.exifRaw,
+      model: config.cameraModel,
+      outerMatrix: config.infoLayer.bindTarget === 'photo' ? outerMatrix : undefined,
+      canvasCenter,
+      unitScale: 1, // 已通过 ctx.scale 处理
+    })
+    ctx.restore()
   }
 
   // 4) 附加效果层：暗角 + 颗粒 + 水印（顶层，受 layerVisible 一致约束）

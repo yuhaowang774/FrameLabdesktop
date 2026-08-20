@@ -6,12 +6,14 @@ import { parseExif } from '../../composables/useExif'
 import { useSourceFile } from '../../composables/useSourceFile'
 import { BRANDS, FONT_OPTIONS, RANGES, MAX_CUSTOM_LOGOS } from '../../core/constants'
 import { useLogoStore, CUSTOM_PREFIX } from '../../composables/useLogoStore'
+import { isTauri } from '../../platform/env'
+import { pickImageFiles, readLocalBytes } from '../../platform/fs'
 import RangeSlider from '../common/RangeSlider.vue'
 import ToggleGroup from '../common/ToggleGroup.vue'
 import GlassModal from '../common/GlassModal.vue'
 
 const { state, patch } = useFrameConfig()
-const { getSourceFile } = useSourceFile()
+const { getSourceFile, getSourcePath } = useSourceFile()
 const r = RANGES
 const { listCustomLogos, uploadCustomLogo, removeCustomLogo } = useLogoStore()
 
@@ -95,27 +97,54 @@ async function onDeleteCustom(id: string) {
   refreshCustom()
 }
 
-// EXIF 识别
+// EXIF 识别（网页端用 File，桌面端用本地路径 → Rust 读取字节）
 const exifInput = ref<HTMLInputElement | null>(null)
 const recognizing = ref(false)
 const exifFailOpen = ref(false)
 const exifFailMsg = ref('')
 
 function pickExifImage() {
+  if (isTauri) {
+    const path = getSourcePath()
+    if (path) {
+      // 已有主图：直接复用，无需重新选图
+      void runExifPath(path)
+    } else {
+      void pickExifDesktop()
+    }
+    return
+  }
   const src = getSourceFile()
   if (src) {
     // 已有主图：直接复用，无需重新选图
-    runExif(src)
+    void runExif(src)
   } else {
     // 未上传主图：退回手动选图
     exifInput.value?.click()
   }
 }
 
-async function runExif(file: File) {
+/** 桌面端：选择本地图片识别 EXIF */
+async function pickExifDesktop() {
+  const list = await pickImageFiles()
+  if (list.length) await runExifPath(list[0].path)
+}
+
+/** 桌面端：按磁盘路径读取字节后识别 */
+async function runExifPath(path: string) {
+  try {
+    const bytes = await readLocalBytes(path)
+    await runExif(bytes)
+  } catch (err) {
+    exifFailMsg.value = (err as Error).message || 'EXIF 读取失败'
+    exifFailOpen.value = true
+  }
+}
+
+async function runExif(source: File | ArrayBuffer) {
   recognizing.value = true
   try {
-    const res = await parseExif(file)
+    const res = await parseExif(source)
     const patchData: Record<string, unknown> = { exifText: res.text, showExif: true }
     // 自动填充相机机型
     if (res.model) {

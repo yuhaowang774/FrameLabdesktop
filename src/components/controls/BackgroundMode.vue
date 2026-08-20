@@ -1,9 +1,12 @@
 <script setup lang="ts">
 // 背景模式控件：原背景 / 自定义 / 无背景
 // 阶段10：none 模式暴露"叠加位置"控件（居左/中/右 + 距底边）
+// 桌面端：自定义背景经 Rust 对话框选择本地图片；网页端：file input。
 import { ref } from 'vue'
 import { useFrameConfig } from '../../composables/useFrameConfig'
 import { BG_MODES, OVERLAY_ALIGNS, RANGES } from '../../core/constants'
+import { isTauri } from '../../platform/env'
+import { pickImageFiles, assetUrl, readLocalDataURL } from '../../platform/fs'
 import ToggleGroup from '../common/ToggleGroup.vue'
 import RangeSlider from '../common/RangeSlider.vue'
 
@@ -39,6 +42,22 @@ async function onCustomBgChange(e: Event) {
   input.value = ''
 }
 
+/** 桌面端：Rust 对话框选择本地背景图（读为 dataURL 持久化到 config） */
+async function pickCustomDesktop() {
+  const list = await pickImageFiles()
+  if (!list.length) return
+  const entry = list[0]
+  try {
+    const url = assetUrl(entry.path)
+    const img = await loadImage(url)
+    emit('custom-bg', img)
+    const dataUrl = await readLocalDataURL(entry.path)
+    patch({ bgMode: 'custom', customBgImage: dataUrl })
+  } catch {
+    /* ignore */
+  }
+}
+
 function fileToDataURL(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
@@ -49,6 +68,10 @@ function fileToDataURL(file: File): Promise<string> {
 }
 
 function pickCustom() {
+  if (isTauri) {
+    void pickCustomDesktop()
+    return
+  }
   customInput.value?.click()
 }
 </script>

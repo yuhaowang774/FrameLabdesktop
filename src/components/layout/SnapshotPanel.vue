@@ -1,9 +1,12 @@
 <script setup lang="ts">
 // 左侧"参数快照"面板：保存当前配置为快照、恢复、删除、清空；以及模板导入/导出。
+// 桌面端：模板导入经 Rust 对话框读取本地 JSON；网页端：file input 上传。
 import { ref } from 'vue'
 import { useHistory } from '../../composables/useHistory'
 import { useFrameConfig } from '../../composables/useFrameConfig'
 import { useTemplates } from '../../composables/useTemplates'
+import { isTauri } from '../../platform/env'
+import { pickJsonText } from '../../platform/fs'
 
 const history = useHistory()
 const { state } = useFrameConfig()
@@ -16,6 +19,16 @@ function save() {
   if (!name.value.trim()) return
   history.saveHistory(name.value, JSON.parse(JSON.stringify(state)))
   name.value = ''
+}
+
+/** 导入模板：桌面端走原生对话框 + Rust 读文件；网页端触发 file input */
+async function importTemplate() {
+  if (isTauri) {
+    const text = await pickJsonText()
+    if (text) templates.importJson(text)
+    return
+  }
+  fileInput.value?.click()
 }
 function onImport(e: Event) {
   const input = e.target as HTMLInputElement
@@ -50,7 +63,7 @@ function onImport(e: Event) {
     <div class="row tools">
       <button class="btn" :disabled="!history.items.value.length" @click="history.clearHistory()">清空快照</button>
       <span class="spacer" />
-      <button class="btn" @click="fileInput?.click()">导入模板</button>
+      <button class="btn" @click="importTemplate">导入模板</button>
       <input ref="fileInput" type="file" accept=".json,application/json" hidden @change="onImport" />
     </div>
   </div>

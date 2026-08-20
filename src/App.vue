@@ -16,6 +16,7 @@ import { useAppState } from './composables/useAppState'
 import { useFrameConfig } from './composables/useFrameConfig'
 import { useHistory } from './composables/useHistory'
 import { editingPhoto, photoImage } from './composables/useUi'
+import { isTauri } from './platform/env'
 
 const library = useLibrary()
 const app = useAppState()
@@ -64,10 +65,13 @@ function onKey(e: KeyboardEvent) {
     library.prev()
     e.preventDefault()
   } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
+    // 桌面端撤销/重做由原生菜单加速键接管，避免双触发
+    if (isTauri) return
     if (e.shiftKey) history.redo()
     else history.undo()
     e.preventDefault()
   } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') {
+    if (isTauri) return
     history.redo()
     e.preventDefault()
   }

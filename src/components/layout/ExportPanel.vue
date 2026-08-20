@@ -1,5 +1,6 @@
 <script setup lang="ts">
 // 导出模块（对标 LrC 导出/打印）：格式/画质/尺寸配置、单张/批量导出、进度条、参数批量同步。
+// 桌面端：导出经系统保存对话框/导出目录选择，由 Rust 写入磁盘；网页端：浏览器下载。
 import { ref, computed } from 'vue'
 import { useLibrary } from '../../composables/useLibrary'
 import { useFrameConfig } from '../../composables/useFrameConfig'
@@ -13,6 +14,8 @@ import {
   type ExportOptions,
 } from '../../core/exporter'
 import type { ImgSource } from '../../core/bgRenderer'
+import { isTauri } from '../../platform/env'
+import { saveBlobAs, pickExportFolder, writeBlobTo } from '../../platform/fs'
 
 const library = useLibrary()
 const { state } = useFrameConfig()
@@ -51,7 +54,8 @@ async function exportSingle() {
   app.startTask('导出单张')
   try {
     const blob = await renderOne(active)
-    downloadBlob(blob, makeExportFilename(format.value, active.name.replace(/\.[^.]+$/, '')))
+    const name = makeExportFilename(format.value, active.name.replace(/\.[^.]+$/, ''))
+    await saveBlobAs(blob, name) // 桌面端：保存对话框写盘；网页端：浏览器下载
     app.setTaskProgress(1)
   } finally {
     setTimeout(() => app.endTask(), 400)
@@ -61,10 +65,18 @@ async function exportSingle() {
 async function exportBatch() {
   const list = selectedCount.value > 0 ? library.items.filter((i) => i.selected) : library.items
   if (!list.length) return
+  // 桌面端：批量导出前统一选择保存目录（写盘由 Rust 完成）
+  let targetFolder: string | null = null
+  if (isTauri) {
+    targetFolder = await pickExportFolder()
+    if (!targetFolder) return
+  }
   app.startTask('批量导出')
   for (let i = 0; i < list.length; i++) {
     const blob = await renderOne(list[i])
-    downloadBlob(blob, makeExportFilename(format.value, list[i].name.replace(/\.[^.]+$/, '')))
+    const name = makeExportFilename(format.value, list[i].name.replace(/\.[^.]+$/, ''))
+    if (targetFolder) await writeBlobTo(targetFolder, name, blob)
+    else downloadBlob(blob, name)
     app.setTaskProgress((i + 1) / list.length)
     await new Promise((r) => setTimeout(r, 30))
   }

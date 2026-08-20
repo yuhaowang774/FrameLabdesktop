@@ -2,6 +2,7 @@
 // 模板仅保存 FrameConfig 装饰参数（不含 photoSrc、照片变换与位置，避免污染用户主图）。
 import { reactive } from 'vue'
 import type { FrameConfig } from '../core/types'
+import { storageGet, storageSet } from '../platform/storage'
 
 const STORAGE_KEY = 'frame-templates'
 
@@ -100,7 +101,7 @@ const templates = reactive<FrameTemplate[]>([])
 
 function load(): FrameTemplate[] {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY)
+    const raw = storageGet(STORAGE_KEY)
     if (raw) {
       const parsed = JSON.parse(raw) as FrameTemplate[]
       // 合并内置（内置始终存在），用户自定义追加
@@ -116,7 +117,7 @@ function load(): FrameTemplate[] {
 function persist() {
   const custom = templates.filter((t) => !t.builtin)
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(custom))
+    storageSet(STORAGE_KEY, JSON.stringify(custom))
   } catch {
     /* ignore */
   }

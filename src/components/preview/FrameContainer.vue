@@ -6,6 +6,7 @@ import MainPhoto from './MainPhoto.vue'
 import FooterInfo from './FooterInfo.vue'
 import EffectOverlay from './EffectOverlay.vue'
 import SelectableBox from '../common/SelectableBox.vue'
+import InfoLayerDisplay from './InfoLayerDisplay.vue'
 import { useFrameConfig } from '../../composables/useFrameConfig'
 import { useLayers } from '../../composables/useLayers'
 import { DESIGN_CONTAINER } from '../../core/constants'
@@ -52,7 +53,6 @@ function disposeRo() {
 onBeforeUnmount(disposeRo)
 
 // ===== 主照片矩形（设计坐标，左上角 + 宽高） =====
-const availW = computed(() => DESIGN_CONTAINER - state.padding * 2)
 // 照片源图原始尺寸（由 MainPhoto 加载后回传）；未加载时给占位 1:1 避免塌缩
 const photoNatural = ref<{ w: number; h: number }>({ w: 1, h: 1 })
 
@@ -65,16 +65,27 @@ const photoDisplayAspect = computed(() => {
   return dh > 0 ? dw / dh : 1
 })
 
+// 内容区设计尺寸（frame-container 的 padding box，绝对定位子元素的包含块）
+// 所有 photoX/photoY、bgOffset、logoX 等设计坐标统一使用"内容区坐标系"，原点在内容区左上角。
+const availW = computed(() => DESIGN_CONTAINER - state.padding * 2)
+
 const photoRect = computed(() => {
   const w = (availW.value * state.scale) / 100
   const h = w / photoDisplayAspect.value
-  const x = state.photoX ?? state.padding + (availW.value - w) / 2
-  const y = state.photoY ?? state.padding
+  // 内容区坐标：x=0 即贴内容区左缘（= 画布左 padding 内侧）
+  const x = state.photoX ?? (availW.value - w) / 2
+  const y = state.photoY ?? 0
   return { left: x, top: y, width: w, height: h }
 })
 
-// 容器设计高度 = 照片底边 + 内边距（box-sizing: border-box）
-const containerHDesign = computed(() => photoRect.value.top + photoRect.value.height + state.padding)
+// 容器设计高度（固定画布，box-sizing: border-box）
+// - 非 none 模式：使用固定 canvasH（导入时按初始照片比例计算），照片缩放不改变画布/背景
+// - none 模式：无边框，画布高度随照片（铺满）
+const containerHDesign = computed(() =>
+  state.bgMode === 'none' ? photoRect.value.top + photoRect.value.height : (state.canvasH || photoRect.value.top + photoRect.value.height + state.padding),
+)
+// 内容区设计高度（= 容器高 - 上下 padding）
+const contentHDesign = computed(() => Math.max(0, containerHDesign.value - state.padding * 2))
 
 function onPhotoRect(r: { left: number; top: number; width: number; height: number }) {
   selectedLayer.value = 'photo'
@@ -91,7 +102,7 @@ function onPhotoRect(r: { left: number; top: number; width: number; height: numb
 // 关键：背景必须保持"图像自身宽高比"，而不是容器宽高比，否则竖向缩放会失效/跳动。
 function bgImageSize(): { iw: number; ih: number } {
   const img = props.bgImage
-  if (!img) return { iw: DESIGN_CONTAINER, ih: containerHDesign.value }
+  if (!img) return { iw: availW.value, ih: contentHDesign.value }
   if ('naturalWidth' in img && (img as HTMLImageElement).naturalWidth) {
     return {
       iw: (img as HTMLImageElement).naturalWidth,
@@ -101,14 +112,15 @@ function bgImageSize(): { iw: number; ih: number } {
   if ('width' in img && (img as HTMLCanvasElement).width) {
     return { iw: (img as HTMLCanvasElement).width, ih: (img as HTMLCanvasElement).height }
   }
-  return { iw: DESIGN_CONTAINER, ih: containerHDesign.value }
+  return { iw: availW.value, ih: contentHDesign.value }
 }
 
-// cover 宽度：图片在容器内 cover 填充时的像素宽（zoom=1 基准）
+// cover 宽度：图片在内容区内 cover 填充时的像素宽（zoom=1 基准）
 const bgCoverW = computed(() => {
   const { iw, ih } = bgImageSize()
-  const H = containerHDesign.value
-  const s0 = Math.max(DESIGN_CONTAINER / iw, H / ih)
+  const W = availW.value
+  const H = contentHDesign.value
+  const s0 = Math.max(W / iw, H / ih)
   return iw * s0
 })
 const bgAspect = computed(() => {
@@ -123,13 +135,14 @@ const bgRect = computed(() =>
     state.bgOffsetY,
     bgCoverW.value,
     bgAspect.value,
-    containerHDesign.value,
+    availW.value,
+    contentHDesign.value,
   ),
 )
 
 function onBgRect(r: { left: number; top: number; width: number; height: number }) {
   selectedLayer.value = 'bg'
-  const cfg = mapBgRectToConfig(r, containerHDesign.value, bgCoverW.value)
+  const cfg = mapBgRectToConfig(r, availW.value, contentHDesign.value, bgCoverW.value)
   patch(cfg)
 }
 
@@ -140,17 +153,15 @@ function autoPlaceFooter() {
     state.modelX != null || state.modelY != null ||
     state.exifX != null || state.exifY != null
   if (placed) return
-  const contRect = root.value?.getBoundingClientRect()
-  if (!contRect) return
-  const scale = contRect.width / DESIGN_CONTAINER
-  const containerHDesignPx = contRect.height / scale
+  // 内容区坐标：页脚 x 相对内容区左缘（0 = 左 padding 内侧），y 相对内容区高度
+  const contentH = contentHDesign.value
   const baseX =
     state.overlayAlign === 'left'
-      ? state.padding
+      ? 0
       : state.overlayAlign === 'right'
-        ? DESIGN_CONTAINER - state.padding
-        : DESIGN_CONTAINER / 2
-  const exifY = Math.max(0, containerHDesignPx - state.distBottom - state.fontSize)
+        ? availW.value
+        : availW.value / 2
+  const exifY = Math.max(0, contentH - state.distBottom - state.fontSize)
   const row1Y = Math.max(0, exifY - state.distLogoText - state.logoSize)
   patch({
     logoX: baseX,
@@ -167,25 +178,40 @@ function onPhotoReady(info: { w: number; h: number }) {
   // 首次加载：若未手动定位照片，则按默认居中（保持当前 scale）
   if (state.photoX == null || state.photoY == null) {
     const w = (availW.value * state.scale) / 100
+    // 按初始照片高度 + 2*padding 计算并固定画布高度（照片缩放不再改变画布）
+    const aspect = photoDisplayAspect.value
+    const photoH = aspect > 0 ? w / aspect : w
     patch({
-      photoX: Math.round(state.padding + (availW.value - w) / 2),
-      photoY: Math.round(state.padding),
+      photoX: Math.round((availW.value - w) / 2),
+      photoY: 0,
+      canvasH: Math.round(photoH + state.padding * 2),
     })
   }
   nextTick(autoPlaceFooter)
 }
 
-// 切换照片：清空手动定位与页脚位置，等重新加载后布局
+// 切换照片：清空手动定位、页脚位置与画布高度，等重新加载后按新比例重新布局
 watch(
   () => props.photoSrc,
   () => {
+    const reset: Record<string, number | null> = {
+      photoX: null,
+      photoY: null,
+      canvasH: 0,
+    }
     if (
       state.logoX != null || state.logoY != null ||
       state.modelX != null || state.modelY != null ||
       state.exifX != null || state.exifY != null
     ) {
-      patch({ logoX: null, logoY: null, modelX: null, modelY: null, exifX: null, exifY: null })
+      reset.logoX = null
+      reset.logoY = null
+      reset.modelX = null
+      reset.modelY = null
+      reset.exifX = null
+      reset.exifY = null
     }
+    patch(reset as any)
     photoNatural.value = { w: 1, h: 1 }
   },
 )
@@ -240,6 +266,16 @@ watch(
     >
       <FooterInfo @placed="autoPlaceFooter" />
     </div>
+
+    <!-- 顶层 INFO 多元素容器层（自由拖拽排版）：bindTarget 决定继承照片变换与否 -->
+    <InfoLayerDisplay
+      v-show="isVisible('info')"
+      :photo-rect="{ center: { x: photoRect.left + photoRect.width / 2, y: photoRect.top + photoRect.height / 2 }, angleDeg: state.photoRotation }"
+      :canvas-w="availW"
+      :canvas-h="contentHDesign"
+      :scale="contScale"
+      :visible="true"
+    />
 
     <!-- 顶层效果叠加：暗角 + 颗粒 + 水印（与导出一致） -->
     <EffectOverlay :container-h="containerHDesign" />

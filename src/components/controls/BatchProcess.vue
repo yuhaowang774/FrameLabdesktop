@@ -1,12 +1,15 @@
 <script setup lang="ts">
 // 批量处理（阶段 13）
-// 流程：选预设配置（历史记录） → 选多张图 → 可选回填 EXIF → 逐张导出下载，单张失败跳过并汇总。
+// 流程：选预设配置（历史记录） → 选多张图 → 可选回填 EXIF → 逐张导出，单张失败跳过并汇总。
+// 网页端：file input 选图 + 浏览器下载；桌面端：Rust 对话框选图 + 选导出目录写盘。
 import { ref, computed } from 'vue'
 import { useFrameConfig } from '../../composables/useFrameConfig'
 import { useHistory, type HistoryItem } from '../../composables/useHistory'
 import { parseExif } from '../../composables/useExif'
 import { exportFrame, downloadBlob, makeExportFilename, type ExportFormat } from '../../core/exporter'
 import type { FrameConfig } from '../../core/types'
+import { isTauri } from '../../platform/env'
+import { pickImageFiles, assetUrl, readLocalBytes, pickExportFolder, writeBlobTo } from '../../platform/fs'
 
 const { state } = useFrameConfig()
 const { items: history } = useHistory()
@@ -28,8 +31,15 @@ function getPresetConfig(): FrameConfig {
   return item ? (JSON.parse(JSON.stringify(item.config)) as FrameConfig) : (JSON.parse(JSON.stringify(state)) as FrameConfig)
 }
 
+/** 批量条目：网页端 file / 桌面端 path（磁盘引用，不拷贝原图） */
+interface BatchItem {
+  name: string
+  file?: File
+  path?: string
+}
+
 const fileInput = ref<HTMLInputElement | null>(null)
-const files = ref<File[]>([])
+const files = ref<BatchItem[]>([])
 const refillExif = ref(true)
 const format = ref<ExportFormat>('png')
 
@@ -38,13 +48,19 @@ const progress = ref({ done: 0, total: 0, ok: 0, fail: 0 })
 const failed = ref<string[]>([])
 const finished = ref(false)
 
-function pickFiles() {
+async function pickFiles() {
+  if (isTauri) {
+    const list = await pickImageFiles()
+    files.value = list.map((e) => ({ name: e.name, path: e.path }))
+    finished.value = false
+    return
+  }
   fileInput.value?.click()
 }
 function onFiles(e: Event) {
   const input = e.target as HTMLInputElement
   const list = Array.from(input.files ?? [])
-  files.value = list.filter((f) => f.type.startsWith('image/'))
+  files.value = list.filter((f) => f.type.startsWith('image/')).map((f) => ({ name: f.name, file: f }))
   finished.value = false
   input.value = ''
 }
@@ -58,40 +74,51 @@ function loadImage(src: string): Promise<HTMLImageElement> {
   })
 }
 
-function baseName(file: File): string {
-  return file.name.replace(/\.[^.]+$/, '') || 'photo'
+function baseName(name: string): string {
+  return name.replace(/\.[^.]+$/, '') || 'photo'
 }
 
 async function start() {
   if (!files.value.length || running.value) return
+  // 桌面端：先选导出保存目录（写盘由 Rust 完成）
+  let targetFolder: string | null = null
+  if (isTauri) {
+    targetFolder = await pickExportFolder()
+    if (!targetFolder) return
+  }
   running.value = true
   finished.value = false
   failed.value = []
   progress.value = { done: 0, total: files.value.length, ok: 0, fail: 0 }
 
-  for (const file of files.value) {
+  for (const item of files.value) {
     const preset = getPresetConfig()
     // 回填 EXIF：用该图自身的 EXIF 覆盖预设里的 exif 文本
     if (refillExif.value) {
       try {
-        const exif = await parseExif(file)
+        const source: File | ArrayBuffer = item.file ?? (await readLocalBytes(item.path as string))
+        const exif = await parseExif(source)
         preset.exifText = exif.text
         preset.showExif = true
       } catch {
         // 无 EXIF 则沿用预设（保持 showExif 原值）
       }
     }
+    let tempUrl: string | null = null
     try {
-      const url = URL.createObjectURL(file)
+      const url = item.file ? URL.createObjectURL(item.file) : assetUrl(item.path as string)
+      tempUrl = item.file ? url : null
       const img = await loadImage(url)
       const result = await exportFrame(img, preset, { format: format.value })
-      downloadBlob(result.blob, makeExportFilename(result.format, baseName(file)))
-      URL.revokeObjectURL(url)
+      const name = makeExportFilename(result.format, baseName(item.name))
+      if (targetFolder) await writeBlobTo(targetFolder, name, result.blob)
+      else downloadBlob(result.blob, name)
       progress.value.ok++
     } catch {
       progress.value.fail++
-      failed.value.push(file.name)
+      failed.value.push(item.name)
     } finally {
+      if (tempUrl) URL.revokeObjectURL(tempUrl)
       progress.value.done++
     }
     // 间隔，避免浏览器批量下载被拦截

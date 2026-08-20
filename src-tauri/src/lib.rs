@@ -1,0 +1,313 @@
+// FrameLab Rust 后端（仅桌面端）：
+// - 本地图片目录扫描（图库浏览磁盘文件夹）
+// - 原生对话框：选图/选目录/另存/打开 JSON 模板
+// - AppData JSON 读写（布局、模板、快照、导出偏好）
+// - 导出图片字节落盘
+// - 原生菜单栏与应用快捷键（事件 framelab://menu 分发给前端）
+// 安全模型：WebView 禁止直接 fs，全部经下列 Command IPC 完成。
+use base64::Engine as _;
+use std::fs;
+use std::io::Read;
+use std::path::{Path, PathBuf};
+
+use serde::Serialize;
+use tauri::{AppHandle, Emitter, Manager};
+use tauri::menu::{MenuBuilder, MenuItem, PredefinedMenuItem, SubmenuBuilder};
+use tauri_plugin_dialog::DialogExt;
+
+/// WebView 可解码的图片扩展名（heic 等系统编码格式不在此列）
+const IMAGE_EXTS: [&str; 8] = ["jpg", "jpeg", "png", "webp", "bmp", "gif", "avif", "jfif"];
+/// 目录扫描最大深度（递归模式）
+const SCAN_MAX_DEPTH: usize = 3;
+/// 单次扫描图片数量上限（防超大目录拖垮 UI）
+const SCAN_MAX_ENTRIES: usize = 2000;
+/// 单文件读取上限（256MB，防误读超大文件撑爆内存）
+const READ_MAX_BYTES: u64 = 256 * 1024 * 1024;
+
+#[derive(Serialize, Clone)]
+pub struct ImageEntry {
+    pub path: String,
+    pub name: String,
+}
+
+fn is_image(p: &Path) -> bool {
+    p.extension()
+        .and_then(|e| e.to_str())
+        .map(|e| IMAGE_EXTS.contains(&e.to_ascii_lowercase().as_str()))
+        .unwrap_or(false)
+}
+
+fn scan_dir(dir: &Path, depth: usize, out: &mut Vec<ImageEntry>) {
+    if depth == 0 || out.len() >= SCAN_MAX_ENTRIES {
+        return;
+    }
+    let Ok(read_dir) = fs::read_dir(dir) else {
+        return;
+    };
+    let mut subdirs: Vec<PathBuf> = Vec::new();
+    for entry in read_dir.flatten() {
+        if out.len() >= SCAN_MAX_ENTRIES {
+            break;
+        }
+        let p = entry.path();
+        let name = entry.file_name().to_string_lossy().to_string();
+        if name.starts_with('.') {
+            continue; // 跳过隐藏文件/目录
+        }
+        if p.is_dir() {
+            subdirs.push(p);
+        } else if is_image(&p) {
+            out.push(ImageEntry {
+                path: p.to_string_lossy().to_string(),
+                name,
+            });
+        }
+    }
+    for d in subdirs {
+        scan_dir(&d, depth - 1, out);
+    }
+}
+
+/// 扫描目录内图片；recursive=true 时递归子目录（深度受限）
+#[tauri::command]
+fn list_dir_images(dir: String, recursive: Option<bool>) -> Result<Vec<ImageEntry>, String> {
+    let path = Path::new(&dir);
+    if !path.is_dir() {
+        return Err(format!("不是有效目录: {dir}"));
+    }
+    let mut out = Vec::new();
+    let depth = if recursive.unwrap_or(false) { SCAN_MAX_DEPTH } else { 1 };
+    scan_dir(path, depth, &mut out);
+    out.sort_by(|a, b| a.path.to_lowercase().cmp(&b.path.to_lowercase()));
+    out.truncate(SCAN_MAX_ENTRIES);
+    Ok(out)
+}
+
+/// 读取本地文件全部内容并返回 base64（EXIF 解析 / 自定义背景转 dataURL 用）
+#[tauri::command]
+fn read_file_base64(path: String) -> Result<String, String> {
+    let meta = fs::metadata(&path).map_err(|e| format!("读取文件信息失败: {e}"))?;
+    if meta.len() > READ_MAX_BYTES {
+        return Err("文件过大（超过 256MB）".into());
+    }
+    let mut file = fs::File::open(&path).map_err(|e| format!("打开文件失败: {e}"))?;
+    let mut buf = Vec::with_capacity(meta.len() as usize);
+    file.read_to_end(&mut buf).map_err(|e| format!("读取文件失败: {e}"))?;
+    Ok(base64::engine::general_purpose::STANDARD.encode(buf))
+}
+
+/// 把合成结果（base64）写入指定路径，自动创建父目录
+#[tauri::command]
+fn write_file_base64(path: String, base64_data: String) -> Result<(), String> {
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(base64_data.as_bytes())
+        .map_err(|e| format!("base64 解码失败: {e}"))?;
+    if let Some(parent) = Path::new(&path).parent() {
+        fs::create_dir_all(parent).map_err(|e| format!("创建目录失败: {e}"))?;
+    }
+    fs::write(&path, bytes).map_err(|e| format!("写入文件失败: {e}"))
+}
+
+/// 写入纯文本文件（模板另存等）
+#[tauri::command]
+fn write_text_file(path: String, content: String) -> Result<(), String> {
+    if let Some(parent) = Path::new(&path).parent() {
+        fs::create_dir_all(parent).map_err(|e| format!("创建目录失败: {e}"))?;
+    }
+    fs::write(&path, content).map_err(|e| format!("写入文件失败: {e}"))
+}
+
+// ===== AppData JSON 存储（布局/模板/快照/导出偏好） =====
+
+fn data_file(app: &AppHandle, filename: &str) -> Result<PathBuf, String> {
+    let dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("无法定位 AppData 目录: {e}"))?;
+    fs::create_dir_all(&dir).map_err(|e| format!("创建 AppData 目录失败: {e}"))?;
+    // 文件名白名单化，避免路径穿越
+    let safe: String = filename
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
+        .collect();
+    Ok(dir.join(format!("{safe}.json")))
+}
+
+#[tauri::command]
+fn read_app_json(app: AppHandle, filename: String) -> Result<Option<String>, String> {
+    let p = data_file(&app, &filename)?;
+    if !p.exists() {
+        return Ok(None);
+    }
+    fs::read_to_string(p).map(Some).map_err(|e| format!("读取失败: {e}"))
+}
+
+#[tauri::command]
+fn write_app_json(app: AppHandle, filename: String, content: String) -> Result<(), String> {
+    let p = data_file(&app, &filename)?;
+    fs::write(p, content).map_err(|e| format!("写入失败: {e}"))
+}
+
+#[tauri::command]
+fn clear_app_json(app: AppHandle, filename: String) -> Result<(), String> {
+    let p = data_file(&app, &filename)?;
+    if p.exists() {
+        fs::remove_file(p).map_err(|e| format!("删除失败: {e}"))?;
+    }
+    Ok(())
+}
+
+// ===== 原生对话框（blocking 系列必须运行在非主线程 → 命令声明为 async） =====
+
+fn path_string(fp: tauri_plugin_dialog::FilePath) -> Result<String, String> {
+    let p = fp.into_path().map_err(|e| format!("路径解析失败: {e}"))?;
+    Ok(p.to_string_lossy().to_string())
+}
+
+/// 选择文件夹（导出目录 / 图库文件夹）
+#[tauri::command]
+async fn pick_folder(app: AppHandle) -> Result<Option<String>, String> {
+    match app.dialog().file().blocking_pick_folder() {
+        Some(fp) => Ok(Some(path_string(fp)?)),
+        None => Ok(None),
+    }
+}
+
+/// 选择多张本地图片
+#[tauri::command]
+async fn pick_image_files(app: AppHandle) -> Result<Vec<String>, String> {
+    let picked = app
+        .dialog()
+        .file()
+        .add_filter("图片", &["jpg", "jpeg", "png", "webp", "bmp", "gif", "avif"])
+        .blocking_pick_files()
+        .unwrap_or_default();
+    picked
+        .into_iter()
+        .map(path_string)
+        .collect::<Result<Vec<_>, _>>()
+}
+
+/// 打开本地 JSON 模板文件并读取文本内容
+#[tauri::command]
+async fn open_text_file(app: AppHandle) -> Result<Option<String>, String> {
+    match app
+        .dialog()
+        .file()
+        .add_filter("JSON 模板", &["json"])
+        .blocking_pick_file()
+    {
+        Some(fp) => {
+            let p = fp.into_path().map_err(|e| format!("路径解析失败: {e}"))?;
+            fs::read_to_string(p).map(Some).map_err(|e| format!("读取失败: {e}"))
+        }
+        None => Ok(None),
+    }
+}
+
+/// 另存文件对话框（按默认文件名后缀自动匹配过滤器）
+#[tauri::command]
+async fn save_file_dialog(app: AppHandle, default_name: String) -> Result<Option<String>, String> {
+    let lower = default_name.to_lowercase();
+    let exts: &[&str] = if lower.ends_with(".json") {
+        &["json"]
+    } else if lower.ends_with(".jpg") || lower.ends_with(".jpeg") {
+        &["jpg", "jpeg"]
+    } else {
+        &["png"]
+    };
+    match app
+        .dialog()
+        .file()
+        .add_filter("文件", exts)
+        .set_file_name(&default_name)
+        .blocking_save_file()
+    {
+        Some(fp) => Ok(Some(path_string(fp)?)),
+        None => Ok(None),
+    }
+}
+
+// ===== 原生菜单栏 + 应用快捷键 =====
+
+fn build_menu(app: &AppHandle) -> tauri::Result<()> {
+    // 文件
+    let import_images =
+        MenuItem::with_id(app, "import_images", "导入照片…", true, Some("CmdOrCtrl+Shift+O"))?;
+    let open_folder =
+        MenuItem::with_id(app, "open_folder", "打开图片文件夹…", true, Some("CmdOrCtrl+Shift+L"))?;
+    let goto_export =
+        MenuItem::with_id(app, "goto_export", "转到导出模块", true, Some("CmdOrCtrl+E"))?;
+    let quit = PredefinedMenuItem::quit(app, Some("退出"))?;
+    let file_menu = SubmenuBuilder::new(app, "文件")
+        .item(&import_images)
+        .item(&open_folder)
+        .item(&goto_export)
+        .separator()
+        .item(&quit)
+        .build()?;
+
+    // 编辑（撤销/重做由菜单加速键接管，前端 keydown 在桌面端跳过，避免双触发）
+    let undo = MenuItem::with_id(app, "undo", "撤销", true, Some("CmdOrCtrl+Z"))?;
+    let redo = MenuItem::with_id(app, "redo", "重做", true, Some("CmdOrCtrl+Shift+Z"))?;
+    let edit_menu = SubmenuBuilder::new(app, "编辑").item(&undo).item(&redo).build()?;
+
+    // 视图（模块切换对标 LrC）
+    let m_lib = MenuItem::with_id(app, "module_library", "图库", true, Some("CmdOrCtrl+Alt+1"))?;
+    let m_dev = MenuItem::with_id(app, "module_develop", "编辑", true, Some("CmdOrCtrl+Alt+2"))?;
+    let m_exp = MenuItem::with_id(app, "module_export", "导出", true, Some("CmdOrCtrl+Alt+3"))?;
+    let prev = MenuItem::with_id(app, "prev_photo", "上一张照片", true, Some("CmdOrCtrl+Left"))?;
+    let next = MenuItem::with_id(app, "next_photo", "下一张照片", true, Some("CmdOrCtrl+Right"))?;
+    let filmstrip =
+        MenuItem::with_id(app, "toggle_filmstrip", "显示/隐藏胶片条", true, Some("CmdOrCtrl+F"))?;
+    let view_menu = SubmenuBuilder::new(app, "视图")
+        .item(&m_lib)
+        .item(&m_dev)
+        .item(&m_exp)
+        .separator()
+        .item(&prev)
+        .item(&next)
+        .separator()
+        .item(&filmstrip)
+        .build()?;
+
+    // 帮助
+    let show_help = MenuItem::with_id(app, "show_help", "使用帮助", true, None::<&str>)?;
+    let help_menu = SubmenuBuilder::new(app, "帮助").item(&show_help).build()?;
+
+    let menu = MenuBuilder::new(app)
+        .items(&[&file_menu, &edit_menu, &view_menu, &help_menu])
+        .build()?;
+    app.set_menu(menu)?;
+    Ok(())
+}
+
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
+pub fn run() {
+    tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
+        .on_menu_event(|app, event| {
+            // 菜单项 → 前端事件分发（前端在 platform/desktop.ts 中消费）
+            let id = event.id().as_ref().to_string();
+            let _ = app.emit("framelab://menu", id);
+        })
+        .setup(|app| {
+            build_menu(app.handle())?;
+            Ok(())
+        })
+        .invoke_handler(tauri::generate_handler![
+            list_dir_images,
+            read_file_base64,
+            write_file_base64,
+            write_text_file,
+            read_app_json,
+            write_app_json,
+            clear_app_json,
+            pick_folder,
+            pick_image_files,
+            open_text_file,
+            save_file_dialog
+        ])
+        .run(tauri::generate_context!())
+        .expect("error while running FrameLab");
+}

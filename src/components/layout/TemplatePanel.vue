@@ -1,8 +1,12 @@
 <script setup lang="ts">
 // 左侧模板库面板：按类别展示内置/自定义模板，点击应用，支持删除自定义模板。
+// 自定义模板支持导出 JSON（桌面端另存对话框 / 网页端下载）。
 import { computed } from 'vue'
 import { useTemplates, type TemplateCategory } from '../../composables/useTemplates'
 import { useFrameConfig } from '../../composables/useFrameConfig'
+import { isTauri } from '../../platform/env'
+import { saveTextAs } from '../../platform/fs'
+import { downloadBlob } from '../../core/exporter'
 
 const props = defineProps<{ category: TemplateCategory }>()
 const templates = useTemplates()
@@ -20,6 +24,17 @@ function onRemove(e: Event, id: string) {
   e.stopPropagation()
   templates.remove(id)
 }
+async function onExport(e: Event, id: string, name: string) {
+  e.stopPropagation()
+  const json = templates.exportJson(id)
+  if (!json) return
+  const filename = `${name.replace(/[\\/:*?"<>|]/g, '_')}.json`
+  if (isTauri) {
+    await saveTextAs(filename, json)
+  } else {
+    downloadBlob(new Blob([json], { type: 'application/json' }), filename)
+  }
+}
 </script>
 
 <template>
@@ -28,7 +43,10 @@ function onRemove(e: Event, id: string) {
     <button v-for="t in list" :key="t.id" class="tpl" @click="apply(t)">
       <span class="tname">{{ t.name }}</span>
       <span v-if="t.builtin" class="tag">内置</span>
-      <span v-else class="tag custom" @click="(e) => onRemove(e, t.id)">✕</span>
+      <template v-else>
+        <span class="tag custom" title="导出 JSON" @click="(e) => onExport(e, t.id, t.name)">⬇</span>
+        <span class="tag custom" title="删除" @click="(e) => onRemove(e, t.id)">✕</span>
+      </template>
     </button>
   </div>
 </template>

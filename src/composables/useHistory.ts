@@ -4,6 +4,7 @@ import { ref, type Ref } from 'vue'
 import type { FrameConfig } from '../core/types'
 import { MAX_HISTORY } from '../core/constants'
 import { useFrameConfig, registerCommit } from './useFrameConfig'
+import { storageGet, storageSet, storageRemove } from '../platform/storage'
 
 // 注册提交钩子：frameConfig 变更后自动入操作历史栈
 registerCommit((key) => commitHistory(key))
@@ -21,14 +22,14 @@ const items: Ref<HistoryItem[]> = ref([])
 
 function read(): HistoryItem[] {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY)
+    const raw = storageGet(STORAGE_KEY)
     return raw ? (JSON.parse(raw) as HistoryItem[]) : []
   } catch {
     return []
   }
 }
 function write(list: HistoryItem[]) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(list.slice(0, MAX_HISTORY)))
+  storageSet(STORAGE_KEY, JSON.stringify(list.slice(0, MAX_HISTORY)))
 }
 
 export function loadHistory() {
@@ -48,7 +49,7 @@ export function removeHistory(ts: number) {
   items.value = read()
 }
 export function clearHistory() {
-  localStorage.removeItem(STORAGE_KEY)
+  storageRemove(STORAGE_KEY)
   items.value = []
 }
 

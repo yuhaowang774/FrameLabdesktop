@@ -16,10 +16,13 @@ export function clampBgOffset(bgScale: number, offset: number, coverSize: number
  * - scale：相对可用宽度的百分比，钳制 50~100
  */
 export function mapPhotoRectToConfig(rect: Rect, availW: number, _padding: number): Partial<FrameConfig> {
-  const scale = Math.max(50, Math.min(100, Math.round((rect.width / availW) * 100)))
+  // 关键：scale 不取整，保留浮点精度。否则 photoRect 重算时 width=availW*round(scale)/100
+  // 与拖拽的 rect.width 出现 ±5px 误差，而 photoX/photoY 又是精确浮点，三者不自洽，
+  // 缩放（尤其 w/n/角点手柄，锚点在对边）时照片对边与中心随之跳动。
+  const scale = Math.max(50, Math.min(100, (rect.width / availW) * 100))
   return {
-    photoX: Math.round(rect.left),
-    photoY: Math.round(rect.top),
+    photoX: rect.left,
+    photoY: rect.top,
     scale,
   }
 }
@@ -31,17 +34,19 @@ export function mapPhotoRectToConfig(rect: Rect, availW: number, _padding: numbe
  */
 export function mapBgRectToConfig(
   rect: Rect,
+  containerW: number,
   containerH: number,
   coverW: number,
 ): { bgScale: number; bgOffsetX: number; bgOffsetY: number } {
   const centerX = rect.left + rect.width / 2
   const centerY = rect.top + rect.height / 2
   const bgScale = Math.max(0.5, Math.min(4, rect.width / coverW))
-  const rawOffsetX = centerX - 1200 / 2
+  // 偏移相对内容区中心（内容区坐标系，与预览 DOM 绝对定位一致）
+  const rawOffsetX = centerX - containerW / 2
   const rawOffsetY = centerY - containerH / 2
   // 真实 cover 尺寸（含缩放），用于钳制平移范围
   const coverH = coverW * (rect.height / rect.width)
-  const offsetX = clampBgOffset(bgScale, rawOffsetX, coverW, 1200)
+  const offsetX = clampBgOffset(bgScale, rawOffsetX, coverW, containerW)
   const offsetY = clampBgOffset(bgScale, rawOffsetY, coverH, containerH)
   return { bgScale, bgOffsetX: offsetX, bgOffsetY: offsetY }
 }
@@ -56,11 +61,12 @@ export function bgRectFromConfig(
   bgOffsetY: number,
   coverW: number,
   aspect: number,
+  containerW: number,
   containerH: number,
 ): Rect {
   const w = coverW * bgScale
   const h = w * aspect // = coverW * bgScale * aspect
-  const cx = 1200 / 2 + bgOffsetX
+  const cx = containerW / 2 + bgOffsetX
   const cy = containerH / 2 + bgOffsetY
   return { left: cx - w / 2, top: cy - h / 2, width: w, height: h }
 }

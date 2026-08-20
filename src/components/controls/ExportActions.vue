@@ -1,9 +1,11 @@
 <script setup lang="ts">
-// 导出控件：格式 / 质量 / 超采样快捷设置 + PNG/JPG 下载
+// 导出控件：格式 / 质量 / 超采样快捷设置 + PNG/JPG 输出
+// 桌面端：保存对话框写盘；网页端：浏览器下载。
 import { ref, computed } from 'vue'
 import { useFrameConfig } from '../../composables/useFrameConfig'
 import { useExportOptions } from '../../composables/useExportOptions'
-import { exportAndDownload } from '../../core/exporter'
+import { exportFrame, makeExportFilename } from '../../core/exporter'
+import { saveBlobAs } from '../../platform/fs'
 import GlassModal from '../common/GlassModal.vue'
 import ToggleGroup from '../common/ToggleGroup.vue'
 import RangeSlider from '../common/RangeSlider.vue'
@@ -64,12 +66,13 @@ async function onExport() {
   exporting.value = true
   status.value = '导出中…'
   try {
-    await exportAndDownload(props.sourceImg, state, {
+    const result = await exportFrame(props.sourceImg, state, {
       format: options.format,
       jpgQuality: options.jpgQuality,
       scale: options.scale,
     })
-    status.value = '已导出'
+    const saved = await saveBlobAs(result.blob, makeExportFilename(result.format))
+    status.value = saved ? '已导出' : '已取消'
   } catch (err) {
     const msg = (err as Error).message || '未知错误'
     status.value = '导出失败'

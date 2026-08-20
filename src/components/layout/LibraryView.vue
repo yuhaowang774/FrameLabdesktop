@@ -1,14 +1,19 @@
 <script setup lang="ts">
 // 图库模块（对标 LrC Library）：网格缩略图管理素材，支持拖拽/点击上传、多选、删除，点击进编辑。
+// 桌面端（Tauri）：支持直接浏览本地磁盘文件夹（只引用路径，不拷贝原图）。
 import { ref, computed } from 'vue'
 import { useLibrary } from '../../composables/useLibrary'
 import { useAppState } from '../../composables/useAppState'
+import { isTauri } from '../../platform/env'
+import { pickImageFolder, loadFolderIntoLibrary } from '../../platform/fs'
 
 const library = useLibrary()
 const app = useAppState()
 
 const dragOver = ref(false)
 const fileInput = ref<HTMLInputElement | null>(null)
+const openingFolder = ref(false)
+const folderLabel = ref('')
 
 const selectedCount = computed(() => library.items.filter((i) => i.selected).length)
 
@@ -21,6 +26,21 @@ function onPick(e: Event) {
 function onDrop(e: DragEvent) {
   dragOver.value = false
   if (e.dataTransfer?.files) library.addFiles(Array.from(e.dataTransfer.files))
+}
+
+/** 桌面端：选择本地文件夹 → 递归扫描图片加入图库 */
+async function openLocalFolder() {
+  if (openingFolder.value) return
+  openingFolder.value = true
+  try {
+    const result = await pickImageFolder()
+    if (result && result.images.length) {
+      await loadFolderIntoLibrary(result)
+      folderLabel.value = `${result.folder}（${result.images.length} 张）`
+    }
+  } finally {
+    openingFolder.value = false
+  }
 }
 
 function onItemClick(item: { id: string }, e: MouseEvent) {
@@ -50,15 +70,24 @@ function enterDevelop(item: { id: string }) {
       <div v-if="library.items.length === 0" class="empty">
         <div class="empty-icon">🖼️</div>
         <h2>图库</h2>
-        <p>拖拽照片到此处，或点击导入</p>
-        <button class="btn-primary" @click="fileInput?.click()">导入照片</button>
+        <p>{{ isTauri ? '打开本地图片文件夹，或拖拽照片到此处' : '拖拽照片到此处，或点击导入' }}</p>
+        <div class="empty-actions">
+          <button v-if="isTauri" class="btn-primary" :disabled="openingFolder" @click="openLocalFolder">
+            {{ openingFolder ? '扫描中…' : '打开本地文件夹' }}
+          </button>
+          <button class="btn-primary" @click="fileInput?.click()">导入照片</button>
+        </div>
         <input ref="fileInput" type="file" accept="image/*" multiple hidden @change="onPick" />
       </div>
 
       <template v-else>
         <div class="lib-toolbar">
+          <button v-if="isTauri" class="btn" :disabled="openingFolder" @click="openLocalFolder">
+            {{ openingFolder ? '扫描中…' : '📂 打开文件夹' }}
+          </button>
           <button class="btn" @click="fileInput?.click()">＋ 导入</button>
           <span class="count">共 {{ library.items.length }} 张 · 已选 {{ selectedCount }}</span>
+          <span v-if="isTauri && folderLabel" class="count folder-label" :title="folderLabel">{{ folderLabel }}</span>
           <span class="spacer" />
           <button class="btn" :disabled="!selectedCount" @click="library.removeSelected()">删除选中</button>
           <button class="btn" @click="library.clearAll()">清空</button>
@@ -125,6 +154,20 @@ function enterDevelop(item: { id: string }) {
   padding: 10px 20px;
   font-size: 14px;
   cursor: pointer;
+}
+.btn-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.empty-actions {
+  display: flex;
+  gap: 10px;
+}
+.folder-label {
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .lib-toolbar {
   display: flex;

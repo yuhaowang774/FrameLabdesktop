@@ -10,7 +10,7 @@ describe('mapPhotoRectToConfig', () => {
     const c = mapPhotoRectToConfig({ left: 120, top: 90, width: 520, height: 390 }, availW, padding)
     expect(c.photoX).toBe(120)
     expect(c.photoY).toBe(90)
-    expect(c.scale).toBe(Math.round((520 / 1040) * 100)) // 50
+    expect(c.scale).toBe(50)
   })
 
   it('scale 上限 100（拖大不超过 100%）', () => {
@@ -37,74 +37,78 @@ describe('mapPhotoRectToConfig', () => {
 })
 
 describe('mapBgRectToConfig', () => {
+  // 内容区坐标系：容器宽 = 1200 - 2*80 = 1040，高 700
+  const containerW = 1040
   const containerH = 700
-  const coverW = 1200 // 默认 cover 宽度
+  const coverW = 1040 // 1× cover 宽度
 
   it('默认（铺满、无偏移）映射为 bgScale=1, offset=0', () => {
-    const c = mapBgRectToConfig({ left: 0, top: 0, width: 1200, height: 700 }, containerH, coverW)
+    const c = mapBgRectToConfig({ left: 0, top: 0, width: 1040, height: 700 }, containerW, containerH, coverW)
     expect(c.bgScale).toBe(1)
     expect(c.bgOffsetX).toBe(0)
     expect(c.bgOffsetY).toBe(0)
   })
 
   it('1× 铺满时不可平移：向右拖 100 偏移仍为 0（避免白边）', () => {
-    const c = mapBgRectToConfig({ left: 100, top: 0, width: 1200, height: 700 }, containerH, coverW)
+    const c = mapBgRectToConfig({ left: 100, top: 0, width: 1040, height: 700 }, containerW, containerH, coverW)
     expect(c.bgOffsetX).toBe(0)
     expect(c.bgScale).toBe(1)
   })
 
   it('放大到 1.5× 后向右平移 100 设计像素 → offsetX=100', () => {
-    const c = mapBgRectToConfig({ left: -200, top: -350, width: 1800, height: 1200 }, containerH, coverW)
+    // 1.5× 宽 1560，中心右移 100 → centerX = 520 + 100 = 620
+    const c = mapBgRectToConfig({ left: -160, top: -175, width: 1560, height: 1050 }, containerW, containerH, coverW)
     expect(c.bgScale).toBe(1.5)
     expect(c.bgOffsetX).toBe(100)
   })
 
-  it('放大到 2 倍（宽 2400）→ bgScale=2，中心仍居中则 offset=0', () => {
-    const c = mapBgRectToConfig({ left: -600, top: -350, width: 2400, height: 1400 }, containerH, coverW)
+  it('放大到 2 倍（宽 2080）→ bgScale=2，中心仍居中则 offset=0', () => {
+    const c = mapBgRectToConfig({ left: -520, top: -350, width: 2080, height: 1400 }, containerW, containerH, coverW)
     expect(c.bgScale).toBe(2)
     expect(c.bgOffsetX).toBe(0)
     expect(c.bgOffsetY).toBe(0)
   })
 
   it('bgScale 上限 4 / 下限 0.5', () => {
-    const big = mapBgRectToConfig({ left: -5000, top: 0, width: 10000, height: 10000 }, containerH, coverW)
+    const big = mapBgRectToConfig({ left: -5000, top: 0, width: 10000, height: 10000 }, containerW, containerH, coverW)
     expect(big.bgScale).toBe(4)
-    const small = mapBgRectToConfig({ left: 500, top: 0, width: 200, height: 200 }, containerH, coverW)
+    const small = mapBgRectToConfig({ left: 500, top: 0, width: 200, height: 200 }, containerW, containerH, coverW)
     expect(small.bgScale).toBe(0.5)
   })
 
   it('基于 coverW（非容器宽）计算 bgScale：coverW=900 时宽 1800 → 2×', () => {
-    const c = mapBgRectToConfig({ left: -450, top: 0, width: 1800, height: 1200 }, containerH, 900)
+    const c = mapBgRectToConfig({ left: -450, top: 0, width: 1800, height: 1200 }, containerW, containerH, 900)
     expect(c.bgScale).toBe(2)
   })
 
   it('背景平移被钳制在覆盖范围内：拖出边界不会产生白边', () => {
-    // 1.5 倍放大，可平移范围 ±(coverW*scale - DESIGN)/2 = ±(1800-1200)/2 = ±300
-    const c = mapBgRectToConfig({ left: -900, top: 0, width: 1800, height: 1200 }, containerH, coverW)
+    // 1.5 倍放大，可平移范围 ±(coverW*scale - containerW)/2 = ±(1560-1040)/2 = ±260
+    const c = mapBgRectToConfig({ left: -780, top: 0, width: 1560, height: 1050 }, containerW, containerH, coverW)
     expect(c.bgScale).toBe(1.5)
-    // 偏移被钳制到 -300（而非 -900），保证左右仍被背景覆盖
-    expect(c.bgOffsetX).toBeCloseTo(-300, 6)
+    // 偏移被钳制到 -260（而非 -520），保证左右仍被背景覆盖
+    expect(c.bgOffsetX).toBeCloseTo(-260, 6)
   })
 
   it('背景默认（1×）时不可平移：偏移恒为 0（避免白边）', () => {
-    const c = mapBgRectToConfig({ left: 100, top: 0, width: 1200, height: 700 }, containerH, coverW)
+    const c = mapBgRectToConfig({ left: 100, top: 0, width: 1040, height: 700 }, containerW, containerH, coverW)
     expect(c.bgOffsetX).toBe(0)
     expect(c.bgOffsetY).toBe(0)
   })
 })
 
 describe('背景拖拽 round-trip（修复：竖向缩放不跳动）', () => {
+  const containerW = 1040
   const containerH = 700
-  const coverW = 1200
+  const coverW = 1040
   const aspect = 0.75 // 图像高/宽
   // 起始为 1.5× 放大状态：此时可平移，锚点不变量成立（1× 及以下平移被钳制为 0）
   // 宽高比必须 = 图像 aspect(0.75)，与真实 bgRect 一致（computeRect 会保持该比例）
-  const start: Rect = { left: -300, top: -425, width: 1800, height: 1350 }
+  const start: Rect = { left: -260, top: -235, width: 1560, height: 1170 }
 
   // 真实数据流：用户拖拽 → computeRect 产生矩形 → 映射配置 → 反推选择框，应与原矩形一致（无跳变）
   function roundTrip(dragged: Rect): Rect {
-    const cfg = mapBgRectToConfig(dragged, containerH, coverW)
-    return bgRectFromConfig(cfg.bgScale, cfg.bgOffsetX, cfg.bgOffsetY, coverW, aspect, containerH)
+    const cfg = mapBgRectToConfig(dragged, containerW, containerH, coverW)
+    return bgRectFromConfig(cfg.bgScale, cfg.bgOffsetX, cfg.bgOffsetY, coverW, aspect, containerW, containerH)
   }
 
   it('se 角点拖拽：右下锚点固定，宽高等比，无跳变', () => {

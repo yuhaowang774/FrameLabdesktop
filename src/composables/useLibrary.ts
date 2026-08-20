@@ -1,16 +1,20 @@
 // 图库素材库：纯前端本地管理（不上传后端）。
-// 使用 objectURL 引用本地文件，支持多图导入、缩略图、多选、删除、选中。
+// 网页端：objectURL 引用上传文件；桌面端：asset 协议 URL 引用磁盘绝对路径（不拷贝原图）。
+// 支持多图导入、缩略图、多选、删除、选中。
 import { reactive, ref, computed } from 'vue'
+import { assetUrl, type LocalImageEntry } from '../platform/fs'
 
 export interface LibraryItem {
   id: string
   name: string
-  url: string // objectURL
+  url: string // 网页端 objectURL；桌面端 asset 协议 URL
   /** 已读取的宽高（用于缩略图比例/胶片条） */
   width: number
   height: number
-  /** 文件引用，批量导出时回填 EXIF 用 */
-  file: File
+  /** 网页端文件引用，批量导出时回填 EXIF 用 */
+  file?: File
+  /** 桌面端本地图片绝对路径（仅保存路径引用，不拷贝原图） */
+  path?: string
   /** 是否为当前选中（胶片条高亮） */
   selected: boolean
 }
@@ -22,17 +26,18 @@ function makeId(): string {
   return `lib_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`
 }
 
-function readSize(file: File): Promise<{ width: number; height: number }> {
+function readSize(url: string): Promise<{ width: number; height: number }> {
   return new Promise((resolve) => {
     const img = new Image()
-    const url = URL.createObjectURL(file)
-    img.onload = () => {
-      resolve({ width: img.naturalWidth, height: img.naturalHeight })
-      URL.revokeObjectURL(url)
-    }
+    img.onload = () => resolve({ width: img.naturalWidth, height: img.naturalHeight })
     img.onerror = () => resolve({ width: 0, height: 0 })
     img.src = url
   })
+}
+
+/** 释放 objectURL（桌面端 asset URL 无需释放） */
+function releaseUrl(url: string): void {
+  if (url.startsWith('blob:')) URL.revokeObjectURL(url)
 }
 
 export function useLibrary() {
@@ -43,8 +48,8 @@ export function useLibrary() {
   async function addFiles(files: File[]): Promise<void> {
     for (const file of files) {
       if (!file.type.startsWith('image/')) continue
-      const { width, height } = await readSize(file)
       const url = URL.createObjectURL(file)
+      const { width, height } = await readSize(url)
       items.push({
         id: makeId(),
         name: file.name,
@@ -55,6 +60,27 @@ export function useLibrary() {
         selected: false,
       })
     }
+  }
+
+  /** 桌面端：把扫描到的本地图片（磁盘路径）加入图库，返回新增项 */
+  async function addLocalEntries(entries: LocalImageEntry[]): Promise<LibraryItem[]> {
+    const added: LibraryItem[] = []
+    for (const e of entries) {
+      const url = assetUrl(e.path)
+      const { width, height } = await readSize(url)
+      const item: LibraryItem = {
+        id: makeId(),
+        name: e.name,
+        url,
+        width,
+        height,
+        path: e.path,
+        selected: false,
+      }
+      items.push(item)
+      added.push(item)
+    }
+    return added
   }
 
   function select(id: string): void {
@@ -85,7 +111,7 @@ export function useLibrary() {
   function remove(id: string): void {
     const idx = items.findIndex((i) => i.id === id)
     if (idx < 0) return
-    URL.revokeObjectURL(items[idx].url)
+    releaseUrl(items[idx].url)
     items.splice(idx, 1)
     if (activeId.value === id) {
       activeId.value = items.length ? items[Math.min(idx, items.length - 1)].id : null
@@ -98,7 +124,7 @@ export function useLibrary() {
   }
 
   function clearAll(): void {
-    items.forEach((i) => URL.revokeObjectURL(i.url))
+    items.forEach((i) => releaseUrl(i.url))
     items.splice(0, items.length)
     activeId.value = null
   }
@@ -120,6 +146,7 @@ export function useLibrary() {
     activeId,
     activeIndex,
     addFiles,
+    addLocalEntries,
     select,
     selectByIndex,
     next,

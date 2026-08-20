@@ -1,6 +1,7 @@
-// 导出偏好单例：格式 / JPG 质量 / 超采样倍率，持久化到 localStorage
+// 导出偏好单例：格式 / JPG 质量 / 超采样倍率，持久化（网页端 localStorage / 桌面端 AppData）
 import { reactive, watch } from 'vue'
 import type { ExportFormat } from '../core/exporter'
+import { storageGet, storageSet } from '../platform/storage'
 
 export interface ExportOptionsState {
   format: ExportFormat
@@ -18,7 +19,7 @@ const defaults: ExportOptionsState = {
 
 function load(): ExportOptionsState {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY)
+    const raw = storageGet(STORAGE_KEY)
     if (raw) return { ...defaults, ...JSON.parse(raw) }
   } catch {
     /* 忽略损坏数据 */
@@ -32,7 +33,7 @@ watch(
   state,
   (val) => {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(val))
+      storageSet(STORAGE_KEY, JSON.stringify(val))
     } catch {
       /* 忽略持久化失败 */
     }

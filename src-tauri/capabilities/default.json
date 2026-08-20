@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "FrameLab 主窗口能力：核心事件与对话框权限。所有文件 IO 均通过自定义 Rust Command（invoke）完成，WebView 不直接访问文件系统。",
+  "windows": ["main"],
+  "permissions": ["core:default", "dialog:default"]
+}

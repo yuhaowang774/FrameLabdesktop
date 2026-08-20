@@ -3,6 +3,7 @@
 import { onMounted, ref, watch } from 'vue'
 import { drawBlurredBackground } from '../../core/bgRenderer'
 import { useFrameConfig } from '../../composables/useFrameConfig'
+import { DESIGN_CONTAINER } from '../../core/constants'
 
 const props = defineProps<{
   image: HTMLImageElement | HTMLCanvasElement | null
@@ -48,8 +49,9 @@ function render() {
   if (img && state.bgMode !== 'none') {
     // default：原图模糊+变暗；custom：上传图模糊但保持原亮
     const dim = state.bgMode === 'custom' ? 1 : 0.7
-    // 设计像素偏移 → 屏幕像素（匹配 fit-scale 容器）
-    const scale = w / 1200
+    // canvas 内部坐标 = 内容区设计坐标（layout px 1:1），偏移量直接按内容区宽度换算
+    const availW = DESIGN_CONTAINER - 2 * state.padding
+    const scale = w / availW
     const offX = state.bgOffsetX * scale
     const offY = state.bgOffsetY * scale
     drawBlurredBackground(ctx, img, w, h, props.blur, dim, state.bgScale, offX, offY)

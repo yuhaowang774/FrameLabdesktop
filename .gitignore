@@ -10,3 +10,12 @@ dist-ssr
 verify-export.html
 devserver.log
 devserver.err
+
+# Tauri
+src-tauri/target
+src-tauri/gen/schemas
+
+# 构建产物（vue-tsc -b 输出）
+*.tsbuildinfo
+vite.config.js
+vite.config.d.ts

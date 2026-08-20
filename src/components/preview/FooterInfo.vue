@@ -21,10 +21,13 @@ const dragging = ref<ItemKey | null>(null)
 const origin = ref({ x: 0, y: 0 })
 const start = ref({ x: 0, y: 0 })
 const dragEl = ref<HTMLElement | null>(null)
+const footerLayer = ref<HTMLElement | null>(null)
+
+// 内容区设计宽度（footer-layer 即内容区，绝对定位子元素坐标相对它）
+const availW = computed(() => DESIGN_CONTAINER - state.padding * 2)
 
 function containerRect(): DOMRect | null {
-  const cont = dragEl.value?.closest('.frame-container') as HTMLElement | null
-  return cont?.getBoundingClientRect() ?? null
+  return footerLayer.value?.getBoundingClientRect() ?? null
 }
 
 function onPointerDown(e: PointerEvent, key: ItemKey) {
@@ -32,7 +35,8 @@ function onPointerDown(e: PointerEvent, key: ItemKey) {
   dragEl.value = target
   const rect = containerRect()
   if (!rect) return
-  const scale = rect.width / DESIGN_CONTAINER
+  // scale = 屏幕 px / 设计 px（内容区宽对应 availW）
+  const scale = rect.width / availW.value
   const r = target.getBoundingClientRect()
   origin.value = {
     x: (r.left - rect.left) / scale,
@@ -49,10 +53,10 @@ function onPointerMove(e: PointerEvent) {
   if (!dragging.value || !dragEl.value) return
   const rect = containerRect()
   if (!rect) return
-  const scale = rect.width / DESIGN_CONTAINER
+  const scale = rect.width / availW.value
   let nx = origin.value.x + (e.clientX - start.value.x) / scale
   let ny = origin.value.y + (e.clientY - start.value.y) / scale
-  nx = Math.max(0, Math.min(DESIGN_CONTAINER, nx))
+  nx = Math.max(0, Math.min(availW.value, nx))
   ny = Math.max(0, Math.min(rect.height / scale, ny))
   const k = dragging.value
   patch({
@@ -77,7 +81,7 @@ function absStyle(key: ItemKey) {
 </script>
 
 <template>
-  <div class="footer-layer">
+  <div ref="footerLayer" class="footer-layer">
     <img
       v-if="state.showLogo && logoSrc"
       class="brand-logo drag-item"

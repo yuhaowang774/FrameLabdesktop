@@ -43,6 +43,13 @@ export interface FrameConfig {
   radius: number
   shadow: number
 
+  /**
+   * 画布设计总高度（含上下 padding）。
+   * 导入照片时按"初始照片高度 + 2*padding"计算一次并固定，之后缩放/平移照片
+   * 不再改变画布高度，从而背景层不会随照片大小编辑而变化。0 表示未初始化。
+   */
+  canvasH: number
+
   /** 主照片自由变换（Word 式拖拽） */
   photoX: number | null // 设计坐标左上角 X；null = 自动居中
   photoY: number | null // 设计坐标左上角 Y；null = 自动居中
@@ -113,6 +120,12 @@ export interface FrameConfig {
   watermarkAlign: OverlayAlign
   watermarkBottom: number
 
+  /** 原始 EXIF 字段（已由上传流程解析写入，供 EXIF 元素模板渲染） */
+  exifRaw: { focalLength?: number; fNumber?: number; exposureTime?: number; iso?: number } | null
+
+  /** 顶层 INFO 多元素容器层（自由拖拽排版，对标 LrC 叠加层） */
+  infoLayer: InfoLayerConfig
+
   /** PS 式图层可见性：控制各图层是否参与预览与导出合成 */
   layerVisible: Record<LayerId, boolean>
 }
@@ -128,6 +141,7 @@ export const defaultFrameConfig: FrameConfig = {
   scale: 90,
   radius: 20,
   shadow: 0.5,
+  canvasH: 0,
 
   photoX: null,
   photoY: null,
@@ -189,5 +203,107 @@ export const defaultFrameConfig: FrameConfig = {
   watermarkAlign: 'center',
   watermarkBottom: 40,
 
+  exifRaw: null,
+
   layerVisible: { artboard: true, bg: true, photo: true, info: true },
+
+  // ==========================================================================
+  // 顶层 INFO 多元素容器层（对标 LrC 叠加层，自由拖拽排版）
+  // --------------------------------------------------------------------------
+  // 数据结构规范：infoLayer 包含 bindTarget（绑定目标）与 elements（子元素数组）
+  //  - bindTarget = 'photo'：info 容器整体继承 photo 旋转/缩放/平移，子元素坐标为
+  //    照片局部坐标系（相对旋转后照片中心，单位设计 px）
+  //  - bindTarget = 'canvas'：info 容器不继承 photo 变换，子元素坐标为画布坐标系
+  //    （相对画布中心，单位设计 px）
+  //  每个子元素拥有独立 id/type/enable/x/y/scale/rotate/zIndex/样式/资源内容
+  // ==========================================================================
+  infoLayer: {
+    enabled: true,
+    bindTarget: 'canvas',
+    elements: [],
+  } as InfoLayerConfig,
+}
+
+// ============================================================================
+// 顶层 INFO 多元素数据结构定义
+// ============================================================================
+export type InfoElementType = 'text' | 'exif' | 'logo' | 'divider'
+
+/** info 子元素公共字段 */
+export interface InfoElementBase {
+  id: string
+  type: InfoElementType
+  enable: boolean
+  /** 定位坐标（设计 px，相对绑定坐标系原点：照片中心或画布中心） */
+  x: number
+  y: number
+  /** 缩放系数（1 = 100%） */
+  scale: number
+  /** 旋转角度（度，顺时针） */
+  rotate: number
+  /** 层级，越大越靠上 */
+  zIndex: number
+  /** 是否参与导出（false 则仅预览，不进成片） */
+  exportable: boolean
+  /** 不透明度 0..1 */
+  opacity: number
+}
+
+/** 自定义文字元素 */
+export interface TextInfoElement extends InfoElementBase {
+  type: 'text'
+  text: string
+  fontFamily: string
+  fontSize: number // 基础字号（设计 px），再乘 scale
+  fontWeight: number
+  color: string
+  align: 'left' | 'center' | 'right'
+  letterSpacing: number
+  lineHeight: number
+}
+
+/** EXIF 文本块元素：模板形如 "{model}  {focal}  1/{shutter}s  ISO{iso}"，缺字段自动跳过 */
+export interface ExifInfoElement extends InfoElementBase {
+  type: 'exif'
+  template: string
+  fontFamily: string
+  fontSize: number
+  fontWeight: number
+  color: string
+  align: 'left' | 'center' | 'right'
+  letterSpacing: number
+  lineHeight: number
+}
+
+/** Logo 图片元素：内置品牌字标（brand）或自定义上传 Logo（custom:id） */
+export interface LogoInfoElement extends InfoElementBase {
+  type: 'logo'
+  logoId: string // 'brand' | 'custom:id' | 'none'
+  /** 基准宽度（设计 px，再乘 scale），高度按比例 */
+  baseWidth: number
+  brandCmyk?: [number, number, number, number]
+}
+
+/** 分割线元素 */
+export interface DividerInfoElement extends InfoElementBase {
+  type: 'divider'
+  width: number // 基准宽度（设计 px，再乘 scale）
+  thickness: number // 线宽（设计 px）
+  color: string
+}
+
+export type InfoElement =
+  | TextInfoElement
+  | ExifInfoElement
+  | LogoInfoElement
+  | DividerInfoElement
+
+/** 顶层 info 容器层配置 */
+export interface InfoLayerConfig {
+  /** 总开关 */
+  enabled: boolean
+  /** 绑定目标：photo（继承照片变换）/ canvas（画布坐标系） */
+  bindTarget: 'photo' | 'canvas'
+  /** 子元素数组（按 zIndex 升序绘制） */
+  elements: InfoElement[]
 }

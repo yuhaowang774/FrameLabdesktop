@@ -1,6 +1,7 @@
 // 全局 UI 状态：工作流模块（图库/编辑/导出）、左右面板折叠/独奏/宽度、全局任务进度。
 // 对标 Lightroom Classic 五区布局与顶栏模块选择器。
 import { reactive, ref, computed, watch } from 'vue'
+import { storageGet, storageSet } from '../platform/storage'
 
 export type ModuleTab = 'library' | 'develop' | 'export'
 
@@ -43,6 +44,7 @@ const defaults: LayoutState = {
     layout: false,
     background: false,
     effects: false,
+    info: false,
   },
   soloMode: null,
   filmstripVisible: true,
@@ -51,7 +53,7 @@ const defaults: LayoutState = {
 
 function load(): LayoutState {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY)
+    const raw = storageGet(STORAGE_KEY)
     if (raw) return { ...defaults, ...JSON.parse(raw) }
   } catch {
     /* ignore */
@@ -65,7 +67,7 @@ watch(
   state,
   (val) => {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(val))
+      storageSet(STORAGE_KEY, JSON.stringify(val))
     } catch {
       /* ignore */
     }
