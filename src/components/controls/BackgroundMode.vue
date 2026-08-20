@@ -30,11 +30,22 @@ async function onCustomBgChange(e: Event) {
   try {
     const img = await loadImage(url)
     emit('custom-bg', img)
-    patch({ bgMode: 'custom' })
+    // 同时持久化到 config（转 dataURL，便于导出与历史恢复）
+    const dataUrl = await fileToDataURL(file)
+    patch({ bgMode: 'custom', customBgImage: dataUrl })
   } catch {
     /* ignore */
   }
   input.value = ''
+}
+
+function fileToDataURL(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(String(reader.result))
+    reader.onerror = reject
+    reader.readAsDataURL(file)
+  })
 }
 
 function pickCustom() {

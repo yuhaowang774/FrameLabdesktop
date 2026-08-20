@@ -3,6 +3,7 @@
 import { computed, ref } from 'vue'
 import { useFrameConfig } from '../../composables/useFrameConfig'
 import { parseExif } from '../../composables/useExif'
+import { useSourceFile } from '../../composables/useSourceFile'
 import { BRANDS, FONT_OPTIONS, RANGES, MAX_CUSTOM_LOGOS } from '../../core/constants'
 import { useLogoStore, CUSTOM_PREFIX } from '../../composables/useLogoStore'
 import RangeSlider from '../common/RangeSlider.vue'
@@ -10,6 +11,7 @@ import ToggleGroup from '../common/ToggleGroup.vue'
 import GlassModal from '../common/GlassModal.vue'
 
 const { state, patch } = useFrameConfig()
+const { getSourceFile } = useSourceFile()
 const r = RANGES
 const { listCustomLogos, uploadCustomLogo, removeCustomLogo } = useLogoStore()
 
@@ -100,24 +102,45 @@ const exifFailOpen = ref(false)
 const exifFailMsg = ref('')
 
 function pickExifImage() {
-  exifInput.value?.click()
+  const src = getSourceFile()
+  if (src) {
+    // 已有主图：直接复用，无需重新选图
+    runExif(src)
+  } else {
+    // 未上传主图：退回手动选图
+    exifInput.value?.click()
+  }
+}
+
+async function runExif(file: File) {
+  recognizing.value = true
+  try {
+    const res = await parseExif(file)
+    const patchData: Record<string, unknown> = { exifText: res.text, showExif: true }
+    // 自动填充相机机型
+    if (res.model) {
+      patchData.cameraModel = res.model
+      patchData.showCameraModel = true
+    }
+    // 根据 Make 自动选中对应内置品牌
+    if (res.brandId) {
+      patchData.brand = res.brandId
+    }
+    patch(patchData)
+  } catch (err) {
+    exifFailMsg.value = (err as Error).message || 'EXIF 读取失败'
+    exifFailOpen.value = true
+  } finally {
+    recognizing.value = false
+  }
 }
 
 async function onExifFile(e: Event) {
   const input = e.target as HTMLInputElement
   const file = input.files?.[0]
   if (!file) return
-  recognizing.value = true
-  try {
-    const res = await parseExif(file)
-    patch({ exifText: res.text, showExif: true })
-  } catch (err) {
-    exifFailMsg.value = (err as Error).message || 'EXIF 读取失败'
-    exifFailOpen.value = true
-  } finally {
-    recognizing.value = false
-    input.value = ''
-  }
+  await runExif(file)
+  input.value = ''
 }
 </script>
 

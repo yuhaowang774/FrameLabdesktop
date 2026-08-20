@@ -1,53 +1,118 @@
 <script setup lang="ts">
-// 应用根：左 ControlPanel + 右 Workspace，持有图片状态在两侧间传递
-import { ref, watch } from 'vue'
-import ControlPanel from './components/layout/ControlPanel.vue'
+// 应用根：LrC 五区布局外壳
+// 顶部区域 / 左侧可折叠面板组 / 中间主画布 / 右侧可折叠参数面板组 / 底部胶片条
+import { ref, watch, computed, onMounted, onBeforeUnmount } from 'vue'
+import TopBar from './components/layout/TopBar.vue'
+import LeftPanels from './components/layout/LeftPanels.vue'
+import RightPanels from './components/layout/ControlPanel.vue'
 import Workspace from './components/layout/Workspace.vue'
+import Filmstrip from './components/layout/Filmstrip.vue'
+import BottomToolbar from './components/layout/BottomToolbar.vue'
+import LibraryView from './components/layout/LibraryView.vue'
+import ExportPanel from './components/layout/ExportPanel.vue'
+import PhotoEditor from './components/common/PhotoEditor.vue'
+import { useLibrary } from './composables/useLibrary'
+import { useAppState } from './composables/useAppState'
 import { useFrameConfig } from './composables/useFrameConfig'
+import { useHistory } from './composables/useHistory'
+import { editingPhoto, photoImage } from './composables/useUi'
 
-const { state } = useFrameConfig()
+const library = useLibrary()
+const app = useAppState()
+const { patch } = useFrameConfig()
+const history = useHistory()
 
+// 当前选中照片的图源
 const photoSrc = ref<string | null>(null)
-const bgImage = ref<HTMLImageElement | null>(null) // 原图或自定义背景图
-const sourceImg = ref<HTMLImageElement | null>(null) // 导出用主照片
+const bgImage = ref<HTMLImageElement | null>(null)
+const sourceImg = ref<HTMLImageElement | null>(null)
 
-function onImageReady(payload: { url: string; img: HTMLImageElement }) {
-  photoSrc.value = payload.url
-  bgImage.value = payload.img
-  sourceImg.value = payload.img
+function loadActive() {
+  const active = library.items.find((i) => i.id === library.activeId.value)
+  if (!active) {
+    photoSrc.value = null
+    bgImage.value = null
+    sourceImg.value = null
+    return
+  }
+  photoSrc.value = active.url
+  const im = new Image()
+  im.onload = () => {
+    bgImage.value = im
+    sourceImg.value = im
+    photoImage.value = im
+    patch({ photoSrc: active.url })
+  }
+  im.src = active.url
 }
 
-function onCustomBg(img: HTMLImageElement) {
-  bgImage.value = img
-}
+watch(() => library.activeId.value, loadActive, { immediate: true })
 
-// 主题切换 → 同步 body 类，驱动全局底色与磨砂面板 token
-watch(
-  () => state.theme,
-  (t) => {
-    document.body.classList.toggle('theme-light', t === 'light')
-    document.body.classList.toggle('theme-dark', t === 'dark')
-  },
-  { immediate: true },
-)
+// 进入编辑模块时自动加载
+watch(() => app.activeModule.value, (m) => {
+  if (m === 'develop' && library.activeId.value) loadActive()
+})
+
+// ===== 快捷键 =====
+function onKey(e: KeyboardEvent) {
+  const tag = (e.target as HTMLElement)?.tagName
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
+  if (e.key === 'ArrowRight') {
+    library.next()
+    e.preventDefault()
+  } else if (e.key === 'ArrowLeft') {
+    library.prev()
+    e.preventDefault()
+  } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
+    if (e.shiftKey) history.redo()
+    else history.undo()
+    e.preventDefault()
+  } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') {
+    history.redo()
+    e.preventDefault()
+  }
+}
+onMounted(() => window.addEventListener('keydown', onKey))
+onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
+
+const showLeft = computed(() => app.activeModule.value === 'develop' && app.state.leftOpen)
+const showRight = computed(() => app.activeModule.value === 'develop' && app.state.rightOpen)
+
+document.body.classList.add('theme-dark')
 </script>
 
 <template>
   <div class="app-root">
-    <header class="topbar">
-      <h1>Frame · 照片边框水印</h1>
-      <button class="theme-toggle" @click="state.theme = state.theme === 'dark' ? 'light' : 'dark'">
-        {{ state.theme === 'dark' ? '🌙 暗色' : '☀️ 亮色' }}
-      </button>
-    </header>
+    <TopBar />
+
     <main class="body">
-      <ControlPanel
-        :source-img="sourceImg"
-        @image-ready="onImageReady"
-        @custom-bg="onCustomBg"
-      />
-      <Workspace :photo-src="photoSrc" :bg-image="bgImage" />
+      <!-- 图库模块 -->
+      <LibraryView v-if="app.activeModule.value === 'library'" />
+
+      <!-- 编辑模块：五区布局 -->
+      <template v-else-if="app.activeModule.value === 'develop'">
+        <button class="rail left-rail" :class="{ collapsed: !app.state.leftOpen }" :title="app.state.leftOpen ? '隐藏左栏' : '显示左栏'" @click="app.toggleLeft()">
+          {{ app.state.leftOpen ? '‹' : '›' }}
+        </button>
+        <LeftPanels v-if="showLeft" />
+        <Workspace :photo-src="photoSrc" :bg-image="bgImage" />
+        <button class="rail right-rail" :class="{ collapsed: !app.state.rightOpen }" :title="app.state.rightOpen ? '隐藏右栏' : '显示右栏'" @click="app.toggleRight()">
+          {{ app.state.rightOpen ? '›' : '‹' }}
+        </button>
+        <RightPanels v-if="showRight" />
+      </template>
+
+      <!-- 导出模块 -->
+      <ExportPanel v-else-if="app.activeModule.value === 'export'" />
     </main>
+
+    <!-- 底部：编辑模块显示工具栏 + 胶片条；其他模块仅胶片条 -->
+    <template v-if="app.activeModule.value === 'develop'">
+      <BottomToolbar />
+    </template>
+    <Filmstrip v-if="app.state.filmstripVisible" />
+
+    <PhotoEditor v-if="editingPhoto" @close="editingPhoto = false" />
   </div>
 </template>
 
@@ -56,73 +121,31 @@ watch(
   height: 100%;
   display: flex;
   flex-direction: column;
-}
-.topbar {
-  height: 52px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 16px;
-  border-bottom: 1px solid var(--panel-border);
-  background: var(--panel-bg);
-  backdrop-filter: blur(8px);
-  flex-shrink: 0;
-}
-.topbar h1 {
-  font-size: 16px;
-  font-weight: 600;
-  color: var(--text-normal);
-}
-.theme-toggle {
-  padding: 6px 12px;
-  border-radius: 8px;
-  border: 1px solid var(--panel-border);
-  background: var(--panel-hover);
-  color: var(--text-normal);
-  cursor: pointer;
-  font-size: 13px;
-  transition: background 0.15s;
-}
-.theme-toggle:hover {
-  background: var(--accent-bg);
-  border-color: var(--accent-border);
+  overflow: hidden;
 }
 .body {
   flex: 1;
   display: flex;
   min-height: 0;
+  position: relative;
 }
-
-/* 768px 以下：左右栏转上下布局，控制面板横向滚动 */
-@media (max-width: 768px) {
-  .body {
-    flex-direction: column;
-    overflow-y: auto;
-  }
-  .body :deep(.control-panel) {
-    width: 100%;
-    height: auto;
-    flex-direction: row;
-    flex-wrap: nowrap;
-    overflow-x: auto;
-    overflow-y: hidden;
-    border-right: none;
-    border-bottom: 1px solid var(--panel-border);
-    gap: 10px;
-    align-items: stretch;
-  }
-  .body :deep(.control-block) {
-    flex: 0 0 260px;
-    align-self: flex-start;
-    max-height: 60vh;
-    overflow-y: auto;
-  }
-  .body :deep(.divider) {
-    display: none;
-  }
-  .body :deep(.workspace) {
-    flex: 1;
-    min-height: 60vh;
-  }
+.rail {
+  flex: none;
+  width: 14px;
+  background: var(--panel-2);
+  border: none;
+  border-right: 1px solid var(--border);
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 14px;
+  z-index: 5;
+}
+.rail.right-rail {
+  border-right: none;
+  border-left: 1px solid var(--border);
+}
+.rail:hover {
+  color: var(--text);
+  background: var(--panel-3);
 }
 </style>

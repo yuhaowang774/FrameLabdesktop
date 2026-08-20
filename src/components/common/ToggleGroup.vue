@@ -1,6 +1,5 @@
 <script setup lang="ts">
-// 通用切换按钮组：用于背景模式 / 主题 / 对齐等单选场景
-import type { Theme } from '../../core/types'
+// 通用切换按钮组：用于背景模式 / 对齐 / 格式等单选场景
 
 export interface ToggleOption<T extends string = string> {
   value: T

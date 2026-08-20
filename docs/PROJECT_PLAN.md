@@ -141,6 +141,43 @@
 - [ ] 导出清晰度对比原版（验证保真改进）— 待 UI 联调后人工验收
 - ⚠️ 依赖：导出 Logo / 自定义背景需 `useLogoStore`（阶段8）与上传控件（阶段6）解析后传入 `logo` / `backgroundImage`，未完成前导出无该部分
 
+---
+
+## 阶段 19 · LrC 五区布局与三段式工作流 ✅（本次重构）
+
+> 严格对标 Lightroom Classic：五区布局 + 图库/编辑/导出三段式工作流。纯前端本地处理。
+
+### 19.1 全局状态
+- [x] `composables/useAppState.ts`：模块切换（library/develop/export）、左右面板折叠/宽度（CSS resize + 持久化 localStorage）、独奏模式、全局任务进度条
+- [x] `composables/useLibrary.ts`：本地素材库（objectURL，不上传后端），多图导入/缩略图/多选/删除/选中
+- [x] `composables/useTemplates.ts`：内置 7 套预设 + 用户自定义模板（导出/导入 JSON），模板仅保存装饰参数避免污染主图
+- [x] `composables/useViewer.ts`：缩放/平移/Before-After 对比/标尺状态（跨工具栏与画布共享）
+- [x] `composables/useHistory.ts`：扩展为「用户快照 + 操作历史栈（撤销/重做）」，frameConfig 变更自动入栈（节流合并）
+
+### 19.2 五区布局外壳 `App.vue`
+- [x] 顶部区 `TopBar.vue`：Logo + 模块切换器 + 全局设置/帮助 + 任务进度条
+- [x] 左侧面板组 `LeftPanels.vue`：我的素材 / 相框模板库 / 背景模板库 / 参数快照（可折叠、独奏、拖拽调宽）
+- [x] 中间主画布 `Workspace.vue`：fit 适配 + 滚轮缩放 + 拖拽平移 + Before/After（split/slide）+ 标尺
+- [x] 右侧分组面板 `ControlPanel.vue`：画布基础 / 相框 / 图片布局 / 背景 / 附加效果（分组化、可折叠、独奏、拖宽，不合并）
+- [x] 底部 `BottomToolbar.vue` + `Filmstrip.vue`：撤销/重做、对比、标尺、缩放、胶片条（跨模块切换、方向键）
+
+### 19.3 模块
+- [x] 图库模块 `LibraryView.vue`：拖拽/点击上传、网格缩略图、多选、删除、双击进编辑
+- [x] 编辑模块：复用既有 FrameContainer/BgCanvas/MainPhoto/FooterInfo 预览链 + 右侧分组参数
+- [x] 导出模块 `ExportPanel.vue`：格式/画质/超采样、单张/批量导出、进度条、参数批量同步（保存为模板）
+
+### 19.4 新增能力
+- [x] 水印叠加面板 `EffectsPanel.vue`：文本/图片水印、单一/平铺、位置/大小/不透明度/倾斜
+- [x] 附加效果：暗角（vignette）/ 颗粒（grain）绘制，预览 `EffectOverlay.vue` 与导出 `exporter.ts` 共用 `bgRenderer`
+- [x] 自定义背景持久化 `FrameConfig.customBgImage`（dataURL，导出与历史恢复可用）
+- [x] 快捷键：←/→ 切换胶片、Ctrl/⌘+Z 撤销、Ctrl/⌘+Shift+Z 重做、滚轮缩放
+
+### 19.5 构建验证
+- [x] `vue-tsc` 类型检查通过（0 error）
+- [x] `vite build` 生产构建成功（dist/ 生成）
+- [ ] 浏览器交互联调（上传→编辑→导出全链路）— 待人工验收
+
+
 ### 阶段 12 · 历史记录 ✅
 - [x] `composables/useHistory.ts`：模块级单例，localStorage `photoFrameHistory`（≤100），深拷贝快照
 - [x] 保存当前配置 / 点击恢复（loadConfig 合并）/ 删除 / 清空

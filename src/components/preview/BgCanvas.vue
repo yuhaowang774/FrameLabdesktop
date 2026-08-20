@@ -11,10 +11,30 @@ const props = defineProps<{
 
 const canvas = ref<HTMLCanvasElement | null>(null)
 const { state } = useFrameConfig()
+const customImg = ref<HTMLImageElement | null>(null)
+
+// custom 模式下加载自定义背景图
+watch(
+  () => state.customBgImage,
+  (src) => {
+    customImg.value = null
+    if (src) {
+      const im = new Image()
+      im.onload = () => {
+        customImg.value = im
+        render()
+      }
+      im.src = src
+    } else {
+      render()
+    }
+  },
+  { immediate: true },
+)
 
 function render() {
   const el = canvas.value
-  const img = props.image
+  const img = state.bgMode === 'custom' && customImg.value ? customImg.value : props.image
   if (!el) return
   const parent = el.parentElement
   if (!parent) return
@@ -28,12 +48,27 @@ function render() {
   if (img && state.bgMode !== 'none') {
     // default：原图模糊+变暗；custom：上传图模糊但保持原亮
     const dim = state.bgMode === 'custom' ? 1 : 0.7
-    drawBlurredBackground(ctx, img, w, h, props.blur, dim)
+    // 设计像素偏移 → 屏幕像素（匹配 fit-scale 容器）
+    const scale = w / 1200
+    const offX = state.bgOffsetX * scale
+    const offY = state.bgOffsetY * scale
+    drawBlurredBackground(ctx, img, w, h, props.blur, dim, state.bgScale, offX, offY)
   }
 }
 
 onMounted(render)
-watch(() => [props.image, props.blur, state.bgMode, state.theme], render, { deep: true })
+watch(
+  () => [
+    props.image,
+    props.blur,
+    state.bgMode,
+    state.bgScale,
+    state.bgOffsetX,
+    state.bgOffsetY,
+  ],
+  render,
+  { deep: true },
+)
 </script>
 
 <template>

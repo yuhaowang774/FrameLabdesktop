@@ -1,11 +1,12 @@
-// 历史记录 composable（阶段 12）
-// 从 HistoryList 内联逻辑抽离为模块级单例，统一 localStorage 读写。
-// 历史项保存当前 FrameConfig 的纯快照（深拷贝），支持保存/恢复/删除/清空。
-
+// 历史记录 composable：参数快照（用户保存） + 操作历史栈（撤销/重做）。
+// 操作栈在 frameConfig 每次变更后自动提交（节流合并），供撤销/重做使用。
 import { ref, type Ref } from 'vue'
 import type { FrameConfig } from '../core/types'
 import { MAX_HISTORY } from '../core/constants'
-import { useFrameConfig } from './useFrameConfig'
+import { useFrameConfig, registerCommit } from './useFrameConfig'
+
+// 注册提交钩子：frameConfig 变更后自动入操作历史栈
+registerCommit((key) => commitHistory(key))
 
 const STORAGE_KEY = 'photoFrameHistory'
 
@@ -15,7 +16,7 @@ export interface HistoryItem {
   ts: number
 }
 
-// 模块级单例：所有组件共享同一份历史
+// ===== 用户快照（持久化） =====
 const items: Ref<HistoryItem[]> = ref([])
 
 function read(): HistoryItem[] {
@@ -26,17 +27,13 @@ function read(): HistoryItem[] {
     return []
   }
 }
-
 function write(list: HistoryItem[]) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(list.slice(0, MAX_HISTORY)))
 }
 
-/** 启动加载（在 main 或首次挂载时调用） */
 export function loadHistory() {
   items.value = read()
 }
-
-/** 保存当前配置快照（深拷贝，避免引用 reactive 对象） */
 export function saveHistory(name: string, current: FrameConfig) {
   const trimmed = name.trim()
   if (!trimmed) return
@@ -46,24 +43,56 @@ export function saveHistory(name: string, current: FrameConfig) {
   write(list)
   items.value = read()
 }
-
-/** 按时间戳删除 */
 export function removeHistory(ts: number) {
   write(read().filter((i) => i.ts !== ts))
   items.value = read()
 }
-
-/** 清空全部历史 */
 export function clearHistory() {
   localStorage.removeItem(STORAGE_KEY)
   items.value = []
+}
+
+// ===== 操作历史栈（撤销/重做，内存态） =====
+const past: Ref<FrameConfig[]> = ref([])
+const future: Ref<FrameConfig[]> = ref([])
+let lastCommit = 0
+let lastKey = ''
+
+function snapshot(): FrameConfig {
+  const { state } = useFrameConfig()
+  return JSON.parse(JSON.stringify(state)) as FrameConfig
+}
+
+/** 提交一次状态变更到历史栈（节流：400ms 内同字段合并） */
+export function commitHistory(key = ''): void {
+  const now = Date.now()
+  if (now - lastCommit < 400 && key && key === lastKey) return
+  lastCommit = now
+  lastKey = key
+  past.value.push(snapshot())
+  if (past.value.length > MAX_HISTORY) past.value.shift()
+  future.value = []
+}
+
+export function undo(): void {
+  const { loadConfig } = useFrameConfig()
+  if (!past.value.length) return
+  future.value.push(snapshot())
+  const prev = past.value.pop() as FrameConfig
+  loadConfig(prev)
+}
+export function redo(): void {
+  const { loadConfig } = useFrameConfig()
+  if (!future.value.length) return
+  past.value.push(snapshot())
+  const next = future.value.pop() as FrameConfig
+  loadConfig(next)
 }
 
 export function useHistory() {
   const { loadConfig } = useFrameConfig()
 
   function restore(item: HistoryItem) {
-    // 恢复时合并快照，保证缺字段时回退默认值
     loadConfig({ ...item.config })
   }
 
@@ -74,5 +103,9 @@ export function useHistory() {
     removeHistory,
     clearHistory,
     restore,
+    undo,
+    redo,
+    canUndo: () => past.value.length > 0,
+    canRedo: () => future.value.length > 0,
   }
 }

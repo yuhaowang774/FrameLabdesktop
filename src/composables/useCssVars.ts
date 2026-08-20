@@ -18,8 +18,7 @@ const VAR_MAP: CssVarMap = {
   '--font-size': (c) => `${c.fontSize}px`,
   '--text-weight': (c) => `${c.textWeight}`,
   '--text-opacity': (c) => `${c.textOpacity}`,
-  '--footer-text-color': (c) =>
-    c.theme === 'dark' ? 'rgba(255,255,255,0.95)' : 'rgba(0,0,0,0.95)',
+  '--footer-text-color': () => 'rgba(255,255,255,0.95)',
   '--logo-size': (c) => `${c.logoSize}px`,
   '--logo-opacity': (c) => `${c.logoOpacity}`,
   '--logo-display': (c) => (c.showLogo ? 'block' : 'none'),
