@@ -197,7 +197,13 @@ export function templateThumbDataUrl(config: Partial<FrameConfig>, opts: ThumbOp
 
 // ===== 真实照片渲染版缩略图（更美观，用于运行时浏览器环境）=====
 
-const DEMO_IMAGE_URL = new URL('../assets/template-demo.jpg', import.meta.url).href
+// 内置示例照片为可选资源（网页部署精简包可能不含此文件）：
+// 用 import.meta.glob 声明式可选引用，资源缺失时不参与构建，运行时自动降级为程序化 SVG
+const demoImageMods = import.meta.glob<string>('../assets/template-demo.jpg', {
+  eager: true,
+  import: 'default',
+})
+const DEMO_IMAGE_URL = demoImageMods['../assets/template-demo.jpg'] ?? ''
 // 底图降采样上限：缩略图实际显示宽度约 200~400px，1280 已足够清晰（3 倍以上超采样），
 // 同时明显降低首次渲染的解码与合成开销
 const DEMO_MAX_LONG_EDGE = 1280

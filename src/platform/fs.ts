@@ -5,19 +5,26 @@
 //   不拷贝、不上传原图。
 // 小配置键（上次打开的文件夹等）与网页版一致，直接走 localStorage
 // （Tauri WebView 的 localStorage 随应用数据目录持久化）。
-import { convertFileSrc } from '@tauri-apps/api/core'
 import { isTauri } from './env'
 import { downloadBlob } from '../core/exporter'
 import type { LibraryItem, LocalImageEntry } from '../composables/useLibrary'
+
+// Tauri API 一律惰性动态加载：网页端构建/运行不依赖 @tauri-apps/api 包
+let convertFileSrcFn: ((path: string) => string) | null = null
+
+async function ensureAssetApi(): Promise<void> {
+  if (!isTauri || convertFileSrcFn) return
+  convertFileSrcFn = (await import('@tauri-apps/api/core')).convertFileSrc
+}
 
 async function tauriInvoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
   const { invoke } = await import('@tauri-apps/api/core')
   return invoke<T>(cmd, args)
 }
 
-/** 本地磁盘路径 → WebView 可显示的 asset 协议 URL（仅桌面端调用） */
+/** 本地磁盘路径 → WebView 可显示的 asset 协议 URL（仅桌面端调用；需先 ensureAssetApi） */
 export function assetUrl(path: string): string {
-  return isTauri ? convertFileSrc(path) : path
+  return isTauri && convertFileSrcFn ? convertFileSrcFn(path) : path
 }
 
 // ===== 桌面端：图片选择与目录扫描 =====
@@ -137,6 +144,7 @@ export const LAST_FOLDER_KEY = 'framelab-last-folder'
 
 /** 桌面端：把扫描到的本地图片加入图库（只记录路径，不拷贝原图） */
 export async function addLocalEntries(entries: LocalImageEntry[]): Promise<LibraryItem[]> {
+  await ensureAssetApi()
   const { useLibrary } = await import('../composables/useLibrary')
   return useLibrary().addLocalEntries(entries)
 }

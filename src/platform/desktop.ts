@@ -1,6 +1,6 @@
 // 桌面端专属启动逻辑：原生菜单事件分发（Rust 端 emit → 此处分发到各 composable）。
-// 仅在 isTauri 为 true 时由 main.ts 动态加载，网页端不会执行。
-import { listen } from '@tauri-apps/api/event'
+// 仅在 isTauri 为 true 时由 main.ts 动态加载，网页端不会执行；
+// Tauri API 一律惰性动态加载，网页端构建不依赖 @tauri-apps/api 包。
 import { useAppState } from '../composables/useAppState'
 import { useHistory } from '../composables/useHistory'
 import { useLibrary } from '../composables/useLibrary'
@@ -14,6 +14,7 @@ import {
 } from './fs'
 
 export async function setupDesktopShell(): Promise<void> {
+  const { listen } = await import('@tauri-apps/api/event')
   const app = useAppState()
   const history = useHistory()
   const library = useLibrary()
