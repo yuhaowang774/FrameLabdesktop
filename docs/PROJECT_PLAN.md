@@ -3,7 +3,7 @@
 > 本文档是项目的**进度跟踪与规划基准**，记录已完成与未完成事务。后续所有规划、推进、验收均以此为对照参考。每完成一项须及时更新状态。
 >
 > 设计依据：[设计文档 spec](./superpowers/specs/2026-08-13-photo-frame-watermark-design.md)
-> 最近更新：2026-08-13
+> 最近更新：2026-08-31
 
 ---
 
@@ -282,3 +282,6 @@
 | 2026-08-14 | 完成阶段 10：default 变暗(canvas/exporter dim=0.7)、custom 不变暗(dim=1)；none 模式照片铺满(预览 `--frame-padding=0`/`--img-scale=100%` + 导出同步) + 叠加位置控件(居左/中/右 + 距底边滑块)；`BackgroundMode` 按模式切换辅助控件；`LayoutStyle` 无背景时 disabled |
 | 2026-08-14 | 完成阶段 12：新增 `useHistory.ts`（模块级单例 localStorage `photoFrameHistory` ≤100，深拷贝快照，保存/恢复/删除/清空）；`HistoryList.vue` 移除内联逻辑改用 `useHistory` 并加"清空"按钮；`main.ts` 启动 `loadHistory()` |
 | 2026-08-14 | 完成阶段 13：新增 `BatchProcess.vue`（ControlPanel 接入），选预设(历史记录/当前配置)+多图+回填EXIF开关+格式选择→逐张 `exportFrame` 导出下载(文件名带原图名前缀)，单张失败跳过并汇总成功/失败与失败文件名列表 |
+| 2026-08-20 | 阶段19：重构为 LrC 五区布局与三段式工作流（`5dab8b9`） |
+| 2026-08-21 | 迁移为 Tauri 2 双端应用，新增 Rust 后端与 platform 适配层（`a827075`） |
+| 2026-08-31 | 修复导入选中/相机型号/INFO 层显示，吸收网页端累积改动（`10c2b40`）；型号/EXIF/镜头/日期独立样式与自定义颜色、ColorField 统一控件、营销名映射（`fb80bc1`）；首选项分组设置页（`84a094f`）；Tauri API 惰性动态加载、示例图 glob 可选引用，platform 层与网页端构建解耦（`26c4512`） |
