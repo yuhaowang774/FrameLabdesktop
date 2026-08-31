@@ -4,9 +4,10 @@
 import { computed } from 'vue'
 import { useFrameConfig } from '../../composables/useFrameConfig'
 import { useAppState } from '../../composables/useAppState'
-import { BORDER_COLORS, FRAME_RATIOS, frameRatioOf, frameRatioKey, RANGES } from '../../core/constants'
+import { FRAME_RATIOS, frameRatioOf, frameRatioKey, RANGES } from '../../core/constants'
 import RangeSlider from '../common/RangeSlider.vue'
 import ToggleGroup from '../common/ToggleGroup.vue'
+import ColorField from '../common/ColorField.vue'
 
 const { state, patch } = useFrameConfig()
 const app = useAppState()
@@ -56,28 +57,14 @@ function onMode(v: string) {
       @update:model-value="(v: number) => patch({ borderRatio: v })"
     />
 
-    <!-- 边框颜色：预设 + 取色器 -->
+    <!-- 边框颜色：与其他颜色项统一的控件形式 -->
     <div class="color-row">
       <span class="lbl">边框颜色</span>
-      <div class="color-presets">
-        <button
-          v-for="o in BORDER_COLORS"
-          :key="o.value"
-          class="swatch"
-          :class="{ on: o.value === state.borderColor }"
-          :style="{ background: o.value }"
-          :title="o.label"
-          @click="patch({ borderColor: o.value })"
-        />
-        <label class="picker">
-          <input
-            type="color"
-            :value="state.borderColor"
-            @input="(e: Event) => patch({ borderColor: (e.target as HTMLInputElement).value })"
-          />
-          <span class="picker-box" :style="{ background: state.borderColor }" />
-        </label>
-      </div>
+      <ColorField
+        :model-value="state.borderColor"
+        :auto="false"
+        @update:model-value="(v: string | null) => patch({ borderColor: v ?? '#ffffff' })"
+      />
     </div>
 
     <!-- 边框圆角 -->
@@ -122,42 +109,5 @@ function onMode(v: string) {
   font-size: 12px;
   font-weight: 400;
   color: var(--text-dim);
-}
-.color-presets {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-.swatch {
-  width: 20px;
-  height: 20px;
-  border: 1px solid var(--border);
-  border-radius: 0;
-  cursor: pointer;
-  padding: 0;
-}
-.swatch.on {
-  outline: 1px solid var(--text);
-  outline-offset: 1px;
-}
-.picker {
-  position: relative;
-  width: 20px;
-  height: 20px;
-  cursor: pointer;
-}
-.picker input {
-  position: absolute;
-  inset: 0;
-  opacity: 0;
-  cursor: pointer;
-}
-.picker-box {
-  position: absolute;
-  inset: 0;
-  border: 1px solid var(--border);
-  border-radius: 0;
-  background-image: conic-gradient(#555 25%, #333 25% 50%, #555 50% 75%, #333 75%);
-  background-size: 6px 6px;
 }
 </style>

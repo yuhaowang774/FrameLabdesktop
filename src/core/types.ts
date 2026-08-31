@@ -122,6 +122,10 @@ export interface FrameConfig {
   dateFontSize: number | null
   dateTextWeight: number | null
   dateTextOpacity: number | null
+  // 各组独立文本颜色（null = 跟随整体自适应色，随背景明暗取黑/白）
+  exifTextColor: string | null
+  lensTextColor: string | null
+  dateTextColor: string | null
 
   distPhotoLogo: number
   distLogoText: number
@@ -134,6 +138,7 @@ export interface FrameConfig {
   cameraModelWeight: number
   cameraModelGap: number
   cameraModelOpacity: number
+  cameraModelColor: string | null
   cameraModelItalic: boolean
   cameraModelOffsetX: number
   cameraModelOffsetY: number
@@ -245,6 +250,9 @@ export const defaultFrameConfig: FrameConfig = {
   dateFontSize: null,
   dateTextWeight: null,
   dateTextOpacity: null,
+  exifTextColor: null,
+  lensTextColor: null,
+  dateTextColor: null,
 
   distPhotoLogo: 40,
   distLogoText: 15,
@@ -257,6 +265,7 @@ export const defaultFrameConfig: FrameConfig = {
   cameraModelWeight: 600,
   cameraModelGap: 8,
   cameraModelOpacity: 1,
+  cameraModelColor: null,
   cameraModelItalic: false,
   cameraModelOffsetX: 0,
   cameraModelOffsetY: 0,

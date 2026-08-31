@@ -6,9 +6,15 @@ import { drawBlurredBackground, drawVignette, drawGrain, drawWatermark, type Img
 import { resolveLogo, preloadBrandLogo } from '../composables/useLogoStore'
 import { drawInfoLayer, preloadInfoLogos } from './infoRenderer'
 import { buildSrgbICC, embedJpegICC } from './icc'
-import { hexLuminance, logoAutoColor } from './colorUtils'
+import { hexLuminance, hexToRgba, logoAutoColor } from './colorUtils'
 import { DESIGN_CONTAINER } from './constants'
-import { computeFooterLayout, type FooterLayout } from './infoLayout'
+import {
+  computeFooterLayout,
+  computeClassicLayout,
+  LENS_LINE_GAP,
+  type FooterLayout,
+} from './infoLayout'
+import { modelAlias } from './modelAlias'
 import { rotatedSize, drawRotatedCropped } from './photoEdit'
 
 export type ExportFormat = 'png' | 'jpg'
@@ -98,63 +104,37 @@ async function drawFooter(
   const lensWeight = config.lensTextWeight ?? config.textWeight
   const lensOpacity = config.lensTextOpacity ?? config.textOpacity
   const dateSize = config.dateFontSize ?? config.fontSize
-  const dateH = dateSize * unitScale
   const dateFont = config.dateFontFamily ?? config.fontFamily
   const dateWeight = config.dateTextWeight ?? config.textWeight
   const dateOpacity = config.dateTextOpacity ?? config.textOpacity
 
-  // 内容区设计尺寸（与预览 FrameContainer 的内容区坐标系一致）
-  const availW = DESIGN_CONTAINER
   // 内容区 → 画布（border-box）的像素偏移（含背景区域扩展 bgExpand）
   const ox = contentOX * unitScale
 
-  // 页脚固定水平居中；默认垂直堆叠在内容区底部：开启日期时从下往上 = 日期 / EXIF(含镜头行) / 相机型号 / Logo；
-  // 关闭日期时维持原布局（EXIF 最下）。与预览 FooterInfo.defaultPos 保持一致。
-  const baseX = availW / 2
-  const gap = 16 // 元素垂直间距（设计 px）
-  const showDate = config.showDate && !!config.dateText
-  // 镜头型号行挂在 EXIF 文本块下方，EXIF 块整体上移一行
-  const lensRow = config.showLens && config.lensText ? config.fontSize + gap : 0
   // 底部锚点 = 画布底缘（实测画布像素高换算 − padding − bgExpand，内容坐标系），INFO 落在底部留白条内
-  // （与 FooterInfo.defaultPos 一致）；最底行文本 top 再上移 overlayBottom 边距
+  // （与预览 FooterInfo 同源）；最底行文本 top 再上移 overlayBottom 边距
   const canvasBottomY = canvasHpx / unitScale - config.padding - config.bgExpand
-  const bottomEdge = canvasBottomY - config.overlayBottom
-  const baseBottom = bottomEdge - config.fontSize
-  const exifYDefault = showDate
-    ? Math.max(0, baseBottom - gap - lensRow)
-    : Math.max(0, baseBottom - lensRow)
-  const dateYDefault = baseBottom
-  const modelYDefault = Math.max(0, exifYDefault - config.fontSize - gap)
-  const logoYDefault = Math.max(0, modelYDefault - config.logoSize - gap)
-  let dExifX = config.exifX ?? baseX
-  let dExifY = config.exifY ?? exifYDefault
-  let dLogoX = config.logoX ?? baseX
-  let dLogoY = config.logoY ?? logoYDefault
-  let dModelX = config.modelX ?? baseX
-  let dModelY = config.modelY ?? modelYDefault
-  let dDateX = config.dateX ?? baseX
-  let dDateY = config.dateY ?? dateYDefault
 
-  // ===== duo（杂志双栏）/ inline（悬浮双行）：共享布局计算（与 FooterInfo.defaultPos 同源）=====
-  let duoDivider: { x: number; y: number; h: number } | null = null
-  let dLensX = 0
-  let dLensY = 0
-  let layout: FooterLayout | null = null
-  if (config.infoLayout !== 'classic') {
-    const logoRatio = logo ? sourceSize(logo).w / sourceSize(logo).h : 2.6
-    layout = computeFooterLayout(config, canvasBottomY, logoRatio)
-    dExifX = layout.exif.x
-    dExifY = layout.exif.y
-    dDateX = layout.date.x
-    dDateY = layout.date.y
-    dModelX = layout.model.x
-    dModelY = layout.model.y
-    dLogoX = layout.logo.x
-    dLogoY = layout.logo.y
-    dLensX = layout.lens.x
-    dLensY = layout.lens.y
-    duoDivider = layout.divider
-  }
+  // ===== 默认排版：与预览共用同一套共享布局计算 =====
+  // classic = 经典纵向堆叠（日期 / EXIF+镜头 / 型号 / Logo）；duo = 杂志双栏；inline = 悬浮双行。
+  // 行高与宽度测量均取各组生效样式，单独修改某组字体/字号后导出与预览保持一致。
+  const layout: FooterLayout =
+    config.infoLayout === 'duo' || config.infoLayout === 'inline'
+      ? computeFooterLayout(config, canvasBottomY, logo ? sourceSize(logo).w / sourceSize(logo).h : 2.6)
+      : computeClassicLayout(config, canvasBottomY)
+  // 手动拖拽坐标优先（与预览 absStyle 一致）：未拖拽过（null）时才用默认排版
+  let dExifX = config.exifX ?? layout.exif.x
+  let dExifY = config.exifY ?? layout.exif.y
+  let dLogoX = config.logoX ?? layout.logo.x
+  let dLogoY = config.logoY ?? layout.logo.y
+  let dModelX = config.modelX ?? layout.model.x
+  let dModelY = config.modelY ?? layout.model.y
+  let dDateX = config.dateX ?? layout.date.x
+  let dDateY = config.dateY ?? layout.date.y
+  // duo 下镜头行为独立元素（可单独拖拽）；classic 下它是 EXIF 块内附加行，跟随 EXIF 移动
+  let dLensX = config.lensX ?? layout.lens.x
+  let dLensY = config.lensY ?? layout.lens.y
+  const duoDivider = layout.divider
   const hasLensText = config.showLens && !!config.lensText
 
   // duo 分隔竖线：右栏文字左侧（浅灰，颜色随底色自适应）
@@ -177,6 +157,9 @@ async function drawFooter(
     ctx.shadowBlur = 4 * unitScale
     ctx.shadowOffsetY = 1 * unitScale
   }
+  // 各组文字颜色：用户自定义色优先（hex → rgba 并应用组透明度），否则回退自适应黑白
+  const paint = (custom: string | null, opacity: number): string =>
+    hexToRgba(custom, opacity) ?? `rgba(${themeColor},${themeColor},${themeColor},${opacity})`
 
   if (config.showLogo && logo) {
     const lw = logoH * (sourceSize(logo).w / sourceSize(logo).h)
@@ -186,15 +169,17 @@ async function drawFooter(
     ctx.drawImage(logo, ox + dLogoX * unitScale, ox + dLogoY * unitScale, lw, logoH)
     ctx.restore()
   }
-  if (config.showCameraModel && config.cameraModel) {
+  // 与预览一致：存储值可能是旧版本写入的机身代号，导出前统一翻译成营销名（映射幂等）
+  const modelText = modelAlias(config.cameraModel)
+  if (config.showCameraModel && modelText) {
     ctx.save()
-    ctx.fillStyle = `rgba(${themeColor},${themeColor},${themeColor},${config.cameraModelOpacity})`
+    ctx.fillStyle = paint(config.cameraModelColor, config.cameraModelOpacity)
     ctx.font = fontStr(config.cameraModelWeight, modelH, config.cameraModelFont, config.cameraModelItalic)
     ctx.textAlign = 'left'
     ctx.textBaseline = 'top'
     applyTextShadow()
     ctx.fillText(
-      config.cameraModel,
+      modelText,
       ox + dModelX * unitScale + config.cameraModelOffsetX * unitScale,
       ox + dModelY * unitScale + config.cameraModelOffsetY * unitScale,
     )
@@ -203,7 +188,7 @@ async function drawFooter(
   // 镜头行（duo 左栏上行，样式随 EXIF 文本组）
   if (config.infoLayout === 'duo' && hasLensText) {
     ctx.save()
-    ctx.fillStyle = `rgba(${themeColor},${themeColor},${themeColor},${lensOpacity})`
+    ctx.fillStyle = paint(config.lensTextColor, lensOpacity)
     ctx.font = fontStr(lensWeight, lensH, lensFont)
     ctx.textAlign = 'left'
     ctx.textBaseline = 'top'
@@ -213,7 +198,7 @@ async function drawFooter(
   }
   if (config.showExif && config.exifText) {
     ctx.save()
-    ctx.fillStyle = `rgba(${themeColor},${themeColor},${themeColor},${exifOpacity})`
+    ctx.fillStyle = paint(config.exifTextColor, exifOpacity)
     ctx.font = fontStr(exifWeight, exifH, exifFont)
     ctx.textAlign = 'left'
     ctx.textBaseline = 'top'
@@ -224,26 +209,36 @@ async function drawFooter(
   // 镜头型号：EXIF 文本块附加行（仅 classic 布局；duo 有独立镜头行、inline 不展示，避免与日期重叠）
   if (config.infoLayout === 'classic' && config.showExif && config.showLens && config.lensText) {
     ctx.save()
-    ctx.fillStyle = `rgba(${themeColor},${themeColor},${themeColor},${lensOpacity})`
+    ctx.fillStyle = paint(config.lensTextColor, lensOpacity)
     ctx.font = fontStr(lensWeight, lensH, lensFont)
     ctx.textAlign = 'left'
     ctx.textBaseline = 'top'
     applyTextShadow()
+    // 行距与 EXIF 生效字号：与预览 .exif-text 块内 .lens-line 的 margin-top 完全一致
     ctx.fillText(
       config.lensText,
       ox + dExifX * unitScale,
-      ox + (dExifY + config.fontSize + gap) * unitScale,
+      ox + (dExifY + exifSize + LENS_LINE_GAP) * unitScale,
     )
     ctx.restore()
   }
   // 拍摄日期：duo 下使用机型样式组（灰细小字，与样例一致）；其余布局沿用 EXIF 样式组
   if (config.showDate && config.dateText) {
-    const dateModelStyle = config.infoLayout === 'duo'
+    // duo 下日期默认沿用机型样式组（样例复刻）；只要用户改了一个独立属性，就以用户设置为准
+    const usesModelDateStyle =
+      config.infoLayout === 'duo' &&
+      config.dateFontFamily === null &&
+      config.dateFontSize === null &&
+      config.dateTextWeight === null &&
+      config.dateTextOpacity === null
+    const finalOpacity = usesModelDateStyle ? config.cameraModelOpacity : dateOpacity
+    const finalSize = usesModelDateStyle ? config.cameraModelSize : dateSize
+    const finalWeight = usesModelDateStyle ? config.cameraModelWeight : dateWeight
+    const finalFont = usesModelDateStyle ? config.cameraModelFont : dateFont
+    const finalItalic = usesModelDateStyle ? config.cameraModelItalic : false
     ctx.save()
-    ctx.fillStyle = `rgba(${themeColor},${themeColor},${themeColor},${dateModelStyle ? config.cameraModelOpacity : dateOpacity})`
-    ctx.font = dateModelStyle
-      ? fontStr(config.cameraModelWeight, modelH, config.cameraModelFont, config.cameraModelItalic)
-      : fontStr(dateWeight, dateH, dateFont)
+    ctx.fillStyle = paint(usesModelDateStyle ? config.cameraModelColor : config.dateTextColor, finalOpacity)
+    ctx.font = fontStr(finalWeight, finalSize * unitScale, finalFont, finalItalic)
     ctx.textAlign = 'left'
     ctx.textBaseline = 'top'
     applyTextShadow()
@@ -474,7 +469,7 @@ export async function exportFrame(
     ctx.scale(unitScale, unitScale)
     drawInfoLayer(ctx, config.infoLayer, {
       exifRaw: config.exifRaw,
-      model: config.cameraModel,
+      model: modelAlias(config.cameraModel),
       eqFocal: config.eqFocal,
       cropFactor: config.cropFactor,
       outerMatrix: config.infoLayer.bindTarget === 'photo' ? outerMatrix : undefined,

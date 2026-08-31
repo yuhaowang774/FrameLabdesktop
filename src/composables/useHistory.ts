@@ -126,7 +126,11 @@ const FIELD_LABELS: Record<string, string> = {
   cameraModelWeight: '型号字重',
   cameraModelGap: '型号间距',
   cameraModelOpacity: '型号透明度',
+  cameraModelColor: '型号颜色',
   cameraModelItalic: '型号斜体',
+  exifTextColor: 'EXIF 颜色',
+  lensTextColor: '镜头颜色',
+  dateTextColor: '日期颜色',
   cameraModelOffsetX: '型号偏移',
   cameraModelOffsetY: '型号偏移',
   logoX: 'Logo 位置',
@@ -315,6 +319,7 @@ export async function applyTemplateToPhotos(
     'exifFontFamily', 'exifFontSize', 'exifTextWeight', 'exifTextOpacity',
     'lensFontFamily', 'lensFontSize', 'lensTextWeight', 'lensTextOpacity',
     'dateFontFamily', 'dateFontSize', 'dateTextWeight', 'dateTextOpacity',
+    'exifTextColor', 'lensTextColor', 'dateTextColor', 'cameraModelColor',
   ])
   for (const id of photoIds) {
     await ensureChain(id)

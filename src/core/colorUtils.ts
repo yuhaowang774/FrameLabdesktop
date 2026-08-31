@@ -25,6 +25,18 @@ export function footerTextColor(bgMode: string, bgColor: string | null, opacity 
   return `rgba(255,255,255,${opacity})`
 }
 
+/** hex（#rgb/#rrggbb）→ rgba 字符串（应用 alpha）；非法输入返回 null，调用方回退自适应色 */
+export function hexToRgba(hex: string | null | undefined, alpha: number): string | null {
+  if (!hex) return null
+  let h = hex.trim().replace('#', '')
+  if (h.length === 3) h = h.split('').map((c) => c + c).join('')
+  if (h.length !== 6 || /[^0-9a-f]/i.test(h)) return null
+  const r = parseInt(h.slice(0, 2), 16)
+  const g = parseInt(h.slice(2, 4), 16)
+  const b = parseInt(h.slice(4, 6), 16)
+  return `rgba(${r},${g},${b},${alpha})`
+}
+
 /**
  * Logo 着色解析（与 footerTextColor 同一明暗判据）：
  * - 非 'auto'：用户显式指定的色值，原样返回；

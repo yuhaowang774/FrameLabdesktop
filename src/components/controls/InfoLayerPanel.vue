@@ -6,6 +6,8 @@ import { computed, ref } from 'vue'
 import { useFrameConfig } from '../../composables/useFrameConfig'
 import { BRANDS, RANGES, MAX_CUSTOM_LOGOS, CROP_FACTORS, BRAND_LOGO_COLORS } from '../../core/constants'
 import { buildExifText, formatDate, type DateFormat } from '../../composables/useExif'
+import { footerTextColor, logoAutoColor } from '../../core/colorUtils'
+import ColorField from '../common/ColorField.vue'
 import { useLogoStore, CUSTOM_PREFIX } from '../../composables/useLogoStore'
 import RangeSlider from '../common/RangeSlider.vue'
 import CollapsiblePanel from '../common/CollapsiblePanel.vue'
@@ -27,10 +29,9 @@ const customBrandOptions = computed(() =>
 
 // ===== Logo 颜色：自动 / 白 / 黑 / 品牌主色（有公认标志色的品牌才出现）/ 自定义色 =====
 const brandHex = computed(() => BRAND_LOGO_COLORS[state.brand])
-const baseColorValues = ['auto', '#ffffff', '#000000']
-const logoColorInOptions = computed(() =>
-  [...baseColorValues, ...(brandHex.value ? [brandHex.value] : [])].includes(state.logoColor),
-)
+// 「自动」态色块参考色：INFO 文字随底色自适应黑白；Logo 随底色取黑/白
+const footerColor = computed(() => footerTextColor(state.bgMode, state.bgColor, 0.95))
+const logoAutoSwatch = computed(() => logoAutoColor(state.logoColor, state.bgMode, state.bgColor))
 function refreshCustom() {
   customLogos.value = listCustomLogos()
 }
@@ -158,20 +159,12 @@ async function onDeleteCustom(id: string) {
       <RangeSlider v-model="state.logoOpacity" :min="r.logoOpacity.min" :max="r.logoOpacity.max" :step="r.logoOpacity.step" label="Logo 透明度" />
       <div class="field">
         <label>Logo 颜色</label>
-        <select v-model="state.logoColor" class="select">
-          <option value="auto">自动（随底色）</option>
-          <option value="#ffffff">白色</option>
-          <option value="#000000">黑色</option>
-          <option v-if="brandHex" :value="brandHex">品牌主色</option>
-          <option v-if="!logoColorInOptions" :value="state.logoColor">自定义</option>
-        </select>
-        <input
-          v-if="!logoColorInOptions"
-          type="color"
-          class="color-input"
-          title="自定义颜色"
-          :value="state.logoColor.startsWith('#') ? state.logoColor : '#ffffff'"
-          @input="patch({ logoColor: ($event.target as HTMLInputElement).value })"
+        <ColorField
+          :model-value="state.logoColor"
+          auto-value="auto"
+          :auto-swatch="logoAutoSwatch"
+          :extra-options="brandHex ? [{ value: brandHex, label: '品牌主色' }] : []"
+          @update:model-value="(v: string | null) => patch({ logoColor: v ?? 'auto' })"
         />
       </div>
       <!-- 自定义 Logo：上传 + 列表 -->
@@ -218,6 +211,10 @@ async function onDeleteCustom(id: string) {
         :global-size="state.fontSize"
         :global-weight="state.textWeight"
         :global-opacity="state.textOpacity"
+        :size-range="r.cameraModelSize"
+        color-field="cameraModelColor"
+        :color="state.cameraModelColor"
+        :global-color="footerColor"
         :follow-global="false"
         @patch="onStylePatch"
       />
@@ -275,6 +272,9 @@ async function onDeleteCustom(id: string) {
           :global-size="state.fontSize"
           :global-weight="state.textWeight"
           :global-opacity="state.textOpacity"
+          color-field="exifTextColor"
+          :color="state.exifTextColor"
+          :global-color="footerColor"
           :follow-global="true"
           @patch="onStylePatch"
         />
@@ -306,6 +306,9 @@ async function onDeleteCustom(id: string) {
           :global-size="state.fontSize"
           :global-weight="state.textWeight"
           :global-opacity="state.textOpacity"
+          color-field="lensTextColor"
+          :color="state.lensTextColor"
+          :global-color="footerColor"
           :follow-global="true"
           @patch="onStylePatch"
         />
@@ -347,6 +350,9 @@ async function onDeleteCustom(id: string) {
           :global-size="state.fontSize"
           :global-weight="state.textWeight"
           :global-opacity="state.textOpacity"
+          color-field="dateTextColor"
+          :color="state.dateTextColor"
+          :global-color="footerColor"
           :follow-global="true"
           @patch="onStylePatch"
         />
@@ -484,15 +490,6 @@ async function onDeleteCustom(id: string) {
   font-size: 12px;
   font-weight: 400;
   line-height: 16px;
-}
-.color-input {
-  flex: none;
-  width: 28px;
-  height: 24px;
-  padding: 0 2px;
-  border: 1px solid var(--border);
-  background: var(--panel-2);
-  cursor: pointer;
 }
 .mini-btn {
   height: 24px;

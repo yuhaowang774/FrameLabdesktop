@@ -50,14 +50,57 @@ export function measureTextWidth(text: string, font: string): number {
   return measureCtx.measureText(text).width
 }
 
-/** EXIF 样式组（参数/镜头行）的 canvas font 字符串 */
-function exifFont(cfg: FrameConfig): string {
-  return `${cfg.textWeight} ${cfg.fontSize}px ${cfg.fontFamily}`
+// ===== 经典纵向堆叠（classic）共享常量（预览与导出同源，避免两端公式漂移）=====
+export const CLASSIC_ROW_GAP = 16 // 元素垂直间距（设计 px）
+export const LENS_LINE_GAP = 6 // classic 下镜头行与 EXIF 参数行的行距（设计 px）
+
+// ===== 各组「生效样式」解析 =====
+// EXIF / 镜头 / 日期 独立字段优先，缺省（null）跟随整体 INFO 样式；
+// 型号组本就独立（无 null 回退）。
+// 关键点：布局高度与文本宽度测量必须基于「生效样式」而非硬用全局 fontSize/fontFamily，
+// 否则单独调大某组字号/换字体后，行高与宽度测量失准 → 行重叠、右缘对齐失效、预览与导出错位。
+export interface TextStyle {
+  size: number
+  font: string
+  weight: number
+  opacity: number
+}
+export function exifTextStyle(cfg: FrameConfig): TextStyle {
+  return {
+    size: cfg.exifFontSize ?? cfg.fontSize,
+    font: cfg.exifFontFamily ?? cfg.fontFamily,
+    weight: cfg.exifTextWeight ?? cfg.textWeight,
+    opacity: cfg.exifTextOpacity ?? cfg.textOpacity,
+  }
+}
+export function lensTextStyle(cfg: FrameConfig): TextStyle {
+  return {
+    size: cfg.lensFontSize ?? cfg.fontSize,
+    font: cfg.lensFontFamily ?? cfg.fontFamily,
+    weight: cfg.lensTextWeight ?? cfg.textWeight,
+    opacity: cfg.lensTextOpacity ?? cfg.textOpacity,
+  }
+}
+export function dateTextStyle(cfg: FrameConfig): TextStyle {
+  return {
+    size: cfg.dateFontSize ?? cfg.fontSize,
+    font: cfg.dateFontFamily ?? cfg.fontFamily,
+    weight: cfg.dateTextWeight ?? cfg.textWeight,
+    opacity: cfg.dateTextOpacity ?? cfg.textOpacity,
+  }
+}
+export function modelTextStyle(cfg: FrameConfig): TextStyle {
+  return {
+    size: cfg.cameraModelSize,
+    font: cfg.cameraModelFont,
+    weight: cfg.cameraModelWeight,
+    opacity: cfg.cameraModelOpacity,
+  }
 }
 
-/** 机型样式组（机型/duo 日期行）的 canvas font 字符串 */
-function modelFont(cfg: FrameConfig): string {
-  return `${cfg.cameraModelItalic ? 'italic ' : ''}${cfg.cameraModelWeight} ${cfg.cameraModelSize}px ${cfg.cameraModelFont}`
+/** 生成 canvas font 字符串（measureText / ctx.font 共用，保证测量与绘制一致） */
+export function toCanvasFont(s: TextStyle, italic = false): string {
+  return `${italic ? 'italic ' : ''}${s.weight} ${s.size}px ${s.font}`
 }
 
 /**
@@ -68,8 +111,20 @@ function modelFont(cfg: FrameConfig): string {
  */
 export function computeFooterLayout(cfg: FrameConfig, canvasBottom: number, logoRatio: number): FooterLayout {
   const center = DESIGN_CONTAINER / 2
-  const exifH = cfg.fontSize
-  const modelH = cfg.cameraModelSize
+  const exifS = exifTextStyle(cfg)
+  const lensS = lensTextStyle(cfg)
+  const modelS = modelTextStyle(cfg)
+  // duo 下日期默认沿用机型样式组（灰细小字，与样例一致）；
+  // 只要用户改了一个日期独立属性，就以该组生效样式为准（计算布局/测量宽度）。
+  const usesModelDateStyle =
+    cfg.infoLayout === 'duo' &&
+    cfg.dateFontFamily === null &&
+    cfg.dateFontSize === null &&
+    cfg.dateTextWeight === null &&
+    cfg.dateTextOpacity === null
+  const dateS = usesModelDateStyle ? modelS : dateTextStyle(cfg)
+  const exifH = exifS.size
+  const modelH = modelS.size
   const showDate = cfg.showDate && !!cfg.dateText
   const showExif = cfg.showExif && !!cfg.exifText
   const hasLens = cfg.showLens && !!cfg.lensText
@@ -78,18 +133,22 @@ export function computeFooterLayout(cfg: FrameConfig, canvasBottom: number, logo
 
   // ===== 杂志双栏（duo）：左=镜头(粗)+机型(灰细) / 中=Logo / 右栏=参数(粗)+日期(灰细)，右栏右缘对齐照片右缘 =====
   if (cfg.infoLayout === 'duo') {
-    // duo 下日期使用机型样式组（灰细小字号），与样例一致
-    const exifW = measureTextWidth(cfg.exifText, exifFont(cfg))
-    const dateW = measureTextWidth(cfg.dateText, modelFont(cfg))
+    // 宽度测量用各组生效样式：单独改 EXIF/日期字体或字号后，右缘对齐仍然准确
+    const exifW = measureTextWidth(cfg.exifText, toCanvasFont(exifS))
+    const dateFont = toCanvasFont(dateS, usesModelDateStyle ? cfg.cameraModelItalic : false)
+    const dateW = measureTextWidth(cfg.dateText, dateFont)
     const rightW = Math.max(showExif ? exifW : 0, showDate ? dateW : 0)
     const rightX = DESIGN_CONTAINER - DUO_INSET - rightW
     const dateY = bottom - modelH
     const exifY = showDate ? dateY - DUO_ROW_GAP - exifH : bottom - exifH
-    // 文字块范围（含日期行；无参数时以日期行为块）
-    const blockTop = showExif ? exifY : showDate ? dateY - modelH : bottom - modelH
-    const blockBottom = showDate ? dateY + modelH : showExif ? exifY + exifH : bottom
-    const blockH = Math.max(0, blockBottom - blockTop)
-    // 左栏：镜头行顶对齐参数行；无镜头时机型行在块内垂直居中
+    // 文字块高度：右栏（参数+日期）与左栏（镜头+机型）取较高者。
+    // 任一组字号被单独调大时块同步增高，避免两栏内部行重叠。
+    const rightH =
+      (showExif ? exifH : 0) + (showExif && showDate ? DUO_ROW_GAP : 0) + (showDate ? modelH : 0)
+    const leftH = (hasLens ? lensS.size + DUO_ROW_GAP : 0) + modelH
+    const blockH = Math.max(0, Math.max(rightH, leftH))
+    const blockTop = bottom - blockH
+    // 左栏：镜头行顶对齐块顶；无镜头时机型行在块内垂直居中
     const modelY = hasLens ? dateY : blockTop + (blockH - modelH) / 2
     const dividerX = rightX - DUO_DIVIDER_GAP
     const logoX = dividerX - DUO_LOGO_GAP - logoW
@@ -111,16 +170,49 @@ export function computeFooterLayout(cfg: FrameConfig, canvasBottom: number, logo
   const exifY = bottom - exifH
   const row1H = Math.max(cfg.logoSize, modelH)
   const row1Y = exifY - INLINE_ROW_GAP - row1H
-  const modelW = measureTextWidth(cfg.cameraModel, modelFont(cfg))
+  const modelW = measureTextWidth(cfg.cameraModel, toCanvasFont(modelS, cfg.cameraModelItalic))
   const showModel = cfg.showCameraModel && !!cfg.cameraModel
   const groupW = showModel ? logoW + INLINE_LOGO_GAP + modelW : logoW
   const logoX = center - groupW / 2
   return {
-    exif: { x: center - measureTextWidth(cfg.exifText, exifFont(cfg)) / 2, y: exifY },
+    exif: { x: center - measureTextWidth(cfg.exifText, toCanvasFont(exifS)) / 2, y: exifY },
     date: { x: center, y: exifY },
     model: { x: logoX + logoW + INLINE_LOGO_GAP, y: row1Y + (row1H - modelH) / 2 },
     lens: { x: center, y: row1Y },
     logo: { x: logoX, y: row1Y },
+    divider: null,
+  }
+}
+
+/**
+ * 计算经典纵向堆叠（classic）的默认排版：从下往上 = 日期 / EXIF(含镜头行) / 相机型号 / Logo。
+ * 与 computeFooterLayout 同源，预览（FooterInfo）与导出（exporter）共用，避免两端公式漂移。
+ * 各行高度取各组生效字号（独立 ?? 整体），单独调大某组字号时整块自动上移，不会与相邻行重叠。
+ * @param cfg 相框配置
+ * @param canvasBottom 画布底缘（内容区坐标系 y 值）
+ */
+export function computeClassicLayout(cfg: FrameConfig, canvasBottom: number): FooterLayout {
+  const center = DESIGN_CONTAINER / 2
+  const exifS = exifTextStyle(cfg)
+  const lensS = lensTextStyle(cfg)
+  const dateS = dateTextStyle(cfg)
+  const modelS = modelTextStyle(cfg)
+  const showDate = cfg.showDate && !!cfg.dateText
+  const hasLens = cfg.showLens && !!cfg.lensText
+  // EXIF 块高 = EXIF 行 +（镜头行 + 固定行距）；镜头行是块内附加行，不参与独立拖拽
+  const exifBlockH = hasLens ? exifS.size + LENS_LINE_GAP + lensS.size : exifS.size
+  const bottomEdge = canvasBottom - cfg.overlayBottom
+  const dateY = Math.max(0, bottomEdge - dateS.size)
+  const exifBottom = showDate ? dateY - CLASSIC_ROW_GAP : bottomEdge
+  const exifY = Math.max(0, exifBottom - exifBlockH)
+  const modelY = Math.max(0, exifY - CLASSIC_ROW_GAP - modelS.size)
+  const logoY = Math.max(0, modelY - CLASSIC_ROW_GAP - cfg.logoSize)
+  return {
+    exif: { x: center, y: exifY },
+    date: { x: center, y: dateY },
+    model: { x: center, y: modelY },
+    lens: { x: center, y: exifY + exifS.size + LENS_LINE_GAP },
+    logo: { x: center, y: logoY },
     divider: null,
   }
 }

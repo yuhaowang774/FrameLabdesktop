@@ -4,27 +4,38 @@
 // 用户一旦改动即写入该组独立值；提供「↺ 跟随整体」一键清除独立覆盖。
 import { computed } from 'vue'
 import { RANGES } from '../../core/constants'
-import { previewFont } from '../../composables/useCssVars'
+import { previewFont, previewFontField } from '../../composables/useCssVars'
 import RangeSlider from '../common/RangeSlider.vue'
 import FontSelect from '../common/FontSelect.vue'
+import ColorField from './ColorField.vue'
 
-const props = defineProps<{
-  label: string
-  fontField: string
-  sizeField: string
-  weightField: string
-  opacityField: string
-  font: string | null
-  size: number | null
-  weight: number | null
-  opacity: number | null
-  globalFont: string
-  globalSize: number
-  globalWeight: number
-  globalOpacity: number
-  /** 是否允许「跟随整体」回退（型号等本就独立的项传 false） */
-  followGlobal?: boolean
-}>()
+const props = withDefaults(
+  defineProps<{
+    label: string
+    fontField: string
+    sizeField: string
+    weightField: string
+    opacityField: string
+    font: string | null
+    size: number | null
+    weight: number | null
+    opacity: number | null
+    globalFont: string
+    globalSize: number
+    globalWeight: number
+    globalOpacity: number
+    /** 是否允许「跟随整体」回退（型号等本就独立的项传 false） */
+    followGlobal?: boolean
+    /** 字号滑块范围：默认整体字号范围；型号等有独立范围的组传入各自的 RANGES */
+    sizeRange?: { min: number; max: number; step: number }
+    /** 独立颜色字段名与当前值（null = 自动随底色） */
+    colorField: string
+    color: string | null
+    /** 「自动」态色块显示的参考色（整体自适应色） */
+    globalColor?: string
+  }>(),
+  { sizeRange: () => RANGES.fontSize },
+)
 const emit = defineEmits<{ (e: 'patch', v: Record<string, unknown>): void }>()
 
 const r = RANGES
@@ -38,6 +49,8 @@ const isFollowing = computed(
 
 function applyFontPreview(v: string | null) {
   previewFont.value = v
+  // 记录预览归属：让画板上只有本组文字跟随预览，不串到 EXIF / 日期 / 整体
+  previewFontField.value = v ? props.fontField : null
 }
 function setFont(v: string) {
   emit('patch', { [props.fontField]: v })
@@ -50,6 +63,11 @@ function setWeight(v: number) {
 }
 function setOpacity(v: number) {
   emit('patch', { [props.opacityField]: v })
+}
+
+// 颜色：「自动」写 null（跟随整体自适应色），其余写入具体 hex（交互统一在 ColorField）
+function onColor(v: string | null) {
+  emit('patch', { [props.colorField]: v })
 }
 function reset() {
   emit('patch', {
@@ -82,9 +100,9 @@ function reset() {
     </div>
     <RangeSlider
       :model-value="effSize"
-      :min="r.fontSize.min"
-      :max="r.fontSize.max"
-      :step="r.fontSize.step"
+      :min="sizeRange.min"
+      :max="sizeRange.max"
+      :step="sizeRange.step"
       label="字号"
       @update:model-value="setSize"
     />
@@ -104,6 +122,15 @@ function reset() {
       label="透明度"
       @update:model-value="setOpacity"
     />
+    <div class="field">
+      <label>颜色</label>
+      <ColorField
+        :model-value="color"
+        :auto-value="null"
+        :auto-swatch="globalColor"
+        @update:model-value="onColor"
+      />
+    </div>
   </div>
 </template>
 

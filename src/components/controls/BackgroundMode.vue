@@ -7,6 +7,7 @@ import { useFrameConfig } from '../../composables/useFrameConfig'
 import { BG_MODES, RANGES } from '../../core/constants'
 import ToggleGroup from '../common/ToggleGroup.vue'
 import RangeSlider from '../common/RangeSlider.vue'
+import ColorField from '../common/ColorField.vue'
 import { isTauri } from '../../platform/env'
 
 const { state, patch } = useFrameConfig()
@@ -114,10 +115,10 @@ function pickCustom() {
     <template v-else-if="state.bgMode === 'solid'">
       <div class="color-row">
         <label>背景颜色</label>
-        <input
-          type="color"
-          :value="state.bgColor"
-          @input="(e: Event) => patch({ bgColor: (e.target as HTMLInputElement).value })"
+        <ColorField
+          :model-value="state.bgColor"
+          :auto="false"
+          @update:model-value="(v: string | null) => patch({ bgColor: v ?? '#ffffff' })"
         />
       </div>
     </template>

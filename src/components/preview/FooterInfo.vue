@@ -6,8 +6,14 @@ import { useAppState } from '../../composables/useAppState'
 import { useViewer } from '../../composables/useViewer'
 import { resolveLogoDataURL, resolveLogo } from '../../composables/useLogoStore'
 import { DESIGN_CONTAINER } from '../../core/constants'
-import { computeFooterLayout, type FooterLayout } from '../../core/infoLayout'
+import {
+  computeFooterLayout,
+  computeClassicLayout,
+  LENS_LINE_GAP,
+  type FooterLayout,
+} from '../../core/infoLayout'
 import { logoAutoColor } from '../../core/colorUtils'
+import { modelAlias } from '../../core/modelAlias'
 
 type ItemKey = 'logo' | 'model' | 'exif' | 'date' | 'lens'
 
@@ -22,6 +28,18 @@ const logoColor = computed(() => logoAutoColor(state.logoColor, state.bgMode, st
 const infoEditing = computed(() => useAppState().state.rightPanels.info)
 
 const brandName = computed(() => state.brand)
+
+// 画板显示的相机型号：存储值可能是旧版本写入的机身代号（ILCE-6000 / FC3682），
+// 这里统一翻译成营销名（α6000 / DJI Mini 3）。映射幂等，已是营销名的值不会被二次改写。
+const modelText = computed(() => modelAlias(state.cameraModel))
+
+// 型号偏移：仅 classic 布局叠加 -50% 实现水平居中（x 是内容区中点）；
+// duo/inline 的 x 已由共享布局按左缘/行内位置精确计算，再叠 -50% 会把型号推出画板左缘。
+const modelTransform = computed(() =>
+  state.infoLayout === 'classic'
+    ? 'translate(calc(-50% + var(--camera-model-offset-x)), var(--camera-model-offset-y))'
+    : 'translate(var(--camera-model-offset-x), var(--camera-model-offset-y))',
+)
 
 // Logo 由 useLogoStore 渲染内置品牌官方 SVG / 自定义 Logo
 const logoSrc = computed(() =>
@@ -265,39 +283,22 @@ onMounted(() => {
 })
 onBeforeUnmount(() => { _ro?.disconnect(); _ro = null })
 
-// 每项默认垂直堆叠在内容区底部（与 exporter.ts 同步）：
-// 开启日期时从下往上 = 日期 / EXIF / 相机型号 / Logo；关闭日期时维持原布局（EXIF 最下）。
+// 每项默认位置：全部由共享布局模块计算（与 exporter.ts 同源）。
+// 行高与文本宽度均取各组「生效样式」（独立 ?? 整体），单独修改某组字体/字号后排版自动跟随，
+// 不会出现行重叠或右缘对齐失效。
 function defaultPos(key: ItemKey): { x: number; y: number } {
-  const gap = 16
-  const showDate = state.showDate && state.dateText
-  // 镜头型号行挂在 EXIF 文本块下方，EXIF 块整体上移一行（与 exporter 布局规则一致）
-  const lensRow = state.showLens && state.lensText ? state.fontSize + gap : 0
   // 底部锚点 = 画布底缘（实测画板高 − padding − bgExpand，内容坐标系），INFO 落在底部留白条内
   // 而非压在照片下缘；最底行文本 top 再上移 overlayBottom 边距。
   // 注意：不能用 contentH（= canvasH − 2pad − borderRatio，含对称 bgExpand 与下边加宽），会双重计算溢出。
   const canvasBottom = frameContainerH.value > 0
     ? frameContainerH.value - pad.value - bgExpand.value
     : contentH.value
-  // ===== duo（杂志双栏）/ inline（悬浮双行）：共享布局计算（与 exporter.ts 同源）=====
-  if (state.infoLayout === 'duo' || state.infoLayout === 'inline') {
-    const L: FooterLayout = computeFooterLayout(state, canvasBottom, logoRatio.value)
-    return L[key]
-  }
-  const bottomEdge = canvasBottom - state.overlayBottom
-  const baseBottom = bottomEdge - state.fontSize
-  // ===== 经典纵向堆叠 =====
-  const exifY = showDate
-    ? Math.max(0, baseBottom - gap - lensRow)
-    : Math.max(0, baseBottom - lensRow)
-  const dateY = baseBottom
-  const modelY = Math.max(0, exifY - state.fontSize - gap)
-  const logoY = Math.max(0, modelY - state.logoSize - gap)
-  // 水平居中（内容区坐标系）：DESIGN_CONTAINER/2
-  const x = DESIGN_CONTAINER / 2
-  if (key === 'exif') return { x, y: exifY }
-  if (key === 'date') return { x, y: dateY }
-  if (key === 'model') return { x, y: modelY }
-  return { x, y: logoY }
+  // classic = 经典纵向堆叠；duo = 杂志双栏；inline = 悬浮双行
+  const L: FooterLayout =
+    state.infoLayout === 'duo' || state.infoLayout === 'inline'
+      ? computeFooterLayout(state, canvasBottom, logoRatio.value)
+      : computeClassicLayout(state, canvasBottom)
+  return L[key]
 }
 
 // duo 双栏分隔竖线：右栏文字左侧浅灰线（与 exporter 一致，几何来自共享布局计算）
@@ -317,14 +318,28 @@ const duoDividerStyle = computed(() => {
   }
 })
 
-// duo 布局下日期使用机型样式组（灰细小字，与样例一致）；classic/inline 沿用 EXIF 样式组
-const dateFontStyle = computed(() =>
-  state.infoLayout === 'duo'
-    ? 'var(--camera-model-italic) var(--camera-model-weight) var(--camera-model-size)/1 var(--camera-model-font-family)'
-    : 'var(--date-text-weight) var(--date-font-size)/1 var(--date-font-family)',
+// duo 布局下日期默认沿用机型样式组（灰细小字，与样例一致）；
+// 但用户在「日期样式」里显式改了任一属性后，以用户的独立设置为准。
+// 这样既保留样例复刻效果，又保证单独调日期字号/粗细/透明度时立即生效。
+const usesModelDateStyle = computed(() =>
+  state.infoLayout === 'duo' &&
+  state.dateFontFamily === null &&
+  state.dateFontSize === null &&
+  state.dateTextWeight === null &&
+  state.dateTextOpacity === null,
 )
+const dateFontStyle = computed(() => {
+  if (!usesModelDateStyle.value) {
+    return 'var(--date-text-weight) var(--date-font-size)/1 var(--date-font-family)'
+  }
+  return 'var(--camera-model-italic) var(--camera-model-weight) var(--camera-model-size)/1 var(--camera-model-font-family)'
+})
 const dateOpacityStyle = computed(() =>
-  state.infoLayout === 'duo' ? 'var(--camera-model-opacity)' : 'var(--date-text-opacity)',
+  usesModelDateStyle.value ? 'var(--camera-model-opacity)' : 'var(--date-text-opacity)',
+)
+// duo 下日期颜色同样逐属性回退：完全跟随机型时用机型颜色，否则用日期独立色（?? 自适应色）
+const dateColorStyle = computed(() =>
+  usesModelDateStyle.value ? 'var(--camera-model-color)' : 'var(--date-text-color)',
 )
 // 深色背景（模糊/照片填充）下文字加柔和投影，增强可读性（与导出端阴影一致）
 const infoTextShadow = computed(() =>
@@ -340,10 +355,15 @@ function absStyle(key: ItemKey) {
     x = d.x
     y = d.y
   }
+  // classic 布局的文本元素（型号 / EXIF / 日期）默认 x 是内容区中点，
+  // 需要向左平移 50% 才能真正居中；duo/inline 的 x 已由共享布局按左/右缘或中点算好，
+  // 这里不能再做 -50% 偏移。
+  const textKeysInClassic = new Set<ItemKey>(['model', 'exif', 'date', 'lens'])
+  const centerShiftX = state.infoLayout === 'classic' && textKeysInClassic.has(key)
   return {
     left: pad.value + bgExpand.value + x + 'px',
     top: pad.value + bgExpand.value + y + 'px',
-    transform: 'none',
+    transform: centerShiftX ? 'translate(-50%, 0)' : 'none',
   }
 }
 </script>
@@ -377,13 +397,13 @@ function absStyle(key: ItemKey) {
           display: 'var(--camera-model-display)',
           font: 'var(--camera-model-italic) var(--camera-model-weight) var(--camera-model-size)/1 var(--camera-model-font-family)',
           opacity: 'var(--camera-model-opacity)',
-          color: 'var(--footer-text-color)',
+          color: 'var(--camera-model-color)',
           textShadow: infoTextShadow,
-          transform: 'translate(var(--camera-model-offset-x), var(--camera-model-offset-y))',
+          transform: modelTransform,
         },
       ]"
       @pointerdown="onPointerDown($event, 'model')"
-      >{{ state.cameraModel }}</span
+      >{{ modelText }}</span
     >
     <div
       class="exif-text drag-item"
@@ -396,7 +416,7 @@ function absStyle(key: ItemKey) {
           display: 'var(--exif-display)',
           font: 'var(--exif-text-weight) var(--exif-font-size)/1 var(--exif-font-family)',
           opacity: 'var(--exif-text-opacity)',
-          color: 'var(--footer-text-color)',
+          color: 'var(--exif-text-color)',
           textShadow: infoTextShadow,
         },
       ]"
@@ -406,7 +426,12 @@ function absStyle(key: ItemKey) {
       <span
         v-if="state.showLens && state.lensText && state.infoLayout === 'classic'"
         class="lens-line"
-        :style="{ font: 'var(--lens-text-weight) var(--lens-font-size)/1 var(--lens-font-family)', opacity: 'var(--lens-text-opacity)' }"
+        :style="{
+          font: 'var(--lens-text-weight) var(--lens-font-size)/1 var(--lens-font-family)',
+          opacity: 'var(--lens-text-opacity)',
+          color: 'var(--lens-text-color)',
+          marginTop: LENS_LINE_GAP + 'px',
+        }"
         >{{ state.lensText }}</span>
     </div>
 
@@ -421,7 +446,7 @@ function absStyle(key: ItemKey) {
         {
           font: 'var(--lens-text-weight) var(--lens-font-size)/1 var(--lens-font-family)',
           opacity: 'var(--lens-text-opacity)',
-          color: 'var(--footer-text-color)',
+          color: 'var(--lens-text-color)',
           textShadow: infoTextShadow,
         },
       ]"
@@ -442,7 +467,7 @@ function absStyle(key: ItemKey) {
           display: 'var(--date-display)',
           font: dateFontStyle,
           opacity: dateOpacityStyle,
-          color: 'var(--footer-text-color)',
+          color: dateColorStyle,
           textShadow: infoTextShadow,
         },
       ]"
@@ -522,9 +547,7 @@ function absStyle(key: ItemKey) {
 .exif-text .lens-line {
   display: block;
 }
-.exif-text .lens-line {
-  margin-top: 6px;
-}
+/* 镜头行距由 LENS_LINE_GAP 内联绑定（与导出端同一常量），此处不再硬编码 */
 .date-text {
   color: var(--footer-text-color);
   white-space: nowrap;

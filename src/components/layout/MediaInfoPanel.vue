@@ -4,6 +4,7 @@
 import { computed } from 'vue'
 import { useLibrary } from '../../composables/useLibrary'
 import { cleanLens } from '../../composables/useExif'
+import { modelAlias } from '../../core/modelAlias'
 
 const library = useLibrary()
 
@@ -66,7 +67,8 @@ const fileRows = computed(() => [
 ])
 const exifExplicit = computed(() => [
   { label: '相机品牌', value: exif.value?.make ?? '' },
-  { label: '相机型号', value: exif.value?.model ?? '' },
+  // 型号显示营销名（ILCE-6000 → α6000、FC3682 → DJI Mini 3）；已是营销名的原样显示
+  { label: '相机型号', value: exif.value?.model ? modelAlias(exif.value.model) : '' },
   { label: '焦距', value: focal.value },
   { label: '等效焦距', value: focal35.value },
   { label: '光圈', value: aperture.value },

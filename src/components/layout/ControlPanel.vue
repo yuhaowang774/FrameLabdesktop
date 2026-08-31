@@ -77,6 +77,7 @@ const DEFAULT = {
   exifFontFamily: null, exifFontSize: null, exifTextWeight: null, exifTextOpacity: null,
   lensFontFamily: null, lensFontSize: null, lensTextWeight: null, lensTextOpacity: null,
   dateFontFamily: null, dateFontSize: null, dateTextWeight: null, dateTextOpacity: null,
+  exifTextColor: null, lensTextColor: null, dateTextColor: null, cameraModelColor: null,
 }
 function resetPhoto() { patch({
   shadow: DEFAULT.shadow, photoRadius: DEFAULT.photoRadius,
@@ -108,6 +109,8 @@ function resetInfo() { patch({
   lensTextWeight: DEFAULT.lensTextWeight, lensTextOpacity: DEFAULT.lensTextOpacity,
   dateFontFamily: DEFAULT.dateFontFamily, dateFontSize: DEFAULT.dateFontSize,
   dateTextWeight: DEFAULT.dateTextWeight, dateTextOpacity: DEFAULT.dateTextOpacity,
+  exifTextColor: DEFAULT.exifTextColor, lensTextColor: DEFAULT.lensTextColor,
+  dateTextColor: DEFAULT.dateTextColor, cameraModelColor: DEFAULT.cameraModelColor,
   overlayBottom: DEFAULT.overlayBottom, distLogoText: DEFAULT.distLogoText,
   // 页脚坐标一并复位为 null（回自动布局），否则旧物化坐标会让复位后布局仍偏移
   logoX: null, logoY: null, modelX: null, modelY: null,

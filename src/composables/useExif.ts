@@ -1,6 +1,7 @@
 // EXIF 识别：用 exifr 读取 焦距/光圈/快门/ISO/品牌/机型/镜头，拼接为 "Xmm f/X 1/Xs ISOX"
 import exifr from 'exifr'
 import { EXIF_MAKE_TO_BRAND } from '../core/constants'
+import { modelAlias } from '../core/modelAlias'
 
 export interface ExifParseResult {
   text: string
@@ -180,7 +181,9 @@ export async function parseExif(source: File | Blob | ArrayBuffer | string): Pro
   const iso = typeof data.ISO === 'number' ? data.ISO : undefined
   const make = typeof data.Make === 'string' ? data.Make : undefined
   const rawModel = typeof data.Model === 'string' ? data.Model : undefined
-  const model = rawModel ? cleanModel(rawModel, make) : undefined
+  // cleanModel 去掉重复的 Make 前缀（"SONY ILCE-7RM5" → "ILCE-7RM5"），
+  // modelAlias 再把机身代号翻译成营销名（ILCE-7RM5 → α7R V、FC3682 → DJI Mini 3）
+  const model = rawModel ? modelAlias(cleanModel(rawModel, make)) : undefined
   const brandId = matchBrand(make)
   const dateTimeOriginal = dateToExifString(data.DateTimeOriginal)
   const lensMake = typeof data.LensMake === 'string' ? data.LensMake : undefined

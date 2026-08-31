@@ -59,6 +59,11 @@ function apply(t: { id: string }) {
   const lensText = state.lensText || (raw ? cleanLens(raw.lensMake, raw.lensModel) ?? '' : '')
   // 模板不覆盖当前照片/变换/自身EXIF信息（与批量应用 keep 集合语义一致）；其余装饰参数整体按模板重置 → 右栏参数随之更新
   loadConfig({
+    ...found.config,
+    // ===== 以下为「照片自身内容 / 用户设置」，必须写在 ...found.config 之后 =====
+    // 顺序很重要：历史自定义模板（toTemplateConfig 全量保存）会带上保存时那张照片的
+    // 型号/EXIF 文本/品牌，若写在模板配置之前会被反向覆盖，
+    // 导致应用模板后相机型号变成模板里的值（甚至空），看起来像「模板下型号不显示」。
     photoSrc: state.photoSrc,
     photoX: state.photoX,
     photoY: state.photoY,
@@ -87,7 +92,10 @@ function apply(t: { id: string }) {
     dateFontSize: state.dateFontSize,
     dateTextWeight: state.dateTextWeight,
     dateTextOpacity: state.dateTextOpacity,
-    ...found.config,
+    exifTextColor: state.exifTextColor,
+    lensTextColor: state.lensTextColor,
+    dateTextColor: state.dateTextColor,
+    cameraModelColor: state.cameraModelColor,
   })
   // 展开右栏「背景 / 边框」面板，方便查看模板参数并继续微调
   app.state.rightOpen = true

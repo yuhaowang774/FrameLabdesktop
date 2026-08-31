@@ -48,9 +48,11 @@ const BUILTIN: FrameTemplate[] = [
       logoSize: 20,
       logoOpacity: 1,
       showCameraModel: true,
-      cameraModelSize: 17,
+      // 样例实测机型行为 17px/#777 灰细小字；直接复刻后在深色区域几乎看不清，
+      // 故微调为 18px / 0.75 —— 仍比参数行小且淡，但能看清（duo 下日期沿用此样式组）
+      cameraModelSize: 18,
       cameraModelWeight: 400,
-      cameraModelOpacity: 0.55,
+      cameraModelOpacity: 0.75,
       showExif: true,
       showLens: true,
       showDate: true,
@@ -133,7 +135,12 @@ function makeId(): string {
   return `tpl_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`
 }
 
-/** 仅导出与装饰相关的字段（排除主图与位置/变换，避免污染） */
+/**
+ * 仅导出与装饰/排版相关的字段：排除主图与位置/变换，
+ * 并剔除当前照片的 EXIF 内容（型号 / EXIF 文本 / 日期 / 镜头 / 品牌）。
+ * 后者属于每张照片自身数据，存进模板会把 A 照片的型号带到 B 照片上。
+ * 显示开关（showXxx）属于模板设计的一部分，正常保留。
+ */
 function toTemplateConfig(cfg: FrameConfig): Partial<FrameConfig> {
   const { photoSrc, photoX, photoY, photoRotation, photoCrop, bgScale, bgOffsetX, bgOffsetY, ...rest } = cfg
   void photoSrc
@@ -144,7 +151,23 @@ function toTemplateConfig(cfg: FrameConfig): Partial<FrameConfig> {
   void bgScale
   void bgOffsetX
   void bgOffsetY
-  return { ...rest }
+  // 照片自身内容：不进模板
+  const {
+    cameraModel,
+    exifText,
+    exifRaw,
+    dateText,
+    lensText,
+    brand,
+    ...tpl
+  } = rest
+  void cameraModel
+  void exifText
+  void exifRaw
+  void dateText
+  void lensText
+  void brand
+  return { ...tpl }
 }
 
 export function useTemplates() {

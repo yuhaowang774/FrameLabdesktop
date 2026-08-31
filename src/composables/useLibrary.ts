@@ -211,9 +211,19 @@ export function useLibrary() {
         exifRaw: exif.raw,
         dateText: formatDate(exif.raw.dateTimeOriginal, state.dateFormat),
       }
-      if (exif.model) data.cameraModel = exif.model
+      // 导入照片并解析到对应字段后，自动打开画板上的 INFO 元素显示开关。
+      // 之前用户反馈「相机型号显示有问题」，常见情况就是解析到了型号但画板未显示。
+      if (exif.model) {
+        data.cameraModel = exif.model
+        data.showCameraModel = true
+      }
       if (exif.brandId) data.brand = exif.brandId
-      if (exif.lens) data.lensText = exif.lens
+      if (exif.lens) {
+        data.lensText = exif.lens
+        data.showLens = true
+      }
+      if (text) data.showExif = true
+      if (data.dateText) data.showDate = true
       patch(data)
       return exif
     } catch {

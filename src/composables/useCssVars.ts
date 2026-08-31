@@ -9,6 +9,17 @@ import { footerTextColor } from '../core/colorUtils'
  * 走独立的 ref 而非 frameConfig，避免污染撤销历史、也不改真实值。
  */
 export const previewFont = ref<string | null>(null)
+/**
+ * 当前正在悬停预览的「目标字体字段」（如 'lensFontFamily'）；null = 无预览。
+ * 必须记录目标字段：否则悬停任一组的字体下拉，画板上所有 INFO 文字都会跟着一起变
+ * （如悬停「镜头型号」的字体，EXIF 文字也同时变）。
+ */
+export const previewFontField = ref<string | null>(null)
+
+/** 仅当悬停的正是本组时才返回预览字体，避免预览串组 */
+function previewOf(field: string): string | null {
+  return previewFontField.value === field ? previewFont.value : null
+}
 
 type CssVarMap = Record<string, (c: FrameConfig) => string>
 
@@ -40,8 +51,8 @@ const VAR_MAP: CssVarMap = {
     return `${noFrame ? c.photoRadius : Math.max(0, c.borderRadius - c.padding)}px`
   },
   '--img-radius': (c) => `${c.photoRadius}px`,
-  // INFO 字体：优先使用悬停预览字体（previewFont），无预览时回退真实设置
-  '--font-family': (c) => previewFont.value || c.fontFamily,
+  // 整体 INFO 字体：不受某一组字体下拉的悬停预览影响（预览只作用于被悬停的那一组）
+  '--font-family': (c) => c.fontFamily,
   '--font-size': (c) => `${c.fontSize}px`,
   '--text-weight': (c) => `${c.textWeight}`,
   '--text-opacity': (c) => `${c.textOpacity}`,
@@ -56,25 +67,30 @@ const VAR_MAP: CssVarMap = {
   '--camera-model-opacity': (c) => `${c.cameraModelOpacity}`,
   '--camera-model-italic': (c) => (c.cameraModelItalic ? 'italic' : 'normal'),
   '--camera-model-display': (c) => (c.showCameraModel ? 'block' : 'none'),
-  '--camera-model-font-family': (c) => c.cameraModelFont,
+  '--camera-model-font-family': (c) => previewOf('cameraModelFont') ?? c.cameraModelFont,
   '--camera-model-offset-x': (c) => `${c.cameraModelOffsetX}px`,
   '--camera-model-offset-y': (c) => `${c.cameraModelOffsetY}px`,
   '--exif-display': (c) => (c.showExif ? 'block' : 'none'),
   '--date-display': (c) => (c.showDate && c.dateText ? 'block' : 'none'),
-  // EXIF / 镜头 / 日期 独立文本样式：独立字段优先，缺省（null）跟随整体 INFO 样式；
-  // 字体项额外叠加 hover 预览（previewFont）覆盖，保证「字体下拉悬停时画板 INFO 跟随」。
-  '--exif-font-family': (c) => c.exifFontFamily ?? (previewFont.value || c.fontFamily),
+  // EXIF / 镜头 / 日期 独立文本样式：独立字段优先，缺省（null）跟随整体 INFO 样式。
+  // 字体项叠加 hover 预览，但仅当悬停的正是本组时才生效，保证「悬停镜头字体时只有镜头文字变」。
+  '--exif-font-family': (c) => previewOf('exifFontFamily') ?? c.exifFontFamily ?? c.fontFamily,
   '--exif-font-size': (c) => `${(c.exifFontSize ?? c.fontSize)}px`,
   '--exif-text-weight': (c) => `${c.exifTextWeight ?? c.textWeight}`,
   '--exif-text-opacity': (c) => `${c.exifTextOpacity ?? c.textOpacity}`,
-  '--lens-font-family': (c) => c.lensFontFamily ?? (previewFont.value || c.fontFamily),
+  '--lens-font-family': (c) => previewOf('lensFontFamily') ?? c.lensFontFamily ?? c.fontFamily,
   '--lens-font-size': (c) => `${(c.lensFontSize ?? c.fontSize)}px`,
   '--lens-text-weight': (c) => `${c.lensTextWeight ?? c.textWeight}`,
   '--lens-text-opacity': (c) => `${c.lensTextOpacity ?? c.textOpacity}`,
-  '--date-font-family': (c) => c.dateFontFamily ?? (previewFont.value || c.fontFamily),
+  '--date-font-family': (c) => previewOf('dateFontFamily') ?? c.dateFontFamily ?? c.fontFamily,
   '--date-font-size': (c) => `${(c.dateFontSize ?? c.fontSize)}px`,
   '--date-text-weight': (c) => `${c.dateTextWeight ?? c.textWeight}`,
   '--date-text-opacity': (c) => `${c.dateTextOpacity ?? c.textOpacity}`,
+  // 各组独立文本颜色：独立字段优先，缺省（null）跟随整体自适应色（随背景明暗取黑/白）
+  '--exif-text-color': (c) => c.exifTextColor ?? footerTextColor(c.bgMode, c.bgColor, 0.95),
+  '--lens-text-color': (c) => c.lensTextColor ?? footerTextColor(c.bgMode, c.bgColor, 0.95),
+  '--date-text-color': (c) => c.dateTextColor ?? footerTextColor(c.bgMode, c.bgColor, 0.95),
+  '--camera-model-color': (c) => c.cameraModelColor ?? footerTextColor(c.bgMode, c.bgColor, 0.95),
 }
 
 // 上次写入的变量值：patch 高频触发（滑块 input 每秒可达 60~120 次）时，
@@ -108,8 +124,8 @@ export function useCssVars(getConfig: () => FrameConfig) {
     { deep: true, flush: 'sync' },
   )
 
-  // 悬停预览字体变化：仅重算并写入 --font-family（差分写入，其余不变）
-  const stopPreview = watch(previewFont, () => applyVars(getConfig(), root))
+  // 悬停预览变化（字体值或目标字段任一变化）：重算变量（差分写入，未变化的变量不写）
+  const stopPreview = watch([previewFont, previewFontField], () => applyVars(getConfig(), root))
 
   return {
     stop: () => {
