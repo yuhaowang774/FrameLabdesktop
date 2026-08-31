@@ -247,6 +247,86 @@ async function drawFooter(
   }
 }
 
+// ===== 导出画布度量（纯计算，无 DOM）：导出与任务卡预估共用同一公式 =====
+export interface ExportMetrics {
+  canvasW: number
+  canvasH: number
+  designCanvasH: number
+  unitScale: number
+  photoW: number
+  photoH: number
+  displayW: number
+  displayH: number
+  photoDesignW: number
+  photoDesignH: number
+  designContentH: number
+  availW: number
+  bgExpand: number
+  bgBottomExpand: number
+  effectivePad: number
+  effectivePadBottom: number
+}
+
+/** 依据源图尺寸与配置计算导出画布全部度量（exportFrame 内部与预估同源） */
+export function computeExportMetrics(
+  srcW: number,
+  srcH: number,
+  config: FrameConfig,
+  supersample: number,
+): ExportMetrics {
+  const ss = supersample > 0 ? supersample : 1
+  const effectivePad = config.padding
+  const effectivePadBottom = config.padding + config.borderRatio
+  const availW = DESIGN_CONTAINER
+  const bgExpand = config.bgExpand || 0
+  const bgBottomExpand = bgExpand + (config.bgBottomRatio || 0)
+
+  // 旋转+裁剪后的"显示像素"尺寸（最终照片真实像素）
+  const rSize = rotatedSize(srcW, srcH, config.photoRotation)
+  const displayW = Math.max(1, rSize.w * config.photoCrop.w)
+  const displayH = Math.max(1, rSize.h * config.photoCrop.h)
+  const displayAspect = displayW / displayH
+
+  // 画面（边框）比例：内容区宽高比。null = 自由（跟随照片）
+  const frameRatio = config.frameRatio
+  let designContentH = 0
+  let photoBaseW = DESIGN_CONTAINER
+  if (frameRatio) {
+    designContentH = DESIGN_CONTAINER / frameRatio
+    const contentAspect = DESIGN_CONTAINER / designContentH
+    photoBaseW = displayAspect >= contentAspect ? DESIGN_CONTAINER : designContentH * displayAspect
+  }
+
+  const photoDesignW = Math.max(1, photoBaseW * (config.scale / 100))
+  const photoDesignH = photoDesignW / displayAspect
+  if (!frameRatio) designContentH = photoDesignH
+
+  // unitScale：把设计坐标（1200 宽）映射到像素；照片以原生裁剪像素 1:1 进入
+  const unitScale = (displayW / photoDesignW) * ss
+  const canvasW = Math.round((DESIGN_CONTAINER + 2 * bgExpand + 2 * effectivePad) * unitScale)
+  const designCanvasH =
+    (config.canvasH || designContentH + effectivePad + effectivePadBottom) + bgExpand + bgBottomExpand
+  const canvasH = Math.round(designCanvasH * unitScale)
+  const photoW = Math.round(displayW * ss)
+  const photoH = Math.round(displayH * ss)
+  return {
+    canvasW, canvasH, designCanvasH, unitScale, photoW, photoH,
+    displayW, displayH, photoDesignW, photoDesignH, designContentH,
+    availW, bgExpand, bgBottomExpand, effectivePad, effectivePadBottom,
+  }
+}
+
+/** 任务卡预估：只关心输出像素尺寸 */
+export function estimateExportSize(
+  srcW: number,
+  srcH: number,
+  config: FrameConfig,
+  supersample: number,
+): { w: number; h: number } {
+  const m = computeExportMetrics(srcW, srcH, config, supersample)
+  return { w: m.canvasW, h: m.canvasH }
+}
+
 /**
  * 合成并导出一张图片。
  * @returns 导出结果（Blob + 尺寸 + 格式）
@@ -276,58 +356,18 @@ export async function exportFrame(
   const { w: sw, h: sh } = sourceSize(source)
   if (!sw || !sh) throw new Error('源图尺寸无效，无法导出')
 
-  // 以原生分辨率排版：photo 实际像素 = 旋转+裁剪后的真实像素
-  // none 模式已移除，padding/scale 直接使用 config 值
-  const effectivePad = config.padding
-  // 下边宽度：下边框留白 = padding + borderRatio（borderRatio 为照片下边额外延长量 px）
-  const effectivePadBottom = config.padding + config.borderRatio
-  const effectiveScale = config.scale
-  // 内容区基准宽：固定为设计稿宽度，与边框宽度(padding)解耦。
-  // 调节「边框宽度」时照片大小不变，边框在照片四周向外扩展，画布随之变大。
-  const availW = DESIGN_CONTAINER
-  // 背景区域扩展量（设计 px，>0 时背景/边框/画布同步扩大）
-  const bgExpand = config.bgExpand || 0
-  // 背景下边扩展量（下边 = bgExpand + bgBottomRatio）
-  const bgBottomExpand = bgExpand + (config.bgBottomRatio || 0)
+  // 以原生分辨率排版：度量计算已提取为 computeExportMetrics（与任务卡预估同源）
+  const M = computeExportMetrics(sw, sh, config, supersample)
+  const { canvasW, canvasH, designCanvasH, unitScale, photoW, photoH } = M
+  const { photoDesignW, photoDesignH, designContentH, availW, bgExpand, effectivePad, effectivePadBottom } = M
 
-  // 旋转+裁剪后的"显示像素"尺寸（最终照片真实像素）
-  const rSize = rotatedSize(sw, sh, config.photoRotation)
-  const displayW = Math.max(1, rSize.w * config.photoCrop.w)
-  const displayH = Math.max(1, rSize.h * config.photoCrop.h)
-  const displayAspect = displayW / displayH
-
-  // 画面（边框）比例：内容区宽高比。null = 自由（跟随照片）。
-  const frameRatio = config.frameRatio
-  let designContentH = 0
-  let photoBaseW = DESIGN_CONTAINER
-  if (frameRatio) {
-    designContentH = DESIGN_CONTAINER / frameRatio
-    const contentAspect = DESIGN_CONTAINER / designContentH
-    // contain 适配宽：照片等比完整放入固定比例内容区
-    photoBaseW = displayAspect >= contentAspect ? DESIGN_CONTAINER : designContentH * displayAspect
-  }
-
-  const photoDesignW = Math.max(1, photoBaseW * (effectiveScale / 100))
-  const photoDesignH = photoDesignW / displayAspect
-  if (!frameRatio) designContentH = photoDesignH
-
-  // unitScale：把设计坐标（1200 宽）映射到像素；照片以原生裁剪像素 1:1 进入
-  const unitScale = (displayW / photoDesignW) * supersample
-
-  const canvasW = Math.round((DESIGN_CONTAINER + 2 * bgExpand + 2 * effectivePad) * unitScale)
   // 照片在内容区左上角坐标（null 时水平居中；自由模式垂直贴顶、比例模式垂直居中）
   const photoContentX = config.photoX != null ? config.photoX : (availW - photoDesignW) / 2
   const photoContentY = config.photoY != null
     ? config.photoY
-    : frameRatio
+    : config.frameRatio
       ? (designContentH - photoDesignH) / 2
       : 0
-  // 画布高度：内容区高 + 上扩展 bgExpand + 下扩展 bgBottomExpand + 上留 effectivePad + 下留 effectivePadBottom
-  const designCanvasH =
-    (config.canvasH || designContentH + effectivePad + effectivePadBottom) + bgExpand + bgBottomExpand
-  const canvasH = Math.round(designCanvasH * unitScale)
-  const photoW = Math.round(displayW * supersample)
-  const photoH = Math.round(displayH * supersample)
 
   if (canvasW > MAX_DIM || canvasH > MAX_DIM) {
     throw new Error(`导出尺寸 ${canvasW}×${canvasH} 超出浏览器画布上限 ${MAX_DIM}px，请降低 scale 或使用更小的源图`)
