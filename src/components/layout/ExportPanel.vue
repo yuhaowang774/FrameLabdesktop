@@ -56,22 +56,7 @@ watch([rulesEnabled, rulesText], () => {
   }
 })
 
-/** 解析映射规则：每行「查找 => 替换」，空行与缺替换值的行跳过 */
-function parseRules(src: string): [string, string][] {
-  return src
-    .split('\n')
-    .map((line) => line.split('=>'))
-    .filter((p): p is [string, ...string[]] => p.length >= 2 && !!p[0].trim())
-    .map((p) => [p[0].trim(), p.slice(1).join('=>').trim()])
-}
-
-/** 按规则表链式替换（未启用映射时原样返回） */
-function applyRules(s: string): string {
-  if (!rulesEnabled.value || !s) return s
-  let out = s
-  for (const [from, to] of parseRules(rulesText.value)) out = out.split(from).join(to)
-  return out
-}
+import { makeRuleApplier } from '../../core/textRules'
 
 // ===== 导出预览 =====
 const preview = ref<{ url: string; name: string; blob: Blob } | null>(null)
@@ -101,7 +86,8 @@ function loadImage(src: string): Promise<HTMLImageElement> {
 function configFor(item: LibraryItem, backfill: boolean): FrameConfig {
   if (!backfill) return state
   const exif = item.exif
-  const text = applyRules(
+  const apply = makeRuleApplier(rulesText.value, rulesEnabled.value)
+  const text = apply(
     exif && state.eqFocal
       ? buildExifText(exif.raw, { eqFocal: state.eqFocal, cropFactor: state.cropFactor })
       : (exif?.text ?? ''),
@@ -111,8 +97,8 @@ function configFor(item: LibraryItem, backfill: boolean): FrameConfig {
     ...state,
     exifText: text,
     dateText,
-    cameraModel: applyRules(exif?.model ?? ''),
-    lensText: applyRules(exif?.lens ?? ''),
+    cameraModel: apply(exif?.model ?? ''),
+    lensText: apply(exif?.lens ?? ''),
     exifRaw: exif?.raw ?? null,
     brand: exif?.brandId ?? state.brand,
   }
