@@ -1,0 +1,301 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <title>模板样例对齐验证</title>
+  <style>
+    body { font-family: system-ui, sans-serif; padding: 20px; background: #1a1a1a; color: #eee; }
+    img.result { max-width: 640px; display: block; margin: 8px 0 20px; border: 1px solid #444; }
+    pre { white-space: pre-wrap; background: #111; padding: 12px; border-radius: 8px; font-size: 13px; }
+    .ok { color: #4ade80; } .bad { color: #f87171; }
+    button { font-size: 15px; padding: 8px 18px; border: 0; border-radius: 8px; background: #3b82f6; color: #fff; cursor: pointer; }
+  </style>
+</head>
+<body>
+  <h2>模板样例对齐验证（duo 白卡 / inline 悬浮）</h2>
+  <button id="run">运行导出与像素自检</button>
+  <div id="imgs"></div>
+  <pre id="result">点击按钮运行…</pre>
+
+  <script type="module">
+    import { exportFrame } from '/src/core/exporter.ts'
+    import { defaultFrameConfig } from '/src/core/types.ts'
+    import { useTemplates } from '/src/composables/useTemplates.ts'
+    import { computeFooterLayout } from '/src/core/infoLayout.ts'
+    import { resolveLogo } from '/src/composables/useLogoStore.ts'
+
+    const $ = (id) => document.getElementById(id)
+    const log = (s) => { $('result').textContent += s + '\n' }
+    const results = []
+    const check = (name, value, target, tol) => {
+      const pass = Math.abs(value - target) <= tol
+      results.push(pass)
+      log(`[${pass ? 'PASS' : 'FAIL'}] ${name}: ${value.toFixed(1)} (目标 ${target} ±${tol})`)
+    }
+
+    // 与 PowerShell 实测一致的像素分析（在导出画布上直接进行）
+    function analyze(img, unitScale, padDesign, isDarkText) {
+      const c = document.createElement('canvas')
+      c.width = img.naturalWidth; c.height = img.naturalHeight
+      const x = c.getContext('2d', { willReadFrequently: true })
+      x.drawImage(img, 0, 0)
+      const d = x.getImageData(0, 0, c.width, c.height).data
+      const W = c.width, H = c.height, ST = W * 4
+      const px = (i) => [d[i], d[i + 1], d[i + 2]] // getImageData 为 RGBA 字节序
+      const isWhite = (i) => { const [r, g, b] = px(i); return r >= 246 && g >= 246 && b >= 246 }
+      const cx = (W / 2) | 0, cy = (H / 2) | 0
+      let photoTop = 0, photoBottom = H - 1, photoLeft = 0, photoRight = W - 1
+      for (let y = 0; y < H; y++) { const i = y * ST + cx * 4; if (!isWhite(i)) { photoTop = y; break } }
+      for (let y = H - 1; y >= 0; y--) { const i = y * ST + cx * 4; if (!isWhite(i)) { photoBottom = y; break } }
+      for (let xx = 0; xx < W; xx++) { const i = cy * ST + xx * 4; if (!isWhite(i)) { photoLeft = xx; break } }
+      for (let xx = W - 1; xx >= 0; xx--) { const i = cy * ST + xx * 4; if (!isWhite(i)) { photoRight = xx; break } }
+      const U = unitScale
+      const out = {
+        padL: photoLeft / U,
+        stripH: (H - photoBottom - 1) / U,
+        photoW: (photoRight - photoLeft + 1) / U,
+      }
+      if (!isDarkText) return out
+      // 底部白条内容分析（duo）
+      const stripTop = photoBottom + 2
+      let leftMin = 1e9, rightMax = -1
+      const rows = new Map()
+      let redMinX = 1e9, redMaxX = -1, redMinY = 1e9, redMaxY = -1, redCount = 0
+      const colorSamples = []
+      for (let y = stripTop; y < H; y++) {
+        const off = y * ST
+        for (let xx = 0; xx < W; xx++) {
+          const i = off + xx * 4
+          const [r, g, b] = px(i)
+          if (r >= 246 && g >= 246 && b >= 246) continue
+          if (r > 120 && g < 110 && b < 110) {
+            redCount++
+            if (xx < redMinX) redMinX = xx; if (xx > redMaxX) redMaxX = xx
+            if (y < redMinY) redMinY = y; if (y > redMaxY) redMaxY = y
+            if (colorSamples.length < 3) colorSamples.push(`(${xx},${y})=#${((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1)}`)
+            continue
+          }
+          const lum = 0.299 * r + 0.587 * g + 0.114 * b
+          if (lum >= 170) continue // 排除浅色阴影，只统计文字本体
+          if (xx < cx) { if (xx < leftMin) leftMin = xx }
+          else { if (xx > rightMax) rightMax = xx }
+          if (!rows.has(y)) rows.set(y, { l: 1e9, r: -1, rl: 1e9 })
+          const row = rows.get(y)
+          if (xx < cx) { if (xx < row.l) row.l = xx } else { if (xx > row.r) row.r = xx; if (xx < row.rl) row.rl = xx }
+        }
+      }
+      out.redCount = redCount
+      out.redSamples = colorSamples.join(' ')
+      // 左栏行带
+      const leftRows = [...rows.entries()].filter(([, v]) => v.l < 1e9).map(([y]) => y).sort((a, b) => a - b)
+      const bands = []
+      let s = -1, prev = -9
+      for (const y of leftRows) {
+        if (y - prev > 3 && s >= 0) { bands.push([s, prev]); s = -1 }
+        if (s < 0) s = y
+        prev = y
+      }
+      if (s >= 0) bands.push([s, prev])
+      out.insetL = leftMin / U - out.padL
+      out.insetR = (W - 1 - rightMax) / U - out.padL
+      out.leftBands = bands.map(([a, b]) => [(a / U), (b / U), (b - a + 1) / U])
+      out.rowGapL = bands.length >= 2 ? (bands[1][0] - bands[0][1]) / U : -1
+      // 右栏行带（区分参数/日期：按 y 分两带）
+      const rightRows = [...rows.entries()].filter(([, v]) => v.r > -1).map(([y, v]) => ({ y, r: v.r })).sort((a, b) => a.y - b.y)
+      let rs = -1, rprev = -9; const rbands = []
+      for (const { y, r } of rightRows) {
+        if (y - rprev > 3 && rs >= 0) { rbands.push([rs, rprev]); rs = -1 }
+        if (rs < 0) rs = y
+        rprev = y
+      }
+      if (rs >= 0) rbands.push([rs, rprev])
+      out.rightBands = rbands
+      // 文字底边距：画布底到最低文字行带底部（排除阴影）
+      const allBandBottoms = [...bands.map((b) => b[1] / U), ...rbands.map((b) => b[1] / U)]
+      out.bottomMargin = allBandBottoms.length ? (H / U) - Math.max(...allBandBottoms) : -1
+      // 竖线：红 bbox 右侧到右栏文字之间，找非白细列
+      let dividerX = -1
+      const searchL = redMaxX + 5, searchR = rightMax - 5
+      for (let xx = searchL; xx <= searchR; xx++) {
+        let cnt = 0
+        for (let y = stripTop; y < H; y++) {
+          const i = y * ST + xx * 4
+          if (!isWhite(i)) cnt++
+        }
+        if (cnt > 20) { dividerX = xx; break }
+      }
+      out.dividerX = dividerX / U
+      out.logoW = (redMaxX - redMinX + 1) / U
+      out.logoH = (redMaxY - redMinY + 1) / U
+      out.gapLogoDivider = (dividerX - redMaxX) / U
+      // 右栏文字左缘（x > dividerX 的最左暗像素）
+      let rightLeftMin = 1e9
+      for (const [, v] of rows) if (v.rl > dividerX && v.rl < rightLeftMin) rightLeftMin = v.rl
+      out.gapDividerText = dividerX >= 0 && rightLeftMin < 1e9 ? (rightLeftMin - dividerX) / U : -1
+      out.rightTextW = rightLeftMin < 1e9 ? (rightMax - rightLeftMin + 1) / U : -1
+      return out
+    }
+
+    // inline（模糊底、白字）分析
+    function analyzeFloat(img, unitScale) {
+      const c = document.createElement('canvas')
+      c.width = img.naturalWidth; c.height = img.naturalHeight
+      const x = c.getContext('2d', { willReadFrequently: true })
+      x.drawImage(img, 0, 0)
+      const d = x.getImageData(0, 0, c.width, c.height).data
+      const W = c.width, H = c.height, ST = W * 4
+      const U = unitScale
+      const x0 = (W * 0.2) | 0, x1 = (W * 0.8) | 0
+      const rowHas = new Map()
+      let minX = 1e9, maxX = -1
+      for (let y = (H * 0.6) | 0; y < H; y++) {
+        const off = y * ST
+        let cnt = 0
+        for (let xx = x0; xx < x1; xx++) {
+          const i = off + xx * 4
+          const mn = Math.min(d[i + 2], d[i + 1], d[i])
+          if (mn >= 210) {
+            cnt++
+            if (xx < minX) minX = xx; if (xx > maxX) maxX = xx
+          }
+        }
+        if (cnt > 3) rowHas.set(y, cnt)
+      }
+      const ys = [...rowHas.keys()].sort((a, b) => a - b)
+      const bands = []
+      let s = -1, prev = -9
+      for (const y of ys) {
+        if (y - prev > 4 && s >= 0) { bands.push([s, prev]); s = -1 }
+        if (s < 0) s = y
+        prev = y
+      }
+      if (s >= 0) bands.push([s, prev])
+      return {
+        bands: bands.map(([a, b]) => ({ top: a / U, bottom: b / U, h: (b - a + 1) / U })),
+        centerX: ((minX + maxX) / 2) / U,
+        canvasCenter: W / 2 / U,
+        bottomMargin: bands.length ? (H - 1 - bands[bands.length - 1][1]) / U : -1,
+        rowGap: bands.length >= 2 ? (bands[1][0] - bands[0][1]) / U : -1,
+      }
+    }
+
+    async function loadImg(src) {
+      return new Promise((res, rej) => {
+        const im = new Image()
+        im.onload = () => res(im)
+        im.onerror = rej
+        im.src = src
+      })
+    }
+
+    window.__runVerify = async () => {
+      $('result').textContent = ''
+      results.length = 0
+      try {
+        const { templates } = useTemplates()
+        const duoTpl = templates.find((t) => t.id === 'm_duo_card')
+        const floatTpl = templates.find((t) => t.id === 'm_float_round')
+        if (!duoTpl || !floatTpl) { log('找不到内置模板'); return }
+
+        // 源照片：项目根 DJI_0697-9.JPG（4:3 → 裁剪为 3:2 与样例一致）
+        const src = await loadImg('/DJI_0697-9.JPG')
+        const cropH = Math.min(1, (src.naturalWidth / 1.5) / src.naturalHeight)
+        const photoCrop = { x: 0, y: (1 - cropH) / 2, w: 1, h: cropH }
+        log(`源图 ${src.naturalWidth}x${src.naturalHeight} → 3:2 裁剪 h=${cropH.toFixed(3)}`)
+
+        // ===== 样例1：duo 白卡 =====
+        const duoCfg = {
+          ...defaultFrameConfig, ...duoTpl.config,
+          brand: 'canon',
+          cameraModel: 'Canon EOS R8',
+          lensText: 'RF24-240mm F4-6.3 IS USM',
+          exifText: '113mm f/6.3 1/1000s ISO320',
+          dateText: '2023-10-22 16:09',
+          photoCrop,
+        }
+        const r1 = await exportFrame(src, duoCfg, { format: 'png' })
+        const u1 = r1.width / (1200 + 2 * duoCfg.bgExpand + 2 * duoCfg.padding)
+        log(`\n=== 白卡双栏导出 ${r1.width}x${r1.height} (unitScale≈${u1.toFixed(2)}) ===`)
+        const img1 = await loadImg(URL.createObjectURL(r1.blob))
+        const im1 = document.createElement('img'); im1.className = 'result'; im1.src = img1.src
+        $('imgs').appendChild(im1)
+        const a = analyze(img1, u1, duoCfg.padding, true)
+        log(`实测: padL=${a.padL.toFixed(1)} stripH=${a.stripH.toFixed(1)} insetL=${a.insetL?.toFixed(1)} insetR=${a.insetR?.toFixed(1)} bottomMargin=${a.bottomMargin?.toFixed(1)}`)
+        log(`左栏行带(设计px top/bottom/h): ${a.leftBands.map((b) => b.map((v) => v.toFixed(1)).join('/')).join(' | ')}`)
+        log(`红像素: count=${a.redCount} samples=${a.redSamples} | rowGapL=${a.rowGapL?.toFixed(1)} dividerX=${a.dividerX?.toFixed(1)} logoW=${a.logoW?.toFixed(1)} logoH=${a.logoH?.toFixed(1)} gapLogo→线=${a.gapLogoDivider?.toFixed(1)} 线→文字=${a.gapDividerText?.toFixed(1)} 右栏宽=${a.rightTextW?.toFixed(1)}`)
+        check('白卡-左边框', a.padL, 27, 3)
+        check('白卡-底部白条高', a.stripH, 96, 4)
+        check('白卡-文字左内缩', a.insetL, 21, 4)
+        check('白卡-文字右内缩', a.insetR, 20, 4)
+        check('白卡-文字底边距', a.bottomMargin, 23, 3)
+        check('白卡-左栏行距', a.rowGapL, 14, 4)
+        if (a.redCount > 10) {
+          check('白卡-竖线→右栏文字', a.gapDividerText, 21, 4)
+          check('白卡-Logo→竖线', a.gapLogoDivider, 28, 4)
+          check('白卡-Logo高', a.logoH, 20, 3)
+        } else {
+          log('[WARN] 未检出红色 Logo 像素，跳过 Logo/竖线检查')
+        }
+        if (a.leftBands.length >= 2) {
+          check('白卡-上行(镜头)字高', a.leftBands[0][2], 15, 3)
+          check('白卡-下行(机型)字高', a.leftBands[1][2], 13, 3)
+        }
+        // ===== 诊断：预期位置颜色采样（Logo 中心 / 竖线中点 / 右栏参数行中心）=====
+        {
+          const lc = resolveLogo('canon', 'auto')
+          const ratio = lc.width > 1 ? lc.width / lc.height : 2.6
+          const canvasHDesign = r1.height / u1
+          const canvasBottom = canvasHDesign - duoCfg.padding - duoCfg.bgExpand
+          const L = computeFooterLayout(duoCfg, canvasBottom, ratio)
+          const sample = (cxDesign, cyDesign) => {
+            const sx = Math.round((duoCfg.padding + cxDesign) * u1)
+            const sy = Math.round((duoCfg.padding + cyDesign) * u1)
+            const c2 = document.createElement('canvas'); c2.width = 1; c2.height = 1
+            const x2 = c2.getContext('2d')
+            x2.drawImage(img1, sx - 2, sy - 2, 5, 5, 0, 0, 1, 1)
+            const p = x2.getImageData(0, 0, 1, 1).data
+            return '#' + [p[0], p[1], p[2]].map((v) => v.toString(16).padStart(2, '0')).join('')
+          }
+          const logoW = duoCfg.logoSize * ratio
+          log(`诊断: logoRatio=${ratio.toFixed(2)} L.logo=(${L.logo.x.toFixed(0)},${L.logo.y.toFixed(0)}) L.divider=${L.divider ? L.divider.x.toFixed(0) : 'null'} L.exif=(${L.exif.x.toFixed(0)},${L.exif.y.toFixed(0)})`)
+          log(`采样: Logo中心=${sample(L.logo.x + logoW / 2, L.logo.y + duoCfg.logoSize / 2)} 竖线=${L.divider ? sample(L.divider.x, L.divider.y + L.divider.h / 2) : '-'} 右栏中心=${sample(L.exif.x + 150, L.exif.y + 8)}`)
+        }
+
+        // ===== 样例2：inline 悬浮 =====
+        const floatCfg = {
+          ...defaultFrameConfig, ...floatTpl.config,
+          brand: 'sony', logoColor: '#ffffff',
+          cameraModel: 'ILCE-7M2',
+          exifText: '64mm F6.3 1/1000s ISO50',
+          photoCrop,
+        }
+        const r2 = await exportFrame(src, floatCfg, { format: 'png' })
+        const u2 = r2.width / (1200 + 2 * floatCfg.bgExpand + 2 * floatCfg.padding)
+        log(`\n=== 圆角悬浮导出 ${r2.width}x${r2.height} (unitScale≈${u2.toFixed(2)}) ===`)
+        const img2 = await loadImg(URL.createObjectURL(r2.blob))
+        const im2 = document.createElement('img'); im2.className = 'result'; im2.src = img2.src
+        $('imgs').appendChild(im2)
+        const f = analyzeFloat(img2, u2)
+        log(`行带(设计px top/bottom/h): ${f.bands.map((b) => `${b.top.toFixed(0)}/${b.bottom.toFixed(0)}/h${b.h.toFixed(1)}`).join(' | ')}`)
+        log(`文字中心=${f.centerX?.toFixed(1)} 画布中心=${f.canvasCenter?.toFixed(1)} 行距=${f.rowGap?.toFixed(1)} 底边距=${f.bottomMargin?.toFixed(1)}`)
+        check('悬浮-文字水平居中', Math.abs(f.centerX - f.canvasCenter), 0, 6)
+        check('悬浮-行距', f.rowGap, 21, 5)
+        check('悬浮-底边距', f.bottomMargin, 29, 4)
+        if (f.bands.length >= 2) {
+          check('悬浮-行1(Logo)高', f.bands[0].h, 20, 3)
+          check('悬浮-行2(参数)高', f.bands[1].h, 13, 3)
+        }
+
+        const allPass = results.every(Boolean)
+        log('\n==== 结论: ' + (allPass ? 'ALL PASS' : 'HAS FAIL') + ' ====')
+        $('result').className = allPass ? 'ok' : 'bad'
+      } catch (e) {
+        log('异常: ' + (e && e.message ? e.message : e))
+        $('result').className = 'bad'
+        console.error(e)
+      }
+    }
+    $('run').addEventListener('click', () => window.__runVerify())
+  </script>
+</body>
+</html>

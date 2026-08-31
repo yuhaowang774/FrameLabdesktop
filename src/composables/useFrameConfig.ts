@@ -12,24 +12,32 @@ export function registerCommit(fn: CommitFn): void {
   commitHook = fn
 }
 
+// 提交抑制：导入照片 / 切换照片等「非用户编辑」的批量参数变化不应产生历史节点。
+// 用法：suspendCommit(true) → 修改 → suspendCommit(false)。计数式设计，支持嵌套。
+let suspendDepth = 0
+export function suspendCommit(suspend: boolean): void {
+  if (suspend) suspendDepth++
+  else if (suspendDepth > 0) suspendDepth--
+}
+
 export function useFrameConfig() {
   /** 整体替换（用于历史恢复 / 预设应用），保留未列出的默认字段 */
   function loadConfig(partial: Partial<FrameConfig>): void {
     Object.assign(state, defaultFrameConfig, partial)
-    commitHook?.('loadConfig')
+    if (suspendDepth === 0) commitHook?.('loadConfig')
   }
 
   /** 局部更新 */
   function patch(partial: Partial<FrameConfig>): void {
     Object.assign(state, partial)
-    commitHook?.(Object.keys(partial)[0])
+    if (suspendDepth === 0) commitHook?.(Object.keys(partial)[0])
   }
 
   /** 重置为默认 */
   function reset(): void {
     Object.assign(state, defaultFrameConfig)
-    commitHook?.('reset')
+    if (suspendDepth === 0) commitHook?.('reset')
   }
 
-  return { state, loadConfig, patch, reset }
+  return { state, loadConfig, patch, reset, suspendCommit }
 }

@@ -1,87 +1,360 @@
 <script setup lang="ts">
 // 底部信息预览：品牌 Logo / 相机型号 / EXIF 三个独立模块，各自可在画布上鼠标拖动
-import { computed, ref } from 'vue'
+import { computed, ref, onMounted, onBeforeUnmount } from 'vue'
 import { useFrameConfig } from '../../composables/useFrameConfig'
-import { resolveLogoDataURL } from '../../composables/useLogoStore'
+import { useAppState } from '../../composables/useAppState'
+import { useViewer } from '../../composables/useViewer'
+import { resolveLogoDataURL, resolveLogo } from '../../composables/useLogoStore'
 import { DESIGN_CONTAINER } from '../../core/constants'
+import { computeFooterLayout, type FooterLayout } from '../../core/infoLayout'
+import { logoAutoColor } from '../../core/colorUtils'
 
-type ItemKey = 'logo' | 'model' | 'exif'
+type ItemKey = 'logo' | 'model' | 'exif' | 'date' | 'lens'
 
 const { state, patch } = useFrameConfig()
+const viewer = useViewer()
+
+// Logo 着色：'auto' 时随背景明暗取黑/白（与导出端同一函数），浅色相框下 Logo 保持可辨
+const logoColor = computed(() => logoAutoColor(state.logoColor, state.bgMode, state.bgColor))
+
+// INFO 编辑态：仅「INFO信息设置」面板展开时三元素可拖拽；
+// 收起后元素固定显示（相当于已打印在照片上），鼠标完全穿透不影响画布操作。
+const infoEditing = computed(() => useAppState().state.rightPanels.info)
 
 const brandName = computed(() => state.brand)
 
 // Logo 由 useLogoStore 渲染内置品牌官方 SVG / 自定义 Logo
 const logoSrc = computed(() =>
-  state.showLogo ? resolveLogoDataURL(state.brand) : '',
+  state.showLogo ? resolveLogoDataURL(state.brand, logoColor.value) : '',
 )
+
+// Logo 宽高比（duo/inline 默认排版需要；读取 logoSrc 建立异步加载后的响应式依赖）
+const logoRatio = computed(() => {
+  void (state.showLogo ? resolveLogoDataURL(state.brand, logoColor.value) : '')
+  const c = resolveLogo(state.brand, logoColor.value)
+  return c.height > 0 ? c.width / c.height : 2.6
+})
 
 // 通用拖拽逻辑（每项独立）
 const dragging = ref<ItemKey | null>(null)
 const origin = ref({ x: 0, y: 0 })
 const start = ref({ x: 0, y: 0 })
 const dragEl = ref<HTMLElement | null>(null)
+const dragPointerId = ref(-1)
 const footerLayer = ref<HTMLElement | null>(null)
 
-// 内容区设计宽度（footer-layer 即内容区，绝对定位子元素坐标相对它）
-const availW = computed(() => DESIGN_CONTAINER - state.padding * 2)
+// ===== 边缘自动平移（auto-pan）=====
+// 画布缩放后画板可能溢出舞台（stage），元素拖到画板顶/底/左/右时鼠标会先碰到窗口边缘，
+// 无法继续拖到画板边界。故在拖拽期间若鼠标接近 stage 边缘，自动向该方向平移画板（pan），
+// 让画板边界持续进入可视区，元素即可拖到画板任意位置。
+const stageEl = ref<HTMLElement | null>(null)
+const lastMouse = ref({ x: 0, y: 0 })
+const panStart = ref({ x: 0, y: 0 })
+let autoPanRaf = 0
+// 热区宽度（px）：鼠标距 stage 边缘小于该值时触发自动平移
+const AUTO_PAN_EDGE = 60
+// 每帧基础平移速度（px）：缺口小时平滑缓滚
+const AUTO_PAN_SPEED = 16
+// 每帧平移上限（px）：缺口大时快速补齐，避免 Logo 长时间到不了画板边界
+const AUTO_PAN_MAX = 140
+
+function getStage(): HTMLElement | null {
+  if (!stageEl.value) {
+    stageEl.value = (footerLayer.value?.closest('.stage') as HTMLElement | null) ?? null
+  }
+  return stageEl.value
+}
+
+// footer-layer 覆盖整个画板（含边框留白背景区），元素可在「背景区域（画板 content box）」内自由拖动。
+// 元素坐标仍存「内容区坐标」（x/y 相对内容区左上角），内容区在背景区域中居中（偏移 = bgExpand），
+// 允许负值 / 超出内容区，从而覆盖到边框留白背景区；导出侧需同步该偏移。
+const pad = computed(() => state.padding)
+// 背景区域扩展量（px，>0 时背景/边框/画布同步扩大）
+const bgExpand = computed(() => state.bgExpand)
+// 画板（整个 frame-container）设计宽 = 背景区域 + 左右边框留白
+const canvasW = computed(() => DESIGN_CONTAINER + 2 * bgExpand.value + pad.value * 2)
 
 function containerRect(): DOMRect | null {
   return footerLayer.value?.getBoundingClientRect() ?? null
 }
 
 function onPointerDown(e: PointerEvent, key: ItemKey) {
+  if (!infoEditing.value) return
+  // 阻止冒泡到画布 fit-wrap：避免点击元素时同时触发画布平移（元素外区域才会平移画布）
+  e.stopPropagation()
   const target = e.currentTarget as HTMLElement
   dragEl.value = target
-  const rect = containerRect()
-  if (!rect) return
-  // scale = 屏幕 px / 设计 px（内容区宽对应 availW）
-  const scale = rect.width / availW.value
-  const r = target.getBoundingClientRect()
-  origin.value = {
-    x: (r.left - rect.left) / scale,
-    y: (r.top - rect.top) / scale,
+  // 直接取状态坐标作为拖拽起点，而非 getBoundingClientRect。
+  // getBoundingClientRect 受 filter:drop-shadow（Logo）或 transform:translate（相机型号）
+  // 影响会返回偏移后的视觉矩形，导致每次拖拽起点漂移、范围逐渐偏移。
+  let x = state[(key + 'X') as 'logoX']
+  let y = state[(key + 'Y') as 'logoY']
+  // 首次拖拽（坐标尚未写入，仍为 null，默认位置由 defaultPos 兜底渲染）时，
+  // 用与渲染一致的默认位置作为起点，而非直接返回——否则永远无法开始拖拽。
+  if (x == null || y == null) {
+    const d = defaultPos(key)
+    x = d.x
+    y = d.y
   }
+  origin.value = { x, y }
   start.value = { x: e.clientX, y: e.clientY }
+  lastMouse.value = { x: e.clientX, y: e.clientY }
+  panStart.value = { x: viewer.panX.value, y: viewer.panY.value }
   dragging.value = key
+  // 捕获指针：画布缩放后画板可能溢出舞台，logo 拖到画板顶/底需要鼠标移出窗口；
+  // 不捕获会导致 pointermove 在窗口边缘中断，logo 拖不到画板边界。
+  dragPointerId.value = e.pointerId
+  try {
+    target.setPointerCapture(e.pointerId)
+  } catch {
+    /* 某些环境（如 pointerId 无效）下忽略 */
+  }
+  guideVisible.value = true
+  guideV.value = false
+  guideH.value = false
   window.addEventListener('pointermove', onPointerMove)
   window.addEventListener('pointerup', onPointerUp)
+  cancelAnimationFrame(autoPanRaf)
+  autoPanRaf = requestAnimationFrame(autoPanLoop)
   e.preventDefault()
+}
+
+function autoPanLoop() {
+  if (!dragging.value) return
+  const stage = getStage()
+  const frame = (footerLayer.value?.closest('.frame-container') as HTMLElement | null) ?? null
+  if (stage && frame) {
+    const sr = stage.getBoundingClientRect()
+    const fr = frame.getBoundingClientRect()
+    // 鼠标相对 stage 四边的距离（进入热区时触发平移）
+    const distLeft = lastMouse.value.x - sr.left
+    const distRight = sr.right - lastMouse.value.x
+    const distTop = lastMouse.value.y - sr.top
+    const distBottom = sr.bottom - lastMouse.value.y
+    // 每帧推进量 = 热区系数 × min(缺口, max(基础速度, 缺口×0.4))。
+    // 缺口 = 画板在该方向超出 stage 的量：缺口越大滚动越快（画板被缩放/平移出可视区
+    // 数百 px 时几帧内补完），Logo 迅速贴到画板边界；缺口小则保持平滑缓滚。
+    const heat = (d: number) => Math.max(0, (AUTO_PAN_EDGE - d) / AUTO_PAN_EDGE)
+    const step = (d: number, gap: number) =>
+      heat(d) * Math.min(AUTO_PAN_MAX, Math.max(AUTO_PAN_SPEED, gap * 0.4))
+    let px = 0
+    let py = 0
+    // 仅当画板在该方向仍有溢出时继续滚（防止把画板滚出舞台）。
+    // 露出画板右部 = 画板左移(panX 减)；左部 = 画板右移(panX 增)；下部 = 画板上移(panY 减)；上部 = 画板下移(panY 增)。
+    if (distRight < AUTO_PAN_EDGE && fr.right > sr.right + 1) px = -step(distRight, fr.right - sr.right)
+    else if (distLeft < AUTO_PAN_EDGE && fr.left < sr.left - 1) px = step(distLeft, sr.left - fr.left)
+    if (distBottom < AUTO_PAN_EDGE && fr.bottom > sr.bottom + 1) py = -step(distBottom, fr.bottom - sr.bottom)
+    else if (distTop < AUTO_PAN_EDGE && fr.top < sr.top - 1) py = step(distTop, sr.top - fr.top)
+    if (px !== 0 || py !== 0) {
+      viewer.setPan(viewer.panX.value + px, viewer.panY.value + py)
+      // pan 变化后必须立即重算元素位置（鼠标此刻可能已停在边缘不再触发 pointermove），
+      // 否则元素内容区坐标停留在旧值、未随画板滚动同步，导致元素漂移/拖不到边界。
+      updatePosition(lastMouse.value.x, lastMouse.value.y)
+    }
+  }
+  autoPanRaf = requestAnimationFrame(autoPanLoop)
+}
+
+// 依据鼠标屏幕坐标 + 拖拽起点的 pan 偏移，计算并写入元素内容区坐标（含画板范围钳制）。
+function updatePosition(mx: number, my: number) {
+  if (!dragging.value || !dragEl.value) return
+  const rect = containerRect()
+  if (!rect) return
+  const scale = rect.width / canvasW.value
+  const canvasH = rect.height / scale // 画板设计高（含上下边框留白）
+  // 元素设计尺寸：offsetWidth/offsetHeight 不受祖先 transform 影响，即设计坐标尺寸。
+  const elemW = dragEl.value.offsetWidth
+  const elemH = dragEl.value.offsetHeight
+  // auto-pan 会平移画板（pan 变化），需从"有效起点"中扣除 pan 偏移，
+  // 否则 pan 带来的屏幕位移会被误算成元素拖拽，导致元素随画板一起漂移。
+  const panDx = viewer.panX.value - panStart.value.x
+  const panDy = viewer.panY.value - panStart.value.y
+  let nx = origin.value.x + (mx - start.value.x - panDx) / scale
+  let ny = origin.value.y + (my - start.value.y - panDy) / scale
+  // 钳制元素「本体」在画板范围内（x/y 对称）：内容区坐标下界 = -(pad + bgExpand)（元素左/上缘最多到画板边缘）。
+  // 上界 = 画板尺寸 - pad - bgExpand - 元素尺寸，使元素四边最多到画板四边：
+  // x 右缘最多到画板右缘；y 底部最多到画板底缘（可覆盖背景区域下边扩展 bgBottomExpand 与下边框 padBottom）。
+  // 渲染时 absStyle 再加 pad + bgExpand 得画板坐标。
+  nx = Math.max(-(pad.value + bgExpand.value), Math.min(DESIGN_CONTAINER + pad.value + bgExpand.value - elemW, nx))
+  ny = Math.max(-(pad.value + bgExpand.value), Math.min(canvasH - pad.value - bgExpand.value - elemH, ny))
+  // ===== 居中辅助线：元素中心接近画板中心时吸附并高亮 =====
+  const snapped = applyCenterSnap(nx, ny)
+  const k = dragging.value
+  patch({
+    [k + 'X']: snapped.x,
+    [k + 'Y']: snapped.y,
+  } as Record<string, number>)
+}
+
+// 辅助线状态（拖拽时显示，接近中心时高亮）
+const guideVisible = ref(false)
+const guideV = ref(false) // 水平居中（垂直中线）
+const guideH = ref(false) // 垂直居中（水平中线）
+
+/** 画板中心在「内容区坐标系」中的位置（footer-layer 覆盖整个画板） */
+function canvasCenterInContent(): { x: number; y: number } {
+  const cH = contentH.value
+  // canvasH = cH + bgExpand + bgBottomExpand + pad + padBottom
+  const cy =
+    (cH + bgExpand.value + state.bgExpand + state.bgBottomRatio + pad.value + pad.value + state.borderRatio) / 2 -
+    pad.value -
+    bgExpand.value
+  return { x: DESIGN_CONTAINER / 2, y: cy }
+}
+
+/** 元素中心接近画板中心时吸附并返回吸附后的坐标 */
+function applyCenterSnap(x: number, y: number): { x: number; y: number } {
+  if (!dragEl.value) return { x, y }
+  const cx = canvasCenterInContent()
+  const elemW = dragEl.value.offsetWidth
+  const elemH = dragEl.value.offsetHeight
+  const dx = Math.abs(x + elemW / 2 - cx.x)
+  const dy = Math.abs(y + elemH / 2 - cx.y)
+  const T = 10 // 吸附阈值（设计 px）
+  guideV.value = dx < T
+  guideH.value = dy < T
+  return {
+    x: guideV.value ? cx.x - elemW / 2 : x,
+    y: guideH.value ? cx.y - elemH / 2 : y,
+  }
 }
 
 function onPointerMove(e: PointerEvent) {
   if (!dragging.value || !dragEl.value) return
-  const rect = containerRect()
-  if (!rect) return
-  const scale = rect.width / availW.value
-  let nx = origin.value.x + (e.clientX - start.value.x) / scale
-  let ny = origin.value.y + (e.clientY - start.value.y) / scale
-  nx = Math.max(0, Math.min(availW.value, nx))
-  ny = Math.max(0, Math.min(rect.height / scale, ny))
-  const k = dragging.value
-  patch({
-    [k + 'X']: nx,
-    [k + 'Y']: ny,
-  } as Record<string, number>)
+  lastMouse.value = { x: e.clientX, y: e.clientY }
+  updatePosition(e.clientX, e.clientY)
 }
 
 function onPointerUp() {
   dragging.value = null
+  cancelAnimationFrame(autoPanRaf)
+  if (dragEl.value && dragPointerId.value >= 0) {
+    try {
+      dragEl.value.releasePointerCapture(dragPointerId.value)
+    } catch {
+      /* 指针捕获可能已自动释放 */
+    }
+  }
+  dragPointerId.value = -1
+  guideVisible.value = false
+  guideV.value = false
+  guideH.value = false
   window.removeEventListener('pointermove', onPointerMove)
   window.removeEventListener('pointerup', onPointerUp)
 }
 
-// 每项绝对定位样式（左上角 = 设计坐标 x/y）
+// 内容区设计高度（用于默认底部定位）
+const contentH = computed(() => state.canvasH
+  ? state.canvasH - state.padding - (state.padding + state.borderRatio)
+  : (frameContainerH.value > 0
+    ? frameContainerH.value - state.padding - (state.padding + state.borderRatio)
+    : state.canvasH - state.padding - (state.padding + state.borderRatio)),
+)
+const frameContainerH = ref(0)
+// 通过 ResizeObserver 同步画板设计高
+const frameEl = computed<HTMLElement | null>(() => document.querySelector('.frame-container'))
+let _ro: ResizeObserver | null = null
+onMounted(() => {
+  const el = frameEl.value
+  if (!el || typeof ResizeObserver === 'undefined') return
+  _ro = new ResizeObserver(() => {
+    frameContainerH.value = el.offsetHeight
+  })
+  _ro.observe(el)
+  frameContainerH.value = el.offsetHeight
+})
+onBeforeUnmount(() => { _ro?.disconnect(); _ro = null })
+
+// 每项默认垂直堆叠在内容区底部（与 exporter.ts 同步）：
+// 开启日期时从下往上 = 日期 / EXIF / 相机型号 / Logo；关闭日期时维持原布局（EXIF 最下）。
+function defaultPos(key: ItemKey): { x: number; y: number } {
+  const gap = 16
+  const showDate = state.showDate && state.dateText
+  // 镜头型号行挂在 EXIF 文本块下方，EXIF 块整体上移一行（与 exporter 布局规则一致）
+  const lensRow = state.showLens && state.lensText ? state.fontSize + gap : 0
+  // 底部锚点 = 画布底缘（实测画板高 − padding − bgExpand，内容坐标系），INFO 落在底部留白条内
+  // 而非压在照片下缘；最底行文本 top 再上移 overlayBottom 边距。
+  // 注意：不能用 contentH（= canvasH − 2pad − borderRatio，含对称 bgExpand 与下边加宽），会双重计算溢出。
+  const canvasBottom = frameContainerH.value > 0
+    ? frameContainerH.value - pad.value - bgExpand.value
+    : contentH.value
+  // ===== duo（杂志双栏）/ inline（悬浮双行）：共享布局计算（与 exporter.ts 同源）=====
+  if (state.infoLayout === 'duo' || state.infoLayout === 'inline') {
+    const L: FooterLayout = computeFooterLayout(state, canvasBottom, logoRatio.value)
+    return L[key]
+  }
+  const bottomEdge = canvasBottom - state.overlayBottom
+  const baseBottom = bottomEdge - state.fontSize
+  // ===== 经典纵向堆叠 =====
+  const exifY = showDate
+    ? Math.max(0, baseBottom - gap - lensRow)
+    : Math.max(0, baseBottom - lensRow)
+  const dateY = baseBottom
+  const modelY = Math.max(0, exifY - state.fontSize - gap)
+  const logoY = Math.max(0, modelY - state.logoSize - gap)
+  // 水平居中（内容区坐标系）：DESIGN_CONTAINER/2
+  const x = DESIGN_CONTAINER / 2
+  if (key === 'exif') return { x, y: exifY }
+  if (key === 'date') return { x, y: dateY }
+  if (key === 'model') return { x, y: modelY }
+  return { x, y: logoY }
+}
+
+// duo 双栏分隔竖线：右栏文字左侧浅灰线（与 exporter 一致，几何来自共享布局计算）
+const duoDividerStyle = computed(() => {
+  if (state.infoLayout !== 'duo') return null
+  if (!(state.showExif && state.exifText) && !(state.showDate && state.dateText)) return null
+  const canvasBottom = frameContainerH.value > 0
+    ? frameContainerH.value - pad.value - bgExpand.value
+    : contentH.value
+  const L = computeFooterLayout(state, canvasBottom, logoRatio.value)
+  if (!L.divider) return null
+  return {
+    left: pad.value + bgExpand.value + L.divider.x + 'px',
+    top: pad.value + bgExpand.value + L.divider.y + 'px',
+    height: L.divider.h + 'px',
+    width: '1px',
+  }
+})
+
+// duo 布局下日期使用机型样式组（灰细小字，与样例一致）；classic/inline 沿用 EXIF 样式组
+const dateFontStyle = computed(() =>
+  state.infoLayout === 'duo'
+    ? 'var(--camera-model-italic) var(--camera-model-weight) var(--camera-model-size)/1 var(--camera-model-font-family)'
+    : 'var(--date-text-weight) var(--date-font-size)/1 var(--date-font-family)',
+)
+const dateOpacityStyle = computed(() =>
+  state.infoLayout === 'duo' ? 'var(--camera-model-opacity)' : 'var(--date-text-opacity)',
+)
+// 深色背景（模糊/照片填充）下文字加柔和投影，增强可读性（与导出端阴影一致）
+const infoTextShadow = computed(() =>
+  state.bgMode === 'solid' ? 'none' : '0 1px 3px rgba(0, 0, 0, 0.5)',
+)
+
+// 每项绝对定位样式：内容区坐标 + padding + 背景扩展偏移 → 画板坐标
 function absStyle(key: ItemKey) {
-  const x = state[(key + 'X') as 'logoX']
-  const y = state[(key + 'Y') as 'logoY']
-  if (x == null || y == null) return {}
-  return { left: x + 'px', top: y + 'px', transform: 'none' }
+  let x = state[(key + 'X') as 'logoX']
+  let y = state[(key + 'Y') as 'logoY']
+  if (x == null || y == null) {
+    const d = defaultPos(key)
+    x = d.x
+    y = d.y
+  }
+  return {
+    left: pad.value + bgExpand.value + x + 'px',
+    top: pad.value + bgExpand.value + y + 'px',
+    transform: 'none',
+  }
 }
 </script>
 
 <template>
-  <div ref="footerLayer" class="footer-layer">
+  <div ref="footerLayer" class="footer-layer" :class="{ editing: infoEditing }">
+    <!-- 居中辅助线：INFO 面板展开时显示，拖拽元素接近中心时高亮 -->
+    <div v-if="guideVisible" class="guide-v" :class="{ snap: guideV }" />
+    <div v-if="guideVisible" class="guide-h" :class="{ snap: guideH }" />
+    <!-- duo 双栏分隔竖线 -->
+    <div v-if="duoDividerStyle" class="duo-divider" :style="duoDividerStyle" />
     <img
       v-if="state.showLogo && logoSrc"
       class="brand-logo drag-item"
@@ -104,6 +377,8 @@ function absStyle(key: ItemKey) {
           display: 'var(--camera-model-display)',
           font: 'var(--camera-model-italic) var(--camera-model-weight) var(--camera-model-size)/1 var(--camera-model-font-family)',
           opacity: 'var(--camera-model-opacity)',
+          color: 'var(--footer-text-color)',
+          textShadow: infoTextShadow,
           transform: 'translate(var(--camera-model-offset-x), var(--camera-model-offset-y))',
         },
       ]"
@@ -119,14 +394,61 @@ function absStyle(key: ItemKey) {
         absStyle('exif'),
         {
           display: 'var(--exif-display)',
-          font: 'var(--text-weight) var(--font-size)/1 var(--font-family)',
-          opacity: 'var(--text-opacity)',
+          font: 'var(--exif-text-weight) var(--exif-font-size)/1 var(--exif-font-family)',
+          opacity: 'var(--exif-text-opacity)',
           color: 'var(--footer-text-color)',
+          textShadow: infoTextShadow,
         },
       ]"
       @pointerdown="onPointerDown($event, 'exif')"
     >
-      {{ state.exifText }}
+      <span class="exif-line">{{ state.exifText }}</span>
+      <span
+        v-if="state.showLens && state.lensText && state.infoLayout === 'classic'"
+        class="lens-line"
+        :style="{ font: 'var(--lens-text-weight) var(--lens-font-size)/1 var(--lens-font-family)', opacity: 'var(--lens-text-opacity)' }"
+        >{{ state.lensText }}</span>
+    </div>
+
+    <!-- 镜头行（duo 双栏左栏上行，独立定位可拖拽；classic 下随 EXIF 块内 lens-line） -->
+    <div
+      class="lens-text drag-item"
+      data-item="lens"
+      v-if="state.infoLayout === 'duo' && state.showLens && state.lensText"
+      :class="{ dragging: dragging === 'lens' }"
+      :style="[
+        absStyle('lens'),
+        {
+          font: 'var(--lens-text-weight) var(--lens-font-size)/1 var(--lens-font-family)',
+          opacity: 'var(--lens-text-opacity)',
+          color: 'var(--footer-text-color)',
+          textShadow: infoTextShadow,
+        },
+      ]"
+      @pointerdown="onPointerDown($event, 'lens')"
+    >
+      {{ state.lensText }}
+    </div>
+
+    <!-- 拍摄日期：样式沿用 EXIF 文本（字体/字号/透明度），独立开关与文本 -->
+    <div
+      class="date-text drag-item"
+      data-item="date"
+      v-if="state.showDate"
+      :class="{ dragging: dragging === 'date' }"
+      :style="[
+        absStyle('date'),
+        {
+          display: 'var(--date-display)',
+          font: dateFontStyle,
+          opacity: dateOpacityStyle,
+          color: 'var(--footer-text-color)',
+          textShadow: infoTextShadow,
+        },
+      ]"
+      @pointerdown="onPointerDown($event, 'date')"
+    >
+      {{ state.dateText }}
     </div>
   </div>
 </template>
@@ -134,17 +456,53 @@ function absStyle(key: ItemKey) {
 <style scoped>
 .footer-layer {
   position: absolute;
+  /* 覆盖整个画板（含边框留白背景区），元素坐标经 absStyle 加 padding 偏移定位，
+     从而可在整个背景范围内自由拖动 */
   inset: 0;
   z-index: 2;
   pointer-events: none;
 }
+/* 居中辅助线：垂直中线（水平居中）与水平中线（垂直居中） */
+.guide-v,
+.guide-h {
+  position: absolute;
+  pointer-events: none;
+  background: var(--border);
+  opacity: 0.85;
+}
+.guide-v {
+  left: 50%;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  transform: translateX(-0.5px);
+}
+.guide-h {
+  top: 50%;
+  left: 0;
+  right: 0;
+  height: 1px;
+  transform: translateY(-0.5px);
+}
+/* 元素中心接近画板中心时：高亮 */
+.guide-v.snap,
+.guide-h.snap {
+  background: var(--slider-thumb);
+  opacity: 1;
+}
 .drag-item {
   position: absolute;
-  cursor: grab;
+  cursor: default;
   user-select: none;
   touch-action: none;
-  pointer-events: auto;
+  /* 打印态：默认完全穿透，鼠标拖拽直接作用于照片/画布 */
+  pointer-events: none;
   padding: 4px;
+}
+/* 编辑态（INFO 面板展开）：三元素可拖拽 */
+.footer-layer.editing .drag-item {
+  cursor: grab;
+  pointer-events: auto;
 }
 .drag-item.dragging {
   cursor: grabbing;
@@ -158,5 +516,23 @@ function absStyle(key: ItemKey) {
 .exif-text {
   color: var(--footer-text-color);
   white-space: nowrap;
+}
+/* 镜头型号行：EXIF 文本块附加行（块内纵向堆叠，与导出排版一致） */
+.exif-text .exif-line,
+.exif-text .lens-line {
+  display: block;
+}
+.exif-text .lens-line {
+  margin-top: 6px;
+}
+.date-text {
+  color: var(--footer-text-color);
+  white-space: nowrap;
+}
+/* duo 双栏分隔竖线（浅灰，与导出一致） */
+.duo-divider {
+  position: absolute;
+  background: rgba(0, 0, 0, 0.18);
+  pointer-events: none;
 }
 </style>

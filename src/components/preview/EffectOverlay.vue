@@ -41,8 +41,9 @@ function render() {
   if (!el) return
   const w = DESIGN_CONTAINER
   const h = Math.round(props.containerH)
-  el.width = w
-  el.height = h
+  // 尺寸复用：仅在尺寸变化时重建缓冲
+  if (el.width !== w) el.width = w
+  if (el.height !== h) el.height = h
   const ctx = el.getContext('2d')
   if (!ctx) return
   ctx.clearRect(0, 0, w, h)

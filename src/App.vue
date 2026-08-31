@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// 应用根：LrC 五区布局外壳
+// 应用根：五区工作台布局外壳（图库 / 编辑 / 导出）
 // 顶部区域 / 左侧可折叠面板组 / 中间主画布 / 右侧可折叠参数面板组 / 底部胶片条
 import { ref, watch, computed, onMounted, onBeforeUnmount } from 'vue'
 import TopBar from './components/layout/TopBar.vue'
@@ -13,22 +13,46 @@ import ExportPanel from './components/layout/ExportPanel.vue'
 import PhotoEditor from './components/common/PhotoEditor.vue'
 import { useLibrary } from './composables/useLibrary'
 import { useAppState } from './composables/useAppState'
-import { useFrameConfig } from './composables/useFrameConfig'
-import { useHistory } from './composables/useHistory'
+import { useViewer } from './composables/useViewer'
+import { suspendCommit } from './composables/useFrameConfig'
+import { useHistory, registerActiveProvider } from './composables/useHistory'
 import { editingPhoto, photoImage } from './composables/useUi'
 import { isTauri } from './platform/env'
 
 const library = useLibrary()
 const app = useAppState()
-const { patch } = useFrameConfig()
 const history = useHistory()
+
+// 注册当前活动照片提供者：历史记录模块据此定位"当前编辑的照片"（避免与 useLibrary 循环依赖）
+registerActiveProvider(() => {
+  const id = library.activeId.value
+  if (!id) return null
+  const it = library.items.find((i) => i.id === id)
+  return it ? { id, url: it.url } : null
+})
 
 // 当前选中照片的图源
 const photoSrc = ref<string | null>(null)
 const bgImage = ref<HTMLImageElement | null>(null)
 const sourceImg = ref<HTMLImageElement | null>(null)
 
-function loadActive() {
+// 切换照片序列号：预加载期间若用户再次切换，过期请求直接丢弃，避免旧图覆盖新图
+let switchSeq = 0
+
+function loadImage(url: string): Promise<HTMLImageElement> {
+  return new Promise((resolve) => {
+    const im = new Image()
+    im.onload = () => resolve(im)
+    im.onerror = () => resolve(im) // 加载失败也继续（bgImage 自然尺寸为 0，不会崩溃）
+    im.src = url
+    // 预热解码：decode() 让 Chromium 在解码线程池提前完成位图解码，
+    // 避免首次 drawImage 时才触发同步解码（切图长任务的主要成分）。
+    void im.decode?.().catch(() => {})
+  })
+}
+
+async function loadActive() {
+  const seq = ++switchSeq
   const active = library.items.find((i) => i.id === library.activeId.value)
   if (!active) {
     photoSrc.value = null
@@ -36,23 +60,37 @@ function loadActive() {
     sourceImg.value = null
     return
   }
-  photoSrc.value = active.url
-  const im = new Image()
-  im.onload = () => {
+  // 切换全程挂起历史提交：大图解码期间（可达秒级）用户的开关/滑块操作会被随后的
+  // loadCursorFor 参数恢复覆盖（实测竞态：切换后立即点击开关被重置 + 产生脏历史节点），
+  // 挂起后此类"半路编辑"静默丢弃，最终状态与恢复的参数一致。计数式挂起，finally 恒复位。
+  suspendCommit(true)
+  try {
+    // 1) 先预加载新图（期间不切换画面，避免旧背景+新主图错位 / 图片未就绪导致的空白闪烁）
+    const im = await loadImage(active.url)
+    if (seq !== switchSeq) return // 已切换到其他照片，丢弃本次结果
+    // 2) 恢复该照片历史链当前步骤的参数
+    await history.ensureChain(active.id)
+    if (seq !== switchSeq) return
+    // 3) 原子切换：图源、背景、历史参数在同一同步块内更新 → 单次渲染、单次 fit
+    //    导入/切换属非编辑流程，历史提交在整个切换期间均被挂起
+    history.loadCursorFor(active.id)
+    photoSrc.value = active.url
     bgImage.value = im
     sourceImg.value = im
     photoImage.value = im
-    patch({ photoSrc: active.url })
+  } finally {
+    suspendCommit(false)
   }
-  im.src = active.url
 }
 
 watch(() => library.activeId.value, loadActive, { immediate: true })
 
-// 进入编辑模块时自动加载
+// 进入编辑模块时自动加载当前选中照片（右侧面板默认收起，用户手动展开）
 watch(() => app.activeModule.value, (m) => {
-  if (m === 'develop' && library.activeId.value) loadActive()
-})
+  if (m === 'develop') {
+    if (library.activeId.value) loadActive()
+  }
+}, { immediate: true })
 
 // ===== 快捷键 =====
 function onKey(e: KeyboardEvent) {
@@ -65,15 +103,18 @@ function onKey(e: KeyboardEvent) {
     library.prev()
     e.preventDefault()
   } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
-    // 桌面端撤销/重做由原生菜单加速键接管，避免双触发
+    // 桌面端撤销/重做由原生菜单加速键接管（Rust 菜单 → framelab://menu），避免双触发
     if (isTauri) return
-    if (e.shiftKey) history.redo()
-    else history.undo()
+    if (e.shiftKey) void history.redo()
+    else void history.undo()
     e.preventDefault()
   } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') {
     if (isTauri) return
-    history.redo()
+    void history.redo()
     e.preventDefault()
+  } else if (e.key === 'Escape') {
+    // Esc：复位画布视图（放大预览后快速回到适配状态）
+    useViewer().resetView()
   }
 }
 onMounted(() => window.addEventListener('keydown', onKey))
@@ -95,10 +136,10 @@ document.body.classList.add('theme-dark')
 
       <!-- 编辑模块：五区布局 -->
       <template v-else-if="app.activeModule.value === 'develop'">
+        <LeftPanels v-if="showLeft" />
         <button class="rail left-rail" :class="{ collapsed: !app.state.leftOpen }" :title="app.state.leftOpen ? '隐藏左栏' : '显示左栏'" @click="app.toggleLeft()">
           {{ app.state.leftOpen ? '‹' : '›' }}
         </button>
-        <LeftPanels v-if="showLeft" />
         <Workspace :photo-src="photoSrc" :bg-image="bgImage" />
         <button class="rail right-rail" :class="{ collapsed: !app.state.rightOpen }" :title="app.state.rightOpen ? '隐藏右栏' : '显示右栏'" @click="app.toggleRight()">
           {{ app.state.rightOpen ? '›' : '‹' }}
@@ -135,8 +176,8 @@ document.body.classList.add('theme-dark')
 }
 .rail {
   flex: none;
-  width: 14px;
-  background: var(--panel-2);
+  width: 4px;
+  background: var(--shell);
   border: none;
   border-right: 1px solid var(--border);
   color: var(--text-dim);
@@ -150,6 +191,6 @@ document.body.classList.add('theme-dark')
 }
 .rail:hover {
   color: var(--text);
-  background: var(--panel-3);
+  background: var(--hover);
 }
 </style>

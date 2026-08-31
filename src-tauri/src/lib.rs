@@ -238,11 +238,15 @@ fn build_menu(app: &AppHandle) -> tauri::Result<()> {
         MenuItem::with_id(app, "open_folder", "打开图片文件夹…", true, Some("CmdOrCtrl+Shift+L"))?;
     let goto_export =
         MenuItem::with_id(app, "goto_export", "转到导出模块", true, Some("CmdOrCtrl+E"))?;
+    let preferences =
+        MenuItem::with_id(app, "preferences", "首选项…", true, Some("CmdOrCtrl+,"))?;
     let quit = PredefinedMenuItem::quit(app, Some("退出"))?;
     let file_menu = SubmenuBuilder::new(app, "文件")
         .item(&import_images)
         .item(&open_folder)
         .item(&goto_export)
+        .separator()
+        .item(&preferences)
         .separator()
         .item(&quit)
         .build()?;
@@ -282,6 +286,141 @@ fn build_menu(app: &AppHandle) -> tauri::Result<()> {
     Ok(())
 }
 
+// ===== GPU 首选项（独显加速） =====
+
+/// 枚举本机全部已安装的 WebView2 Evergreen/Fixed Runtime 的 msedgewebview2.exe。
+/// 关键：FrameLab 的 GPU 渲染实际发生在 msedgewebview2.exe 子进程内，
+/// Windows GPU 首选项按进程映像路径匹配，必须同时覆盖宿主与运行时才生效。
+fn webview2_runtime_exes() -> Vec<PathBuf> {
+    let mut out: Vec<PathBuf> = Vec::new();
+    let mut roots: Vec<PathBuf> = vec![PathBuf::from(r"C:\Program Files (x86)\Microsoft\EdgeWebView\Application")];
+    if let Ok(local) = std::env::var("LOCALAPPDATA") {
+        roots.push(PathBuf::from(&local).join(r"Microsoft\EdgeWebView\Application"));
+        // Fixed Version 运行时的常见自定义安装根
+        roots.push(PathBuf::from(&local).join(r"Microsoft\EdgeWebView\FixedVersion"));
+    }
+    for root in &roots {
+        let Ok(rd) = fs::read_dir(root) else { continue };
+        for entry in rd.flatten() {
+            let p = entry.path().join("msedgewebview2.exe");
+            if p.is_file() {
+                out.push(p);
+            }
+        }
+    }
+    out
+}
+
+/// 设置 Windows「GPU 首选项」（HKCU\Software\Microsoft\DirectX\UserGpuPreferences）：
+/// enabled=true 时为 宿主 exe 与全部 msedgewebview2.exe 运行时写 GpuPreference=2（高性能/独显），
+/// false 时全部移除。经 reg.exe 实现；重启应用后由 Windows/驱动生效。
+#[tauri::command]
+fn set_gpu_preference(enabled: bool) -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        let key = r"HKCU\Software\Microsoft\DirectX\UserGpuPreferences";
+        // 目标清单：宿主 exe + 全部 WebView2 运行时 exe
+        let mut targets: Vec<String> = Vec::new();
+        match std::env::current_exe() {
+            Ok(exe) => targets.push(exe.to_string_lossy().to_string()),
+            Err(e) => return Err(format!("获取应用路径失败: {e}")),
+        }
+        for p in webview2_runtime_exes() {
+            targets.push(p.to_string_lossy().to_string());
+        }
+
+        for t in &targets {
+            if enabled {
+                let output = std::process::Command::new("reg")
+                    .args(["add", key, "/v", t, "/t", "REG_SZ", "/d", "GpuPreference=2;", "/f"])
+                    .output()
+                    .map_err(|e| format!("执行 reg 失败: {e}"))?;
+                if !output.status.success() {
+                    return Err(format!(
+                        "写入 GPU 首选项失败({t}): {}",
+                        String::from_utf8_lossy(&output.stderr)
+                    ));
+                }
+            } else {
+                // 值不存在时 reg delete 返回非零，视为已移除（幂等，失败忽略）
+                let _ = std::process::Command::new("reg")
+                    .args(["delete", key, "/v", t, "/f"])
+                    .output();
+            }
+        }
+        Ok(())
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = enabled;
+        Err("仅支持 Windows".into())
+    }
+}
+
+/// 打开 Windows「图形设置」页（用户可为应用手动指定高性能 GPU）
+#[tauri::command]
+fn open_graphics_settings() -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        std::process::Command::new("cmd")
+            .args(["/C", "start", "", "ms-settings:graphics"])
+            .spawn()
+            .map_err(|e| format!("打开系统设置失败: {e}"))?;
+        Ok(())
+    }
+    #[cfg(not(windows))]
+    {
+        Err("仅支持 Windows".into())
+    }
+}
+
+/// 检测是否存在独立显卡（dxdiag 输出解析 Card name 行，出现第二块非 Intel 虚拟显卡即视为有独显）。
+/// 返回 (是否有独显, 独显名称列表)。
+#[tauri::command]
+async fn detect_discrete_gpu() -> Result<(bool, Vec<String>), String> {
+    #[cfg(windows)]
+    {
+        // dxdiag 输出 UTF-16；WMI 查询更稳，但需引依赖；此处用 PowerShell CIM（系统自带）
+        let out = std::process::Command::new("powershell")
+            .args([
+                "-NoProfile",
+                "-Command",
+                "Get-CimInstance Win32_VideoController | ForEach-Object { $_.Name }",
+            ])
+            .output()
+            .map_err(|e| format!("查询显卡失败: {e}"))?;
+        if !out.status.success() {
+            return Err("查询显卡失败".into());
+        }
+        let text = String::from_utf8_lossy(&out.stdout);
+        let mut dgpus: Vec<String> = Vec::new();
+        for line in text.lines() {
+            let name = line.trim();
+            if name.is_empty() {
+                continue;
+            }
+            let lower = name.to_lowercase();
+            // 集显/虚拟显卡特征词；NVIDIA/AMD（含 Radeon 独显）视为独显
+            let integrated = lower.contains("intel")
+                || lower.contains("uhd")
+                || lower.contains("iris")
+                || lower.contains("basic display")
+                || lower.contains("microsoft")
+                || lower.contains("paravirtual")
+                || lower.contains("virtual")
+                || lower.contains("remote");
+            if !integrated && (lower.contains("nvidia") || lower.contains("geforce") || lower.contains("radeon") || lower.contains("amd")) {
+                dgpus.push(name.to_string());
+            }
+        }
+        Ok((!dgpus.is_empty(), dgpus))
+    }
+    #[cfg(not(windows))]
+    {
+        Ok((false, Vec::new()))
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -306,7 +445,10 @@ pub fn run() {
             pick_folder,
             pick_image_files,
             open_text_file,
-            save_file_dialog
+            save_file_dialog,
+            set_gpu_preference,
+            open_graphics_settings,
+            detect_discrete_gpu
         ])
         .run(tauri::generate_context!())
         .expect("error while running FrameLab");

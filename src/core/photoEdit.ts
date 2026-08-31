@@ -101,9 +101,15 @@ export function drawRotatedCropped(
   ctx.save()
   ctx.translate(outW / 2, outH / 2)
   ctx.rotate((rotation * Math.PI) / 180)
-  // 目标矩形 = 输出画布 outW×outH（而非源图像素尺寸），
+  // 目标矩形需在「旋转后坐标系」中与画布同向：0/180 用 outW×outH；
+  // 90/270 时局部矩形旋转 90° 后覆盖区域会交换宽高，若不交换目标矩形宽高，
+  // 图像将溢出画布（被裁剪）且另一侧留白。因此 90/270 时交换目标宽高，
+  // 使旋转后的图像恰好填满 outW×outH 画布（预览与导出一致）。
+  const swap = rotation === 90 || rotation === 270
+  const dw = swap ? outH : outW
+  const dh = swap ? outW : outH
   // 把旋转+裁剪后的源区域缩放铺满画布，保证完整显示（预览/导出一致）。
   // 注意：outW/outH 的比例必须等于"旋转后裁剪区域"的比例（调用方保证）。
-  ctx.drawImage(source, sx, sy, sw, sh, -outW / 2, -outH / 2, outW, outH)
+  ctx.drawImage(source, sx, sy, sw, sh, -dw / 2, -dh / 2, dw, dh)
   ctx.restore()
 }

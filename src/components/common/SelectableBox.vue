@@ -29,6 +29,8 @@ interface DragState {
   startX: number
   startY: number
   start: Rect
+  /** 按下瞬间实时测量的 屏幕px/设计px 比例（不依赖可能滞后的 props.scale） */
+  scale: number
   captureEl: HTMLElement
   pointerId: number
 }
@@ -37,18 +39,24 @@ let ds: DragState | null = null
 function onPointerDown(mode: Handle, e: PointerEvent) {
   e.stopPropagation()
   emit('select')
-  const el = e.currentTarget as HTMLElement
+  // 始终用根元素 .selectable 测量真实缩放比例（handle 本身只有 12px，不能用于计算）。
+  // 这样 move 与各方向缩放手柄的换算都一致，且不受 fitScale/zoom 变化后 props.scale 滞后影响。
+  const current = e.currentTarget as HTMLElement
+  const rootEl = (current.closest('.selectable') as HTMLElement | null) ?? current
+  const screenW = rootEl.getBoundingClientRect().width
+  const liveScale = props.rect.width > 0 ? screenW / props.rect.width : props.scale
   ds = {
     mode,
     startX: e.clientX,
     startY: e.clientY,
     start: { ...props.rect },
-    captureEl: el,
+    scale: liveScale || props.scale || 1,
+    captureEl: current,
     pointerId: e.pointerId,
   }
   dragging.value = true
   try {
-    el.setPointerCapture(e.pointerId)
+    current.setPointerCapture(e.pointerId)
   } catch {
     /* ignore */
   }
@@ -56,8 +64,8 @@ function onPointerDown(mode: Handle, e: PointerEvent) {
 
 function onPointerMove(e: PointerEvent) {
   if (!ds) return
-  const dx = (e.clientX - ds.startX) / props.scale
-  const dy = (e.clientY - ds.startY) / props.scale
+  const dx = (e.clientX - ds.startX) / ds.scale
+  const dy = (e.clientY - ds.startY) / ds.scale
   const next = computeRect(ds.mode, ds.start, dx, dy, {
     lockAspect: props.lockAspect,
     minSize: props.minSize,
@@ -113,16 +121,16 @@ function onPointerUp() {
   touch-action: none;
 }
 .selectable.selected {
-  outline: 1.5px solid var(--accent-border, #7aaaff);
+  outline: 1px solid var(--slider-thumb);
   outline-offset: 0;
 }
 .handle {
   position: absolute;
-  width: 12px;
-  height: 12px;
-  background: #fff;
-  border: 1.5px solid var(--accent-border, #7aaaff);
-  border-radius: 2px;
+  width: 10px;
+  height: 10px;
+  background: var(--slider-thumb);
+  border: none;
+  border-radius: 0;
   transform: translate(-50%, -50%);
   z-index: 5;
   touch-action: none;

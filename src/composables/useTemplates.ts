@@ -1,11 +1,13 @@
-// 模板系统：内置预设 + 用户自定义模板（可导出/导入 JSON），对标 LrC 预设。
+// 模板系统：内置预设 + 用户自定义模板（可导出/导入 JSON）。
 // 模板仅保存 FrameConfig 装饰参数（不含 photoSrc、照片变换与位置，避免污染用户主图）。
+// 背景模板库已取消；内置模板为两张用户样例的像素级复刻（白框参数卡 / 圆角悬浮·模糊延展）。
+// 列表缩略图由 core/templateThumb.ts 按 config 程序化生成，与成片几何一致。
 import { reactive } from 'vue'
 import type { FrameConfig } from '../core/types'
-import { storageGet, storageSet } from '../platform/storage'
 
 const STORAGE_KEY = 'frame-templates'
 
+// 'background' 类别仅为兼容旧的自定义模板数据保留，已无独立 UI 入口
 export type TemplateCategory = 'frame' | 'background' | 'all'
 
 export interface FrameTemplate {
@@ -17,83 +19,83 @@ export interface FrameTemplate {
   builtin?: boolean
 }
 
-// 内置预设（阶段 18）：相框/背景/全量预设
+// 内置预设：与两张用户样例逐像素对齐（Desktop/相框样式，2026-08-28 实测），
+// 见《相框风格分析与模板更新.md》；选择模板后右栏参数随之更新，用户可继续在右栏微调。
 const BUILTIN: FrameTemplate[] = [
   {
-    id: 'b_classic',
-    name: '经典暗边框',
-    category: 'all',
+    id: 'm_duo_card',
+    name: '白框参数卡',
+    category: 'frame',
     builtin: true,
+    // 样例1：白底等宽边 26 + 底部加宽 66；INFO 左=镜头(20粗)+机型(17灰) / 中=Logo / 右=参数(20粗)+日期(17灰)，
+    // 右栏右缘对齐照片右缘（内缩 20），竖线浅灰、Logo 右缘贴竖线；几何常量见 core/infoLayout.ts
     config: {
-      bgMode: 'default',
-      blur: 40,
-      padding: 80,
-      scale: 90,
-      radius: 20,
-      shadow: 0.5,
-      showLogo: true,
-      showExif: true,
-      showCameraModel: true,
-    },
-  },
-  {
-    id: 'b_clean',
-    name: '极简无边',
-    category: 'all',
-    builtin: true,
-    config: {
-      bgMode: 'none',
-      padding: 0,
+      bgMode: 'solid',
+      bgColor: '#ffffff',
+      borderColor: '#ffffff',
+      padding: 27,
+      borderRatio: 0,
+      bgBottomRatio: 69,
+      photoRadius: 0,
+      borderRadius: 0,
       scale: 100,
-      radius: 0,
-      shadow: 0,
+      shadow: 0.12,
+      frameRatio: null,
+      infoLayout: 'duo',
       overlayAlign: 'center',
-      overlayBottom: 30,
+      overlayBottom: 18,
       showLogo: true,
+      logoSize: 20,
+      logoOpacity: 1,
+      showCameraModel: true,
+      cameraModelSize: 17,
+      cameraModelWeight: 400,
+      cameraModelOpacity: 0.55,
       showExif: true,
+      showLens: true,
+      showDate: true,
+      dateFormat: 'dash',
+      fontSize: 20,
+      textWeight: 700,
+      textOpacity: 1,
     },
   },
   {
-    id: 'b_warm',
-    name: '暖调留白',
-    category: 'all',
+    id: 'm_float_round',
+    name: '圆角悬浮·模糊延展',
+    category: 'frame',
     builtin: true,
+    // 样例2：照片大圆角+阴影悬浮，四周原图模糊延展（四边 100 / 底部 190）；
+    // INFO 悬浮居中双行：行1 = Logo(白,高20)+机型(20) 内联、行2 = 参数(18)，底边距 29
     config: {
-      bgMode: 'custom',
-      blur: 10,
-      padding: 120,
-      scale: 80,
-      radius: 8,
-      shadow: 0.3,
+      bgMode: 'blur',
+      blur: 60,
+      bgExpand: 100,
+      bgBottomRatio: 90,
+      padding: 0,
+      borderRatio: 0,
+      photoRadius: 35,
+      shadow: 0.45,
+      scale: 100,
+      frameRatio: null,
+      infoLayout: 'inline',
+      overlayAlign: 'center',
+      overlayBottom: 29,
+      showLogo: true,
+      logoSize: 20,
+      logoOpacity: 1,
+      logoColor: '#ffffff',
+      showCameraModel: true,
+      cameraModelSize: 20,
+      cameraModelWeight: 400,
+      cameraModelOpacity: 1,
+      showExif: true,
+      showLens: false,
+      showDate: false,
+      fontSize: 18,
+      textWeight: 400,
+      textOpacity: 1,
     },
-  },
-  {
-    id: 'f_thick',
-    name: '粗边框',
-    category: 'frame',
-    builtin: true,
-    config: { padding: 160, radius: 0, shadow: 0.7 },
-  },
-  {
-    id: 'f_round',
-    name: '圆角卡片',
-    category: 'frame',
-    builtin: true,
-    config: { padding: 90, radius: 36, shadow: 0.6 },
-  },
-  {
-    id: 'bg_blur',
-    name: '强模糊背景',
-    category: 'background',
-    builtin: true,
-    config: { bgMode: 'default', blur: 80 },
-  },
-  {
-    id: 'bg_none',
-    name: '无背景铺满',
-    category: 'background',
-    builtin: true,
-    config: { bgMode: 'none', padding: 0, scale: 100 },
   },
 ]
 
@@ -101,7 +103,7 @@ const templates = reactive<FrameTemplate[]>([])
 
 function load(): FrameTemplate[] {
   try {
-    const raw = storageGet(STORAGE_KEY)
+    const raw = localStorage.getItem(STORAGE_KEY)
     if (raw) {
       const parsed = JSON.parse(raw) as FrameTemplate[]
       // 合并内置（内置始终存在），用户自定义追加
@@ -117,7 +119,7 @@ function load(): FrameTemplate[] {
 function persist() {
   const custom = templates.filter((t) => !t.builtin)
   try {
-    storageSet(STORAGE_KEY, JSON.stringify(custom))
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(custom))
   } catch {
     /* ignore */
   }

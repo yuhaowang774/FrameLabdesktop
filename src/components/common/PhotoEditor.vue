@@ -228,13 +228,14 @@ onBeforeUnmount(() => {
 }
 .editor {
   width: min(92vw, 520px);
-  background: #161616;
-  border-radius: 14px;
-  padding: 14px;
-  color: #fff;
+  background: var(--panel);
+  border-radius: 0;
+  padding: 12px 14px;
+  color: var(--text);
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
+  border: 1px solid var(--border);
 }
 .editor-head {
   display: flex;
@@ -242,16 +243,24 @@ onBeforeUnmount(() => {
   align-items: center;
 }
 .title {
-  font-weight: 600;
+  font-weight: 400;
+  font-size: 13px;
+  line-height: 18px;
+  color: var(--text);
 }
 .x {
-  background: #2f6df6;
-  color: #fff;
-  border: 0;
-  border-radius: 8px;
-  padding: 6px 14px;
+  background: var(--btn-bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 0;
+  padding: 0 14px;
+  height: 22px;
+  font-size: 12px;
+  line-height: 16px;
   cursor: pointer;
 }
+.x:hover { background: var(--hover); color: var(--text-normal); }
+.x:active { background: var(--pressed); }
 .canvas-area {
   display: flex;
   justify-content: center;
@@ -260,14 +269,14 @@ onBeforeUnmount(() => {
   position: relative;
   width: 100%;
   max-height: 60vh;
-  background: #000;
+  background: var(--canvas-loaded);
   overflow: hidden;
   touch-action: none;
 }
 .crop {
   position: absolute;
   box-sizing: border-box;
-  border: 1px solid rgba(255, 255, 255, 0.9);
+  border: 1px solid var(--text);
   box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.5);
   cursor: move;
   touch-action: none;
@@ -285,7 +294,7 @@ onBeforeUnmount(() => {
   width: 18px;
   height: 18px;
   background: #fff;
-  border: 1px solid #2f6df6;
+  border: 1px solid #aaaaaa;
   border-radius: 3px;
 }
 .handle.n { top: -9px; left: 50%; transform: translateX(-50%); cursor: ns-resize; }
@@ -298,31 +307,41 @@ onBeforeUnmount(() => {
 .handle.se { bottom: -9px; right: -9px; cursor: nwse-resize; }
 .toolbar {
   display: flex;
-  gap: 8px;
+  gap: 4px;
   justify-content: center;
 }
 .tool {
   flex: 1;
-  background: #262626;
-  color: #fff;
-  border: 0;
-  border-radius: 8px;
-  padding: 10px;
+  height: 26px;
+  background: var(--btn-bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 0;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 16px;
   cursor: pointer;
 }
+.tool:hover { background: var(--hover); color: var(--text-normal); }
+.tool:active { background: var(--pressed); }
 .presets {
   display: flex;
-  gap: 6px;
+  gap: 4px;
   justify-content: center;
   flex-wrap: wrap;
 }
 .preset {
-  background: #202020;
-  color: #ddd;
-  border: 1px solid #333;
-  border-radius: 999px;
-  padding: 6px 12px;
+  background: var(--panel-2);
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  border-radius: 0;
+  padding: 0 10px;
+  height: 22px;
   cursor: pointer;
   font-size: 12px;
+  font-weight: 400;
+  line-height: 16px;
 }
+.preset:hover { background: var(--hover); color: var(--text); }
+.preset:active { background: var(--pressed); }
 </style>

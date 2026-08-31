@@ -4,6 +4,7 @@ import { listen } from '@tauri-apps/api/event'
 import { useAppState } from '../composables/useAppState'
 import { useHistory } from '../composables/useHistory'
 import { useLibrary } from '../composables/useLibrary'
+import { applyGpuPreferenceOnStartup } from './gpu'
 import {
   pickImageFiles,
   pickImageFolder,
@@ -29,11 +30,14 @@ export async function setupDesktopShell(): Promise<void> {
       case 'module_export':
         app.setModule('export')
         break
+      case 'goto_export':
+        app.setModule('export')
+        break
       case 'undo':
-        history.undo()
+        void history.undo()
         break
       case 'redo':
-        history.redo()
+        void history.redo()
         break
       case 'toggle_filmstrip':
         app.toggleFilmstrip()
@@ -67,6 +71,11 @@ export async function setupDesktopShell(): Promise<void> {
     }
   })
 
-  // 恢复上次会话打开的图片文件夹（桌面端仅保存磁盘路径，不拷贝原图）
-  await restoreLastFolder()
+  // 按用户设置重申 Windows GPU 首选项（独显加速，幂等）
+  void applyGpuPreferenceOnStartup()
+
+  // 恢复上次会话打开的图片文件夹（桌面端仅保存磁盘路径，不拷贝原图）。
+  // 非阻塞：每张图需读盘解析 EXIF + 写 IndexedDB，大文件夹时避免阻塞首屏渲染，
+  // 图库条目会随恢复进度渐进出现。
+  void restoreLastFolder()
 }

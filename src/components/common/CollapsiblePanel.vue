@@ -1,5 +1,9 @@
 <script setup lang="ts">
-// 可折叠子面板（对标 LrC 左侧/右侧分组面板）：标题栏点击折叠，支持独奏由父级控制 open 状态。
+// FrameLab 折叠面板：标题栏 30px / 13px / 400 / 标题前小图标 / 右侧操作 + 折叠箭头
+// 复用约定：
+//   - icon slot  ：标题前的 12px 线性图标（可选）
+//   - actions slot：标题右侧操作按钮（可选，如「全部重置」）
+//   - 整行除 actions 区域外点击切换折叠；actions 区域 click.stop 隔离
 import { ref } from 'vue'
 
 const props = defineProps<{
@@ -14,10 +18,18 @@ const hover = ref(false)
 
 <template>
   <section class="panel" :class="{ open: props.open }">
-    <header class="panel-head" @click="emit('toggle')" @mouseenter="hover = true" @mouseleave="hover = false">
-      <span class="twisty">{{ props.open ? '▾' : '▸' }}</span>
+    <header
+      class="panel-head"
+      :class="{ hover }"
+      @click="emit('toggle')"
+      @mouseenter="hover = true"
+      @mouseleave="hover = false"
+    >
+      <span v-if="$slots.icon" class="icon"><slot name="icon" /></span>
       <span class="title">{{ props.title }}</span>
       <span v-if="props.badge != null && props.badge !== ''" class="badge">{{ props.badge }}</span>
+      <span v-if="$slots.actions" class="actions" @click.stop><slot name="actions" /></span>
+      <span class="twisty">{{ props.open ? '▾' : '▸' }}</span>
     </header>
     <div v-show="props.open" class="panel-body">
       <slot />
@@ -27,45 +39,94 @@ const hover = ref(false)
 
 <style scoped>
 .panel {
-  border-bottom: 1px solid var(--border);
+  border-top: 1px solid var(--border);
   background: var(--panel);
 }
 .panel-head {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 9px 12px;
+  gap: 9px;
+  height: 30px;
+  padding: 0 14px;
   cursor: pointer;
   user-select: none;
-  background: var(--panel-2);
-  position: sticky;
-  top: 0;
-  z-index: 2;
+  background: var(--panel);
+  border: none;
 }
+.panel-head.hover,
 .panel-head:hover {
-  background: color-mix(in srgb, var(--accent) 10%, var(--panel-2));
+  background: var(--hover);
 }
-.twisty {
+.icon {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
   color: var(--text-dim);
-  font-size: 11px;
-  width: 12px;
+  line-height: 0;
+}
+.icon :deep(svg) {
+  display: block;
 }
 .title {
   flex: 1;
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+  font-size: 13px;
+  font-weight: 400;
+  letter-spacing: 0;
+  line-height: 18px;
   color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .badge {
-  font-size: 11px;
+  font-size: 12px;
+  font-weight: 400;
   color: var(--text-dim);
-  background: var(--panel-3);
-  border-radius: 9px;
-  padding: 1px 7px;
+}
+.actions {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 18px;
+  color: var(--text-dim);
+}
+.actions :deep(button) {
+  height: 18px;
+  padding: 0 6px;
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 16px;
+  color: var(--text-dim);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 0;
+  cursor: pointer;
+  font-family: inherit;
+}
+.actions :deep(button:hover) {
+  background: var(--pressed);
+  color: var(--text);
+  border-color: var(--border);
+}
+.actions :deep(button:active) {
+  background: var(--pressed);
+}
+.twisty {
+  flex: none;
+  color: var(--text-dim);
+  font-size: 11px;
+  width: 12px;
+  text-align: center;
+  line-height: 18px;
 }
 .panel-body {
-  padding: 10px 12px 14px;
+  padding: 10px 14px 12px;
+  background: var(--panel);
+  border: none;
+  border-top: 1px solid var(--border);
 }
 </style>

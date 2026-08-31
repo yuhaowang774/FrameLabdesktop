@@ -3,16 +3,12 @@
 // - Tauri 桌面端：文件、目录、对话框读写全部经 invoke 走 Rust IPC Command，
 //   前端（WebView）不直接访问本地文件系统；图片经 asset 协议 URL 引用磁盘路径，
 //   不拷贝、不上传原图。
+// 小配置键（上次打开的文件夹等）与网页版一致，直接走 localStorage
+// （Tauri WebView 的 localStorage 随应用数据目录持久化）。
 import { convertFileSrc } from '@tauri-apps/api/core'
 import { isTauri } from './env'
 import { downloadBlob } from '../core/exporter'
-import { storageGet, storageSet } from './storage'
-import type { LibraryItem } from '../composables/useLibrary'
-
-export interface LocalImageEntry {
-  path: string
-  name: string
-}
+import type { LibraryItem, LocalImageEntry } from '../composables/useLibrary'
 
 async function tauriInvoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
   const { invoke } = await import('@tauri-apps/api/core')
@@ -135,21 +131,6 @@ export async function writeBlobTo(folder: string, filename: string, blob: Blob):
   await tauriInvoke('write_file_base64', { path, base64Data: b64 })
 }
 
-// ===== 桌面端：JSON 模板文件读写 =====
-
-/** 桌面端：打开本地 JSON 模板文件并读取文本；取消返回 null */
-export async function pickJsonText(): Promise<string | null> {
-  return tauriInvoke<string | null>('open_text_file')
-}
-
-/** 桌面端：另存文本文件（模板导出）；取消返回 false */
-export async function saveTextAs(defaultName: string, text: string): Promise<boolean> {
-  const path = await tauriInvoke<string | null>('save_file_dialog', { defaultName })
-  if (!path) return false
-  await tauriInvoke('write_text_file', { path, content: text })
-  return true
-}
-
 // ===== 图库接入（桌面端） =====
 
 export const LAST_FOLDER_KEY = 'framelab-last-folder'
@@ -165,18 +146,31 @@ export async function loadFolderIntoLibrary(
   result: { folder: string; images: LocalImageEntry[] },
 ): Promise<number> {
   const items = await addLocalEntries(result.images)
-  storageSet(LAST_FOLDER_KEY, result.folder)
+  try {
+    localStorage.setItem(LAST_FOLDER_KEY, result.folder)
+  } catch {
+    /* ignore */
+  }
   return items.length
 }
 
 /** 桌面端：启动时恢复上次打开的文件夹（目录失效则静默清除） */
 export async function restoreLastFolder(): Promise<void> {
-  const last = storageGet(LAST_FOLDER_KEY)
+  let last = ''
+  try {
+    last = localStorage.getItem(LAST_FOLDER_KEY) || ''
+  } catch {
+    /* ignore */
+  }
   if (!last) return
   try {
     const images = await listDirImages(last, true)
     await addLocalEntries(images)
   } catch {
-    storageSet(LAST_FOLDER_KEY, '')
+    try {
+      localStorage.removeItem(LAST_FOLDER_KEY)
+    } catch {
+      /* ignore */
+    }
   }
 }

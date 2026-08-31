@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// 左侧面板："我的素材"（对标 LrC 图库胶片）。从素材库选取/进入编辑。
+// 左侧面板："我的素材"。从素材库选取/进入编辑。
 import { useLibrary } from '../../composables/useLibrary'
 import { useAppState } from '../../composables/useAppState'
 
@@ -24,7 +24,7 @@ function enter(item: { id: string }) {
         :title="item.name"
         @click="enter(item)"
       >
-        <img :src="item.url" :alt="item.name" loading="lazy" />
+        <img :src="item.thumbUrl || item.url" :alt="item.name" loading="lazy" />
         <span class="tname">{{ item.name }}</span>
       </button>
     </div>

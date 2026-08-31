@@ -11,20 +11,17 @@
 // 绘制顺序（强制，对应需求"绘制执行流程"第 5 步）：按 zIndex 从小到大。
 import { DESIGN_CONTAINER } from './constants'
 import { resolveLogo, preloadBrandLogo } from '../composables/useLogoStore'
+import { resolveFocal, cleanLens, type ExifRaw } from '../composables/useExif'
 import type { InfoElement, InfoLayerConfig } from './types'
 
 // 设计稿基准宽度（1200），画布中心 X 默认等于其一半
 const DESIGN_CX = DESIGN_CONTAINER / 2
 
 // ===== EXIF 模板解析 =====
-// 复用 useExif 的格式化逻辑；此处内联一份轻量实现，避免引入 Vue 依赖。
+// 焦距格式化/等效换算复用 useExif 的 resolveFocal；其余轻量内联实现。
 function formatShutter(t: number): string {
   if (t >= 1) return `${Math.round(t)}s`
   return `1/${Math.round(1 / t)}s`
-}
-function formatFocal(mm?: number): string {
-  if (mm == null) return ''
-  return mm % 1 === 0 ? String(mm) : mm.toFixed(1) + 'mm'
 }
 function formatFNumber(f?: number): string {
   if (f == null) return ''
@@ -35,18 +32,20 @@ function formatIso(iso?: number): string {
   return `ISO${iso}`
 }
 
-/** 由 exifRaw 计算可用字段映射，供模板 {key} 替换 */
+/** 由 exifRaw 计算可用字段映射，供模板 {key} 替换（eq：等效焦距开关/系数） */
 export function buildExifFieldMap(
-  exifRaw: { focalLength?: number; fNumber?: number; exposureTime?: number; iso?: number } | null,
+  exifRaw: ExifRaw | null,
   model?: string,
+  eq: { eqFocal?: boolean; cropFactor?: number } = {},
 ): Record<string, string> {
   const r = exifRaw || {}
   return {
-    focal: formatFocal(r.focalLength),
+    focal: resolveFocal(r, !!eq.eqFocal, eq.cropFactor ?? 0),
     aperture: formatFNumber(r.fNumber),
     shutter: r.exposureTime != null ? formatShutter(r.exposureTime) : '',
     iso: formatIso(r.iso),
     model: model || '',
+    lens: cleanLens(r.lensMake, r.lensModel) ?? '',
   }
 }
 
@@ -55,10 +54,11 @@ export function buildExifFieldMap(
  */
 export function resolveExifTemplate(
   template: string,
-  exifRaw: { focalLength?: number; fNumber?: number; exposureTime?: number; iso?: number } | null,
+  exifRaw: ExifRaw | null,
   model?: string,
+  eq: { eqFocal?: boolean; cropFactor?: number } = {},
 ): string {
-  const map = buildExifFieldMap(exifRaw, model)
+  const map = buildExifFieldMap(exifRaw, model, eq)
   let out = template.replace(/\{(\w+)\}/g, (_, k: string) => map[k] ?? '')
   out = out.replace(/\s{2,}/g, ' ').replace(/\(\s*\)/g, '').trim()
   return out
@@ -114,8 +114,12 @@ export function drawInfoLayer(
   ctx: CanvasRenderingContext2D,
   layer: InfoLayerConfig,
   opts: {
-    exifRaw?: { focalLength?: number; fNumber?: number; exposureTime?: number; iso?: number } | null
+    exifRaw?: ExifRaw | null
     model?: string
+    /** 等效焦距显示开关（{focal} 模板字段） */
+    eqFocal?: boolean
+    /** 手动画幅系数（0=自动用 EXIF 35mm 字段） */
+    cropFactor?: number
     /** 照片变换矩阵（设计 px 空间，未含 unitScale）。bindTarget=photo 时传入。 */
     outerMatrix?: DOMMatrix
     /** 画布中心（设计 px），默认 (600, 600) */
@@ -155,7 +159,7 @@ export function drawInfoLayer(
 function drawElementContent(
   ctx: CanvasRenderingContext2D,
   el: InfoElement,
-  opts: { exifRaw?: any; model?: string },
+  opts: { exifRaw?: ExifRaw | null; model?: string; eqFocal?: boolean; cropFactor?: number },
 ): void {
   switch (el.type) {
     case 'divider': {
@@ -177,7 +181,10 @@ function drawElementContent(
       break
     }
     case 'exif': {
-      const text = resolveExifTemplate(el.template, opts.exifRaw || null, opts.model)
+      const text = resolveExifTemplate(el.template, opts.exifRaw || null, opts.model, {
+        eqFocal: opts.eqFocal,
+        cropFactor: opts.cropFactor,
+      })
       drawText(ctx, text, el.fontFamily, el.fontSize, el.fontWeight, el.color, el.align, el.letterSpacing, el.lineHeight)
       break
     }

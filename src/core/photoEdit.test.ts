@@ -96,7 +96,7 @@ describe('cropToSourceRect 四向旋转一致性（裁剪面积守恒）', () =>
 })
 
 describe('预览框比例 = 导出裁剪后比例（避免照片被拉伸/变成正方形）', () => {
-  // 复刻 FrameContainer.photoDisplayAspect 与 exporter.displayW/displayH 的公式，
+  // 与 FrameContainer.photoDisplayAspect 及 exporter.displayW/displayH 的公式保持一致，
   // 断言两者一致：canvas 以 100%×100% 填充选择框时不会被拉伸。
   function displaySize(srcW: number, srcH: number, rotation: Rotation, crop: CropRect): { w: number; h: number } {
     const r = rotatedSize(srcW, srcH, rotation)

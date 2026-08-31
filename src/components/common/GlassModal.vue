@@ -79,7 +79,7 @@ function onCancel() {
 .modal-mask {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.5);
+  background: rgba(0, 0, 0, 0.6);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -88,32 +88,37 @@ function onCancel() {
 .modal {
   min-width: 280px;
   max-width: 90vw;
-  padding: 20px;
-  border-radius: 14px;
-  background: rgba(30, 30, 30, 0.6);
-  backdrop-filter: blur(14px);
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
-  color: #fff;
+  padding: 16px 20px;
+  border-radius: 0;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  color: var(--text);
 }
 .title {
-  font-size: 16px;
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 18px;
   margin-bottom: 8px;
+  color: var(--text);
 }
 .msg {
-  font-size: 14px;
-  color: #ccc;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--text-dim);
   margin-bottom: 12px;
-  line-height: 1.5;
+  line-height: 16px;
 }
 .modal-input {
   width: 100%;
-  padding: 8px 10px;
-  border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  background: rgba(0, 0, 0, 0.3);
-  color: #fff;
-  font-size: 14px;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 0;
+  border: 1px solid var(--border);
+  background: var(--panel-2);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 16px;
   margin-bottom: 12px;
 }
 .actions {
@@ -122,19 +127,26 @@ function onCancel() {
   gap: 8px;
 }
 .btn {
-  padding: 7px 16px;
-  border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.15);
+  height: 26px;
+  padding: 0 16px;
+  border-radius: 0;
+  border: 1px solid var(--border);
   cursor: pointer;
-  font-size: 13px;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 16px;
+  background: var(--btn-bg);
+  color: var(--text);
 }
+.btn:hover { background: var(--hover); color: var(--text-normal); }
+.btn:active { background: var(--pressed); }
 .btn.cancel {
-  background: rgba(255, 255, 255, 0.08);
-  color: #ddd;
+  background: var(--panel-2);
+  color: var(--text-dim);
 }
 .btn.confirm {
-  background: rgba(120, 170, 255, 0.85);
-  color: #fff;
-  border-color: rgba(120, 170, 255, 0.9);
+  background: var(--accent);
+  color: var(--text);
+  border-color: var(--accent);
 }
 </style>

@@ -1,9 +1,14 @@
 // 全局 UI 状态：工作流模块（图库/编辑/导出）、左右面板折叠/独奏/宽度、全局任务进度。
-// 对标 Lightroom Classic 五区布局与顶栏模块选择器。
+// 五区工作台布局与顶栏模块选择器。
 import { reactive, ref, computed, watch } from 'vue'
-import { storageGet, storageSet } from '../platform/storage'
 
 export type ModuleTab = 'library' | 'develop' | 'export'
+
+// 编辑工作模式：simple=简易参数调节（默认，界面简洁、隐藏拖拽控制点），free=自由拖拽编辑
+export type EditMode = 'simple' | 'free'
+
+// 简易模式下默认收起的右侧参数分组（仅暴露核心项）
+export const SIMPLE_COLLAPSED_RIGHT: string[] = ['photo', 'info']
 
 export interface PanelState {
   id: string
@@ -17,11 +22,10 @@ interface LayoutState {
   rightOpen: boolean
   leftWidth: number
   rightWidth: number
-  // 左侧面板组：我的素材 / 相框模板库 / 背景模板库 / 参数快照
+  // 左侧面板组：我的素材 / 相框模板库 / 修改历史记录（背景模板库已取消）
   leftPanels: Record<string, boolean>
-  // 右侧面板组：画布基础 / 相框 / 图片布局 / 背景 / 附加效果
+  // 右侧面板组：照片 / 背景 / 边框 / INFO信息设置
   rightPanels: Record<string, boolean>
-  soloMode: 'left' | 'right' | null
   // 底部胶片窗格 Filmstrip：可见性 + 高度（可拖拽调整）
   filmstripVisible: boolean
   filmstripHeight: number
@@ -34,27 +38,39 @@ const defaults: LayoutState = {
   rightWidth: 300,
   leftPanels: {
     library: true,
-    frameTemplates: false,
-    bgTemplates: false,
+    mediaInfo: true,
+    frameTemplates: true,
     snapshots: false,
   },
   rightPanels: {
-    canvas: true,
-    frame: false,
-    layout: false,
+    photo: false,
     background: false,
-    effects: false,
+    border: false,
     info: false,
   },
-  soloMode: null,
   filmstripVisible: true,
   filmstripHeight: 78,
 }
 
 function load(): LayoutState {
   try {
-    const raw = storageGet(STORAGE_KEY)
-    if (raw) return { ...defaults, ...JSON.parse(raw) }
+    const raw = localStorage.getItem(STORAGE_KEY)
+    if (raw) {
+      const parsed = JSON.parse(raw) as Partial<LayoutState>
+      const merged = { ...defaults, ...parsed }
+      // 迁移：rightPanels 由旧「背景设置/图片设置/INFO」拆分为「照片/背景/边框/INFO」。
+      // 边框（border）从旧「背景设置」中拆出，展开态跟随旧 background。
+      if (parsed.rightPanels) {
+        const old = parsed.rightPanels as Record<string, boolean>
+        merged.rightPanels = {
+          photo: old.photo ?? old.layout ?? old.frame ?? old.effects ?? false,
+          background: old.background ?? old.canvas ?? true,
+          border: old.border ?? old.background ?? true,
+          info: old.info ?? false,
+        }
+      }
+      return merged
+    }
   } catch {
     /* ignore */
   }
@@ -67,7 +83,7 @@ watch(
   state,
   (val) => {
     try {
-      storageSet(STORAGE_KEY, JSON.stringify(val))
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(val))
     } catch {
       /* ignore */
     }
@@ -77,7 +93,27 @@ watch(
 
 const activeModule = ref<ModuleTab>('develop')
 
-// 全局任务进度（导出/合成），对标 LrC 身份标识监视器
+// 编辑工作模式：simple（默认）/ free。持久化到 LocalStorage，下次打开沿用上次选择。
+const EDIT_MODE_KEY = 'frame.editMode'
+const editMode = ref<EditMode>(
+  (() => {
+    try {
+      const v = localStorage.getItem(EDIT_MODE_KEY)
+      return v === 'free' || v === 'simple' ? v : 'simple'
+    } catch {
+      return 'simple'
+    }
+  })(),
+)
+watch(editMode, (v) => {
+  try {
+    localStorage.setItem(EDIT_MODE_KEY, v)
+  } catch {
+    /* ignore */
+  }
+})
+
+// 全局任务进度（导出/合成）
 const task = reactive({
   active: false,
   label: '',
@@ -86,6 +122,14 @@ const task = reactive({
 
 function setModule(m: ModuleTab): void {
   activeModule.value = m
+}
+
+/** 切换编辑工作模式。简易<->自由拖拽。 */
+function setEditMode(m: EditMode): void {
+  editMode.value = m
+}
+function toggleEditMode(): void {
+  editMode.value = editMode.value === 'simple' ? 'free' : 'simple'
 }
 
 function toggleLeft(): void {
@@ -102,20 +146,10 @@ function setRightWidth(w: number): void {
   state.rightWidth = Math.max(200, Math.min(520, Math.round(w)))
 }
 
-/** 独奏模式：打开某面板时收起同组其他面板（见 togglePanel） */
+/** 切换面板折叠：左右两侧各面板相互独立，展开/收起互不影响，可同时展开多个 */
 function togglePanel(group: 'left' | 'right', id: string): void {
   const map = group === 'left' ? state.leftPanels : state.rightPanels
-  const willOpen = !map[id]
-  if (willOpen) {
-    // 打开时收起同组其他面板（LrC 独奏行为）
-    Object.keys(map).forEach((k) => {
-      if (k !== id) map[k] = false
-    })
-    map[id] = true
-    state.soloMode = group
-  } else {
-    map[id] = false
-  }
+  map[id] = !map[id]
 }
 
 function setPanel(group: 'left' | 'right', id: string, open: boolean): void {
@@ -127,6 +161,10 @@ function startTask(label: string): void {
   task.active = true
   task.label = label
   task.progress = 0
+}
+/** 更新任务标签（不重置进度）：批量导出逐张显示「第 x/N 张 · 文件名」 */
+function setTaskLabel(label: string): void {
+  task.label = label
 }
 function setTaskProgress(p: number): void {
   task.progress = Math.max(0, Math.min(1, p))
@@ -157,6 +195,9 @@ export function useAppState() {
     rightWidthPx,
     filmstripHeightPx,
     setModule,
+    editMode,
+    setEditMode,
+    toggleEditMode,
     toggleLeft,
     toggleRight,
     setLeftWidth,
@@ -166,6 +207,7 @@ export function useAppState() {
     togglePanel,
     setPanel,
     startTask,
+    setTaskLabel,
     setTaskProgress,
     endTask,
   }

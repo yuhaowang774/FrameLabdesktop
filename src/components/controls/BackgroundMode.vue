@@ -1,14 +1,13 @@
 <script setup lang="ts">
-// 背景模式控件：原背景 / 自定义 / 无背景
-// 阶段10：none 模式暴露"叠加位置"控件（居左/中/右 + 距底边）
-// 桌面端：自定义背景经 Rust 对话框选择本地图片；网页端：file input。
+// 背景模式控件：背景模糊 / 纯色 / 照片填充
+// 各模式专属控件集中在此，操作逻辑简洁
+// 桌面端（Tauri）：选择背景图走系统对话框 + Rust 读盘转 dataURL
 import { ref } from 'vue'
 import { useFrameConfig } from '../../composables/useFrameConfig'
-import { BG_MODES, OVERLAY_ALIGNS, RANGES } from '../../core/constants'
-import { isTauri } from '../../platform/env'
-import { pickImageFiles, assetUrl, readLocalDataURL } from '../../platform/fs'
+import { BG_MODES, RANGES } from '../../core/constants'
 import ToggleGroup from '../common/ToggleGroup.vue'
 import RangeSlider from '../common/RangeSlider.vue'
+import { isTauri } from '../../platform/env'
 
 const { state, patch } = useFrameConfig()
 const customInput = ref<HTMLInputElement | null>(null)
@@ -25,37 +24,25 @@ function loadImage(src: string): Promise<HTMLImageElement> {
 
 const emit = defineEmits<{ 'custom-bg': [img: HTMLImageElement] }>()
 
+/** 统一入口：拿到 dataURL 后校验可解码并写入配置 */
+async function applyCustomBg(dataUrl: string) {
+  try {
+    const img = await loadImage(dataUrl)
+    emit('custom-bg', img)
+    patch({ bgMode: 'photo', customBgImage: dataUrl })
+  } catch {
+    /* ignore */
+  }
+}
+
 async function onCustomBgChange(e: Event) {
   const input = e.target as HTMLInputElement
   const file = input.files?.[0]
-  if (!file) return
-  const url = URL.createObjectURL(file)
-  try {
-    const img = await loadImage(url)
-    emit('custom-bg', img)
-    // 同时持久化到 config（转 dataURL，便于导出与历史恢复）
+  if (file) {
     const dataUrl = await fileToDataURL(file)
-    patch({ bgMode: 'custom', customBgImage: dataUrl })
-  } catch {
-    /* ignore */
+    await applyCustomBg(dataUrl)
   }
   input.value = ''
-}
-
-/** 桌面端：Rust 对话框选择本地背景图（读为 dataURL 持久化到 config） */
-async function pickCustomDesktop() {
-  const list = await pickImageFiles()
-  if (!list.length) return
-  const entry = list[0]
-  try {
-    const url = assetUrl(entry.path)
-    const img = await loadImage(url)
-    emit('custom-bg', img)
-    const dataUrl = await readLocalDataURL(entry.path)
-    patch({ bgMode: 'custom', customBgImage: dataUrl })
-  } catch {
-    /* ignore */
-  }
 }
 
 function fileToDataURL(file: File): Promise<string> {
@@ -69,7 +56,13 @@ function fileToDataURL(file: File): Promise<string> {
 
 function pickCustom() {
   if (isTauri) {
-    void pickCustomDesktop()
+    void (async () => {
+      const { pickImageFiles, readLocalDataURL } = await import('../../platform/fs')
+      const list = await pickImageFiles()
+      if (!list.length) return
+      const dataUrl = await readLocalDataURL(list[0].path)
+      await applyCustomBg(dataUrl)
+    })()
     return
   }
   customInput.value?.click()
@@ -84,29 +77,64 @@ function pickCustom() {
       label="背景模式"
     />
 
-    <!-- 无背景模式：footer 叠加位置可调 -->
-    <template v-if="state.bgMode === 'none'">
-      <ToggleGroup
-        v-model="state.overlayAlign"
-        :options="OVERLAY_ALIGNS"
-        label="叠加位置"
-      />
+    <!-- 通用（所有模式）：背景宽度 + 下边比例 -->
+    <RangeSlider
+      :model-value="state.bgExpand"
+      :min="r.bgExpand.min"
+      :max="r.bgExpand.max"
+      :step="r.bgExpand.step"
+      label="背景宽度"
+      unit="px"
+      @update:model-value="(v: number) => patch({ bgExpand: v })"
+    />
+    <RangeSlider
+      :model-value="state.bgBottomRatio"
+      :min="r.bgBottomRatio.min"
+      :max="r.bgBottomRatio.max"
+      :step="r.bgBottomRatio.step"
+      label="下边宽度"
+      unit="px"
+      @update:model-value="(v: number) => patch({ bgBottomRatio: v })"
+    />
+
+    <!-- 背景模糊：原图模糊+变暗 -->
+    <template v-if="state.bgMode === 'blur'">
       <RangeSlider
-        v-model="state.overlayBottom"
-        :min="r.overlayBottom.min"
-        :max="r.overlayBottom.max"
-        :step="r.overlayBottom.step"
-        label="距底边"
+        :model-value="state.blur"
+        :min="r.blur.min"
+        :max="r.blur.max"
+        :step="r.blur.step"
+        label="模糊强度"
         suffix="px"
+        @update:model-value="(v: number) => patch({ blur: v })"
       />
-      <p class="hint">无背景时主照片铺满，品牌/EXIF 以叠加层显示在照片上。</p>
     </template>
 
-    <!-- 自定义背景：上传图作背景 -->
-    <button v-else-if="state.bgMode === 'custom'" class="sub-btn" @click="pickCustom">
-      选择背景图
-    </button>
-    <p v-else class="hint">原图模糊并变暗作为边框背景。</p>
+    <!-- 纯色：颜色选择器 -->
+    <template v-else-if="state.bgMode === 'solid'">
+      <div class="color-row">
+        <label>背景颜色</label>
+        <input
+          type="color"
+          :value="state.bgColor"
+          @input="(e: Event) => patch({ bgColor: (e.target as HTMLInputElement).value })"
+        />
+      </div>
+    </template>
+
+    <!-- 照片填充：上传背景图 + 模糊 -->
+    <template v-else-if="state.bgMode === 'photo'">
+      <button class="sub-btn" @click="pickCustom">选择背景图</button>
+      <RangeSlider
+        :model-value="state.blur"
+        :min="r.blur.min"
+        :max="r.blur.max"
+        :step="r.blur.step"
+        label="模糊强度"
+        suffix="px"
+        @update:model-value="(v: number) => patch({ blur: v })"
+      />
+    </template>
 
     <input ref="customInput" type="file" accept="image/*" @change="onCustomBgChange" hidden />
   </section>
@@ -116,24 +144,48 @@ function pickCustom() {
 .control-block {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
+}
+.color-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 22px;
+  line-height: 16px;
+}
+.color-row label {
+  flex: none;
+  width: 72px;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--text-dim);
+}
+.color-row input[type='color'] {
+  width: 32px;
+  height: 22px;
+  border: 1px solid var(--border);
+  border-radius: 0;
+  background: none;
+  padding: 0;
+  cursor: pointer;
 }
 .sub-btn {
-  padding: 8px;
-  border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  background: rgba(255, 255, 255, 0.06);
-  color: #fff;
+  height: 24px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  background: var(--panel-2);
+  color: var(--text);
   cursor: pointer;
-  font-size: 13px;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 16px;
+  border-radius: 0;
 }
 .sub-btn:hover {
-  background: rgba(255, 255, 255, 0.12);
+  background: var(--hover);
+  color: var(--text-normal);
 }
-.hint {
-  font-size: 11px;
-  color: #888;
-  margin: 0;
-  line-height: 1.4;
+.sub-btn:active {
+  background: var(--pressed);
 }
 </style>

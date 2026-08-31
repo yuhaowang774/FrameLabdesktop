@@ -18,7 +18,9 @@
         "width": 1360,
         "height": 860,
         "minWidth": 1024,
-        "minHeight": 660
+        "minHeight": 660,
+        "dragDropEnabled": false,
+        "additionalBrowserArgs": "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --ignore-gpu-blocklist --enable-gpu-rasterization"
       }
     ],
     "security": {

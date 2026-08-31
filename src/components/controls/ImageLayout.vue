@@ -1,18 +1,23 @@
 <script setup lang="ts">
-// 右侧分组：图片布局（对标 LrC 变换/布局）。缩放 + 照片位置 + 旋转 + 裁剪入口。
+// 右侧分组：图片布局。照片位置 + 旋转 + 裁剪入口 + 立体阴影。
 import { useFrameConfig } from '../../composables/useFrameConfig'
 import { editingPhoto } from '../../composables/useUi'
 import { RANGES } from '../../core/constants'
 import RangeSlider from '../common/RangeSlider.vue'
 
 const { state, patch } = useFrameConfig()
+const r = RANGES
 
-function resetPhoto() {
-  patch({ photoX: null, photoY: null })
-}
 function rotate() {
   const next = ((state.photoRotation + 90) % 360) as 0 | 90 | 180 | 270
-  patch({ photoRotation: next })
+  // photoCrop 是「相对旋转后图像」的归一化矩形，旋转角度改变后旧 crop 会取到错误区域，
+  // 故旋转时重置为满框（与 PhotoEditor 行为一致）；同时恢复自动居中/贴顶布局，避免宽高交换错位。
+  patch({
+    photoRotation: next,
+    photoCrop: { x: 0, y: 0, w: 1, h: 1 },
+    photoX: null,
+    photoY: null,
+  })
 }
 function openEditor() {
   editingPhoto.value = true
@@ -21,26 +26,30 @@ function openEditor() {
 
 <template>
   <div class="block">
-    <RangeSlider
-      :model-value="state.scale"
-      :min="RANGES.scale.min"
-      :max="RANGES.scale.max"
-      :step="RANGES.scale.step"
-      label="原图缩放"
-      suffix="%"
-      :disabled="state.bgMode === 'none'"
-      @update:model-value="(v: number) => patch({ scale: v })"
-    />
     <div class="row">
       <span class="lbl">旋转</span>
       <div class="btns">
         <button class="mini-btn" @click="rotate">↻ 90°</button>
       </div>
     </div>
-    <div class="reset-row">
-      <span class="reset-label">照片拖拽后重置</span>
-      <button class="mini-btn" @click="resetPhoto">照片位置</button>
-    </div>
+    <RangeSlider
+      :model-value="state.shadow"
+      :min="r.shadow.min"
+      :max="r.shadow.max"
+      :step="r.shadow.step"
+      label="立体阴影"
+      @update:model-value="(v: number) => patch({ shadow: v })"
+    />
+    <!-- 照片圆角：现代极简风 -->
+    <RangeSlider
+      :model-value="state.photoRadius"
+      :min="r.photoRadius.min"
+      :max="r.photoRadius.max"
+      :step="r.photoRadius.step"
+      label="照片圆角"
+      unit="px"
+      @update:model-value="(v: number) => patch({ photoRadius: v })"
+    />
     <button class="edit-photo-btn" @click="openEditor">编辑照片（旋转 / 裁剪）</button>
   </div>
 </template>
@@ -49,50 +58,61 @@ function openEditor() {
 .block {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 8px;
 }
 .row {
   display: flex;
   align-items: center;
   gap: 8px;
+  line-height: 16px;
 }
 .lbl {
   flex: 1;
   font-size: 12px;
+  font-weight: 400;
   color: var(--text-dim);
 }
 .btns {
   display: flex;
-  gap: 6px;
-}
-.reset-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-}
-.reset-label {
-  font-size: 12px;
-  color: var(--text-dim);
+  gap: 4px;
 }
 .mini-btn {
-  padding: 5px 9px;
-  border-radius: 7px;
+  height: 22px;
+  padding: 0 9px;
+  border-radius: 0;
   border: 1px solid var(--border);
   background: var(--panel-2);
   color: var(--text);
   cursor: pointer;
   font-size: 12px;
+  font-weight: 400;
+  line-height: 16px;
+}
+.mini-btn:hover {
+  background: var(--hover);
+  color: var(--text-normal);
+}
+.mini-btn:active {
+  background: var(--pressed);
 }
 .edit-photo-btn {
-  margin-top: 4px;
-  padding: 9px 12px;
-  border-radius: 9px;
-  border: 1px solid var(--accent);
-  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  margin-top: 2px;
+  height: 24px;
+  padding: 0 12px;
+  border-radius: 0;
+  border: 1px solid var(--border);
+  background: var(--panel-2);
   color: var(--text);
   cursor: pointer;
-  font-size: 13px;
-  font-weight: 600;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 16px;
+}
+.edit-photo-btn:hover {
+  background: var(--hover);
+  color: var(--text-normal);
+}
+.edit-photo-btn:active {
+  background: var(--pressed);
 }
 </style>

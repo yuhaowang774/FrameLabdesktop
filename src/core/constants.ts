@@ -23,8 +23,11 @@ export const BRANDS: BrandDef[] = [
   { id: 'zeiss', name: 'Zeiss', graphic: false },
   { id: 'pentax', name: 'Pentax', graphic: false },
   { id: 'dji', name: 'DJI', graphic: true },
-  { id: 'panasonic', name: 'Panasonic', graphic: true },
+  // 松下相机线品牌名为 Lumix（评论区反馈）；SVG 资源仍用 panasonic.svg（id 不变）
+  { id: 'panasonic', name: 'Lumix', graphic: true },
   { id: 'olympus', name: 'Olympus', graphic: false },
+  { id: 'apple', name: 'Apple', graphic: false },
+  { id: 'insta360', name: 'Insta360', graphic: false },
 ]
 
 /**
@@ -45,25 +48,119 @@ export const EXIF_MAKE_TO_BRAND: Record<string, string> = {
   dji: 'dji',
   panasonic: 'panasonic',
   olympus: 'olympus',
+  apple: 'apple',
+  insta360: 'insta360',
+  'arashi vision': 'insta360',
 }
 
-/** 字体选项（系统字体栈，首版不做 Web Font 内嵌） */
-export const FONT_OPTIONS: { label: string; value: string }[] = [
-  { label: '系统默认', value: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" },
-  { label: '无衬线', value: "'Helvetica Neue', Arial, sans-serif" },
-  { label: '衬线', value: "Georgia, 'Times New Roman', serif" },
-  { label: '等宽', value: "'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace" },
-  { label: '圆体', value: "'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif" },
-  { label: '黑体', value: "'Microsoft YaHei', 'PingFang SC', sans-serif" },
-  { label: '宋体', value: "'SimSun', 'Songti SC', serif" },
-  { label: '楷体', value: "'KaiTi', 'Kaiti SC', serif" },
+/** 字体选项（系统字体栈，首版不做 Web Font 内嵌；按 group 分组展示）。
+ *  每项 value 为 font-family 回退栈，顺序靠前的优先，缺失时自动回退到下一字体，保证跨平台可读。 */
+export const FONT_OPTIONS: { label: string; value: string; group: string }[] = [
+  // 中文
+  { label: '雅黑 / 黑体', group: '中文', value: "'Microsoft YaHei', 'PingFang SC', sans-serif" },
+  { label: '苹方', group: '中文', value: "'PingFang SC', 'Microsoft YaHei', sans-serif" },
+  { label: '思源黑体', group: '中文', value: "'Source Han Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif" },
+  { label: '黑体（简）', group: '中文', value: "'SimHei', 'Heiti SC', sans-serif" },
+  { label: '圆体', group: '中文', value: "'Yuanti SC', 'PingFang SC', 'Hiragino Sans GB', sans-serif" },
+  { label: '宋体 / 明体', group: '中文', value: "'SimSun', 'Songti SC', serif" },
+  { label: '思源宋体', group: '中文', value: "'Source Han Serif SC', 'Songti SC', 'SimSun', serif" },
+  { label: '楷体', group: '中文', value: "'KaiTi', 'Kaiti SC', serif" },
+  { label: '仿宋', group: '中文', value: "'FangSong', 'STFangsong', serif" },
+  { label: '隶书', group: '中文', value: "'LiSu', 'STLiti', serif" },
+  { label: '幼圆', group: '中文', value: "'YouYuan', 'Yuanti SC', sans-serif" },
+  // 英文·无衬线
+  { label: '系统默认', group: '英文·无衬线', value: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" },
+  { label: 'Helvetica / Arial', group: '英文·无衬线', value: "'Helvetica Neue', Arial, sans-serif" },
+  { label: 'Verdana', group: '英文·无衬线', value: "Verdana, Geneva, sans-serif" },
+  { label: 'Roboto', group: '英文·无衬线', value: "Roboto, 'Helvetica Neue', Arial, sans-serif" },
+  { label: 'Tahoma', group: '英文·无衬线', value: "Tahoma, Geneva, sans-serif" },
+  { label: 'Trebuchet', group: '英文·无衬线', value: "'Trebuchet MS', 'Helvetica Neue', sans-serif" },
+  { label: 'Optima', group: '英文·无衬线', value: "Optima, 'Segoe UI', sans-serif" },
+  // 英文·衬线
+  { label: 'Georgia', group: '英文·衬线', value: "Georgia, 'Times New Roman', serif" },
+  { label: 'Times', group: '英文·衬线', value: "'Times New Roman', Times, serif" },
+  { label: 'Garamond', group: '英文·衬线', value: "Garamond, 'EB Garamond', 'Times New Roman', serif" },
+  { label: 'Palatino', group: '英文·衬线', value: "Palatino, 'Palatino Linotype', 'Book Antiqua', serif" },
+  { label: 'Didot', group: '英文·衬线', value: "Didot, 'Bodoni MT', 'Times New Roman', serif" },
+  // 等宽
+  { label: '等宽', group: '等宽', value: "'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace" },
+  { label: 'Courier', group: '等宽', value: "'Courier New', Courier, monospace" },
+  // 手写·装饰
+  { label: '手写', group: '手写·装饰', value: "'Comic Sans MS', 'Segoe Print', cursive" },
+  { label: '行楷（华文）', group: '手写·装饰', value: "'STXingkai', 'Xingkai SC', cursive" },
 ]
 
 export const BG_MODES: { value: BgMode; label: string }[] = [
-  { value: 'default', label: '原背景' },
-  { value: 'custom', label: '自定义' },
-  { value: 'none', label: '无背景' },
+  { value: 'blur', label: '背景模糊' },
+  { value: 'solid', label: '纯色' },
+  { value: 'photo', label: '照片填充' },
 ]
+
+/**
+ * 边框颜色预设：纯黑 / 纯白 / 复古米白。
+ * 与取色器配合，解决白色边框与白色背景融为一体的痛点。
+ */
+export const BORDER_COLORS: { value: string; label: string }[] = [
+  { value: '#000000', label: '纯黑' },
+  { value: '#ffffff', label: '纯白' },
+  { value: '#F5F0E6', label: '复古米白' },
+]
+
+/**
+ * 画面（边框）比例预设：内容区宽高比（宽/高）。
+ * - 自由：跟随照片自身比例
+ * - 16:9 / 4:3 / 3:2 / 1:1：横版常用
+ * - 3:4 / 9:16：竖版常用
+ */
+export const FRAME_RATIOS: { value: string; label: string }[] = [
+  { value: 'free', label: '自由' },
+  { value: '16:9', label: '16:9' },
+  { value: '4:3', label: '4:3' },
+  { value: '3:2', label: '3:2' },
+  { value: '1:1', label: '1:1' },
+  { value: '3:4', label: '3:4' },
+  { value: '9:16', label: '9:16' },
+]
+
+/** 等效焦距画幅系数选项：value 为裁切系数字符串（'0'=自动用 EXIF 35mm 字段） */
+export const CROP_FACTORS: { value: string; label: string }[] = [
+  { value: '0', label: '自动 (EXIF)' },
+  { value: '1', label: '全画幅 ×1.0' },
+  { value: '1.5', label: 'APS-C ×1.5' },
+  { value: '1.6', label: 'APS-C (佳能) ×1.6' },
+  { value: '2', label: 'M4/3 ×2.0' },
+  { value: '0.79', label: '中画幅 ×0.79' },
+  { value: '0.64', label: '中画幅 4433 ×0.64' },
+]
+
+/** 品牌主色（评论区「尼康黄 / 佳能红」类诉求）：仅收录有公认标志色的品牌，未收录品牌回退自动 */
+export const BRAND_LOGO_COLORS: Record<string, string> = {
+  nikon: '#FFE100',
+  canon: '#BF1E2E',
+  fujifilm: '#00B140',
+  pentax: '#008C45',
+  leica: '#E20612',
+  ricoh: '#E60027',
+  olympus: '#0B6DBD',
+  zeiss: '#0F5DC2',
+}
+
+/** 由比例键解析出宽高比数值（null = 自由） */
+export function frameRatioOf(value: string): number | null {
+  if (value === 'free') return null
+  const [w, h] = value.split(':').map(Number)
+  return w > 0 && h > 0 ? w / h : null
+}
+
+/** 由宽高比数值反查比例键（无匹配时返回自由） */
+export function frameRatioKey(ratio: number | null): string {
+  if (ratio == null) return 'free'
+  const hit = FRAME_RATIOS.find((o) => {
+    const v = frameRatioOf(o.value)
+    return v != null && Math.abs(v - ratio) < 1e-9
+  })
+  return hit ? hit.value : 'free'
+}
 
 export const OVERLAY_ALIGNS: { value: OverlayAlign; label: string }[] = [
   { value: 'left', label: '居左' },
@@ -74,12 +171,16 @@ export const OVERLAY_ALIGNS: { value: OverlayAlign; label: string }[] = [
 /** 参数范围（与 UI 滑块联动，也供校验使用） */
 export const RANGES = {
   blur: { min: 0, max: 100, step: 1 },
-  padding: { min: 20, max: 200, step: 1 },
-  scale: { min: 50, max: 100, step: 1 },
-  radius: { min: 0, max: 100, step: 1 },
+  padding: { min: 0, max: 200, step: 1 },
+  borderRatio: { min: 0, max: 400, step: 1 },
+  borderRadius: { min: 0, max: 50, step: 1 },
+  photoRadius: { min: 0, max: 50, step: 1 },
+  bgExpand: { min: 0, max: 400, step: 5 },
+  bgBottomRatio: { min: 0, max: 400, step: 1 },
+  scale: { min: 50, max: 300, step: 1 },
   bgScale: { min: 0.5, max: 4, step: 0.05 },
   shadow: { min: 0, max: 1, step: 0.05 },
-  logoSize: { min: 10, max: 150, step: 1 },
+  logoSize: { min: 10, max: 100, step: 1 },
   logoOpacity: { min: 0, max: 1, step: 0.05 },
   fontSize: { min: 8, max: 80, step: 1 },
   textWeight: { min: 100, max: 900, step: 100 },
@@ -105,5 +206,10 @@ export const RANGES = {
 export const MAX_CUSTOM_LOGOS = 5
 /** 历史记录上限 */
 export const MAX_HISTORY = 100
+/**
+ * 历史记录防抖时长：一次操作（如拖动滑块）从开始到结束期间产生多次参数变化，
+ * 统一合并为一条完整参数快照，仅在操作停顿该毫秒后才提交。
+ */
+export const HISTORY_DEBOUNCE_MS = 400
 /** 设计稿基准宽度（与预览/导出一致） */
 export const DESIGN_CONTAINER = 1200

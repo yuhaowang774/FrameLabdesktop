@@ -5,17 +5,17 @@
   --dist-photo-logo: 40px;
   --dist-logo-text: 15px;
   --dist-bottom: 60px;
-  --border-radius: 20px;
+  --border-radius: 0px;
   --shadow-opacity: 0.5;
   --font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
   --font-size: 16px;
   --text-weight: 600;
   --text-opacity: 1;
   --footer-text-color: rgba(255, 255, 255, 0.95);
-  --logo-size: 30px;
+  --logo-size: 150px;
   --logo-opacity: 1;
   --logo-display: block;
-  --camera-model-size: 14px;
+  --camera-model-size: 40px;
   --camera-model-weight: 600;
   --camera-model-gap: 8px;
   --camera-model-opacity: 1;
@@ -25,16 +25,37 @@
   --camera-model-offset-x: 0px;
   --camera-model-offset-y: 0px;
   --exif-display: none;
+  --date-display: none;
 
-  /* 通用 UI token（面板 / 文本 / 描边，由主题类覆盖） */
-  --panel-bg: rgba(255, 255, 255, 0.05);
-  --panel-border: rgba(255, 255, 255, 0.1);
-  --panel-hover: rgba(255, 255, 255, 0.12);
-  --text-muted: #aaa;
-  --text-normal: #fff;
-  --accent: rgba(120, 170, 255, 0.85);
-  --accent-border: rgba(120, 170, 255, 0.9);
-  --accent-bg: rgba(120, 170, 255, 0.18);
+  /* 通用 UI token —— 专业暗色工作站配色（原创冷灰蓝体系）
+     软件外壳/全局底栏 #1A1B1E（仅外壳）；参数面板容器 #2B2D31；分割线 #3E4249；
+     选中/Tab #4A4E57；hover #3A3E46；按下 #33363D；底按钮 #3E4249。 */
+  --shell: #1a1b1e;
+  --panel: #2b2d31;
+  --panel-2: #2b2d31;
+  --panel-3: #383b41;
+  --border: #3e4249;
+  --text: #d6d8dc;
+  --text-dim: #b4b8bf;
+  --text-num: #9a9fa8;
+  --accent: #4a4e57;
+  --accent-border: #3e4249;
+  --accent-bg: rgba(0, 0, 0, 0);
+  --hover: #3a3e46;
+  --pressed: #33363d;
+  --panel-bg: #2b2d31;
+  --panel-border: #3e4249;
+  --panel-hover: #3a3e46;
+  --text-muted: #b4b8bf;
+  --text-normal: #d6d8dc;
+  --checker: #76797f;
+  --slider-track: #4d5158;
+  --slider-thumb: #a7abb2;
+  --slider-thumb-hover: #b9bdc4;
+  --btn-bg: #383b41;
+  /* 预览画布专用色 */
+  --canvas-empty: #75787e;
+  --canvas-loaded: #000000;
 }
 
 * {
@@ -49,14 +70,28 @@ body,
   height: 100%;
 }
 
-/* ===== 暗色设计（固定） ===== */
+/* ===== 暗色设计（固定）：FrameLab 冷灰蓝外壳 ===== */
 body.theme-dark {
-  background: #0a0a0a;
-  color: #fff;
+  background: var(--shell);
+  color: var(--text-normal);
+  /* 系统无衬线字体、常规字重，保证专业阅读体验 */
+  font-family: 'Segoe UI', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  font-weight: 400;
 }
 
 body {
-  font-family: var(--font-family);
+  /* 固定系统字体：INFO 字体设置只作用于画板 INFO 文字（var(--font-family)），
+     不随其变化而让整个 UI 跳字 */
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
   overflow: hidden;
   transition: background 0.25s ease, color 0.25s ease;
+}
+
+/* 隐藏所有滚动条（保留滚动能力）：面板/列表内容超长时不出
+   现滑动条，滚动仍可用滚轮/触摸操作。 */
+* {
+  scrollbar-width: none;
+}
+*::-webkit-scrollbar {
+  display: none;
 }

@@ -1,12 +1,11 @@
 <script setup lang="ts">
 // 1200px 边框容器：CSS 变量驱动布局，组合背景/主照片/底部信息（可拖拽）
-import { computed, ref, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
+import { computed, ref, watch, onMounted, onBeforeUnmount } from 'vue'
 import BgCanvas from './BgCanvas.vue'
 import MainPhoto from './MainPhoto.vue'
 import FooterInfo from './FooterInfo.vue'
 import EffectOverlay from './EffectOverlay.vue'
 import SelectableBox from '../common/SelectableBox.vue'
-import InfoLayerDisplay from './InfoLayerDisplay.vue'
 import { useFrameConfig } from '../../composables/useFrameConfig'
 import { useLayers } from '../../composables/useLayers'
 import { DESIGN_CONTAINER } from '../../core/constants'
@@ -18,7 +17,15 @@ const props = defineProps<{
   photoSrc: string | null
   /** 背景图元素（原图或自定义图），供 BgCanvas 绘制 */
   bgImage: HTMLImageElement | HTMLCanvasElement | null
+  /** 是否启用画布拖拽交互：自由拖拽模式=true；简易模式=false（隐藏拖拽控制点/选择框） */
+  interactive?: boolean
 }>()
+const interactive = computed(() => props.interactive !== false)
+
+// 复用已解码的背景图（HTMLImageElement）供 MainPhoto 显示，避免超大图二次解码
+const photoImg = computed<HTMLImageElement | null>(() =>
+  props.bgImage instanceof HTMLImageElement ? props.bgImage : null,
+)
 
 const { state, patch } = useFrameConfig()
 const { selectedLayer, isVisible } = useLayers()
@@ -32,7 +39,7 @@ const contScale = ref(1)
 let ro: ResizeObserver | null = null
 function updateScale() {
   const rect = root.value?.getBoundingClientRect()
-  if (rect && rect.width) contScale.value = rect.width / DESIGN_CONTAINER
+  if (rect && rect.width) contScale.value = rect.width / containerWDesign.value
 }
 onMounted(() => {
   updateScale()
@@ -41,7 +48,9 @@ onMounted(() => {
   requestAnimationFrame(updateScale)
   if (root.value && 'ResizeObserver' in window) {
     ro = new ResizeObserver(updateScale)
-    ro.observe(root.value)
+    // 观察 border-box：frame 是 box-sizing:border-box，边框宽度(padding)变化时
+    // 只有 border-box 尺寸变化，content box（内容区恒 1200px）不变，必须指定 border-box 才能触发。
+    ro.observe(root.value, { box: 'border-box' })
   }
   window.addEventListener('resize', updateScale)
 })
@@ -65,35 +74,83 @@ const photoDisplayAspect = computed(() => {
   return dh > 0 ? dw / dh : 1
 })
 
-// 内容区设计尺寸（frame-container 的 padding box，绝对定位子元素的包含块）
+// 内容区设计尺寸（frame-container 的 content box，即 padding 内侧）
 // 所有 photoX/photoY、bgOffset、logoX 等设计坐标统一使用"内容区坐标系"，原点在内容区左上角。
-const availW = computed(() => DESIGN_CONTAINER - state.padding * 2)
+// 关键：基准宽度固定为设计稿宽度，与边框宽度(padding)解耦。
+// 这样调节「边框宽度」时照片大小不变，边框在照片四周向外扩展，画布随之变大（而非向内压缩照片）。
+const BASE_CONTENT = DESIGN_CONTAINER
+const availW = computed(() => BASE_CONTENT)
+
+// 实际 CSS padding：上/左/右 = state.padding（现已支持 min=0）。
+const cssPadding = computed(() => state.padding)
+// 下边宽度：边框留白下边 = padding + borderRatio（borderRatio 为照片下边额外延长量，px）
+const cssPadBottom = computed(() => state.padding + state.borderRatio)
+
+// 画面（边框）比例：内容区宽高比（16:9 / 4:3 / 1:1 ...）。null = 自由（跟随照片）。
+const frameRatio = computed(() => state.frameRatio)
+
+// 照片在内容区内的「基准宽」（scale=100 时的照片宽）：
+// - 自由模式：= 内容区宽（照片宽 = 内容宽 × scale%，原行为）
+// - 比例模式：= contain 适配宽（照片等比完整放入固定比例内容区，取「贴宽 / 贴高」中较小者）
+const photoBaseW = computed(() => {
+  if (!frameRatio.value) return availW.value
+  const ch = availW.value / frameRatio.value
+  const contentAspect = availW.value / ch
+  const pa = photoDisplayAspect.value
+  return pa >= contentAspect ? availW.value : ch * pa
+})
 
 const photoRect = computed(() => {
-  const w = (availW.value * state.scale) / 100
+  const w = photoBaseW.value * (state.scale / 100)
   const h = w / photoDisplayAspect.value
   // 内容区坐标：x=0 即贴内容区左缘（= 画布左 padding 内侧）
   const x = state.photoX ?? (availW.value - w) / 2
-  const y = state.photoY ?? 0
+  // 自由模式默认贴内容区顶；比例模式默认垂直居中（照片完整放入固定比例内容区）
+  const y = state.photoY ?? (frameRatio.value ? (availW.value / frameRatio.value - h) / 2 : 0)
   return { left: x, top: y, width: w, height: h }
 })
 
-// 容器设计高度（固定画布，box-sizing: border-box）
-// - 非 none 模式：使用固定 canvasH（导入时按初始照片比例计算），照片缩放不改变画布/背景
-// - none 模式：无边框，画布高度随照片（铺满）
+// 内容区坐标 → frame-container absolute 定位坐标（加 padding + 背景四等宽扩展偏移），
+// 供 SelectableBox / 静态层渲染。内容区在背景区域（content box）中居中，偏移 = bgExpand。
+const photoRectAbs = computed(() => ({
+  left: cssPadding.value + bgExpand.value + photoRect.value.left,
+  top: cssPadding.value + bgExpand.value + photoRect.value.top,
+  width: photoRect.value.width,
+  height: photoRect.value.height,
+}))
+
+// 内容区设计高度（照片/INFO 坐标系，边框内侧固定区域）：
+// 比例模式固定高（1200/ratio）；自由模式 = 照片高。canvasH 存在时由用户手动指定覆盖。
+const contentHDesign = computed(() => {
+  if (state.canvasH) return Math.max(0, state.canvasH - state.padding - cssPadBottom.value)
+  if (frameRatio.value) return availW.value / frameRatio.value
+  return Math.max(0, photoRect.value.top + photoRect.value.height)
+})
+
+// ===== 背景区域（独立于内容区，单位 px，与边框宽度一致） =====
+// bgExpand=0：背景=内容区；>0：上/左/右各扩 bgExpand，下边扩 bgExpand + bgBottomRatio，边框/画布同步跟随。
+// 背景区域始终以内容区为锚点：内容区左/上距背景区域边缘 = bgExpand，下距 = bgExpand + bgBottomRatio。
+const bgExpand = computed(() => state.bgExpand)
+const bgBottomExpand = computed(() => state.bgExpand + state.bgBottomRatio)
+const bgAreaW = computed(() => availW.value + 2 * bgExpand.value)
+const bgAreaH = computed(() => contentHDesign.value + bgExpand.value + bgBottomExpand.value)
+
+// 容器设计尺寸（box-sizing: border-box）：边框层始终包裹「背景区域」。
+// 背景扩宽时边框（padding 区）与画布同步跟随扩大，照片保持在内容区不动。
+const containerWDesign = computed(() => bgAreaW.value + state.padding * 2)
 const containerHDesign = computed(() =>
-  state.bgMode === 'none' ? photoRect.value.top + photoRect.value.height : (state.canvasH || photoRect.value.top + photoRect.value.height + state.padding),
+  Math.max(0, contentHDesign.value + bgExpand.value + bgBottomExpand.value + state.padding + cssPadBottom.value),
 )
-// 内容区设计高度（= 容器高 - 上下 padding）
-const contentHDesign = computed(() => Math.max(0, containerHDesign.value - state.padding * 2))
 
 function onPhotoRect(r: { left: number; top: number; width: number; height: number }) {
   selectedLayer.value = 'photo'
-  const cfg = mapPhotoRectToConfig(r, availW.value, state.padding)
+  // r 为 frame-container absolute 坐标（含 padding），转回内容区坐标再映射
+  const content = { ...r, left: r.left - cssPadding.value, top: r.top - cssPadding.value }
+  const cfg = mapPhotoRectToConfig(content, photoBaseW.value, state.padding)
   // 保留亚像素精度（避免多次拖拽累积取整漂移）；导出时再四舍五入
   patch({
-    photoX: r.left,
-    photoY: r.top,
+    photoX: content.left,
+    photoY: content.top,
     scale: cfg.scale,
   })
 }
@@ -102,7 +159,7 @@ function onPhotoRect(r: { left: number; top: number; width: number; height: numb
 // 关键：背景必须保持"图像自身宽高比"，而不是容器宽高比，否则竖向缩放会失效/跳动。
 function bgImageSize(): { iw: number; ih: number } {
   const img = props.bgImage
-  if (!img) return { iw: availW.value, ih: contentHDesign.value }
+  if (!img) return { iw: bgAreaW.value, ih: bgAreaH.value }
   if ('naturalWidth' in img && (img as HTMLImageElement).naturalWidth) {
     return {
       iw: (img as HTMLImageElement).naturalWidth,
@@ -112,15 +169,15 @@ function bgImageSize(): { iw: number; ih: number } {
   if ('width' in img && (img as HTMLCanvasElement).width) {
     return { iw: (img as HTMLCanvasElement).width, ih: (img as HTMLCanvasElement).height }
   }
-  return { iw: availW.value, ih: contentHDesign.value }
+  return { iw: bgAreaW.value, ih: bgAreaH.value }
 }
 
-// cover 宽度：图片在内容区内 cover 填充时的像素宽（zoom=1 基准）
+// ===== 背景区域（覆盖范围独立于内容区，四等宽扩展，以内容区中心为锚点） =====
+// bgExpand=0：背景=内容区；>0：背景扩宽，边框同步跟随。
+// 背景区域即画板的 content box（画板 padding = 边框宽度），背景 .bg-clip inset = padding 即覆盖背景区域。
 const bgCoverW = computed(() => {
   const { iw, ih } = bgImageSize()
-  const W = availW.value
-  const H = contentHDesign.value
-  const s0 = Math.max(W / iw, H / ih)
+  const s0 = Math.max(bgAreaW.value / iw, bgAreaH.value / ih)
   return iw * s0
 })
 const bgAspect = computed(() => {
@@ -128,6 +185,7 @@ const bgAspect = computed(() => {
   return ih / iw
 })
 
+// 背景选择框：坐标为「背景区域坐标」（= content box 坐标），转画板 absolute 坐标仅需加 padding
 const bgRect = computed(() =>
   bgRectFromConfig(
     state.bgScale,
@@ -135,104 +193,90 @@ const bgRect = computed(() =>
     state.bgOffsetY,
     bgCoverW.value,
     bgAspect.value,
-    availW.value,
-    contentHDesign.value,
+    bgAreaW.value,
+    bgAreaH.value,
   ),
 )
+const bgRectAbs = computed(() => ({
+  left: cssPadding.value + bgRect.value.left,
+  top: cssPadding.value + bgRect.value.top,
+  width: bgRect.value.width,
+  height: bgRect.value.height,
+}))
 
 function onBgRect(r: { left: number; top: number; width: number; height: number }) {
   selectedLayer.value = 'bg'
-  const cfg = mapBgRectToConfig(r, availW.value, contentHDesign.value, bgCoverW.value)
+  // r 为 frame-container absolute 坐标（含 padding），转回背景区域（content box）坐标再映射
+  const content = {
+    left: r.left - cssPadding.value,
+    top: r.top - cssPadding.value,
+    width: r.width,
+    height: r.height,
+  }
+  const cfg = mapBgRectToConfig(content, bgAreaW.value, bgAreaH.value, bgCoverW.value)
   patch(cfg)
 }
 
-// 主照片加载完成后，记录源图尺寸、自动定位；未拖动页脚则自动布局
-function autoPlaceFooter() {
-  const placed =
-    state.logoX != null || state.logoY != null ||
-    state.modelX != null || state.modelY != null ||
-    state.exifX != null || state.exifY != null
-  if (placed) return
-  // 内容区坐标：页脚 x 相对内容区左缘（0 = 左 padding 内侧），y 相对内容区高度
-  const contentH = contentHDesign.value
-  const baseX =
-    state.overlayAlign === 'left'
-      ? 0
-      : state.overlayAlign === 'right'
-        ? availW.value
-        : availW.value / 2
-  const exifY = Math.max(0, contentH - state.distBottom - state.fontSize)
-  const row1Y = Math.max(0, exifY - state.distLogoText - state.logoSize)
-  patch({
-    logoX: baseX,
-    logoY: row1Y,
-    modelX: baseX,
-    modelY: row1Y,
-    exifX: baseX,
-    exifY,
-  })
-}
-
+// 主照片加载完成后记录源图尺寸。页脚 INFO 元素不在此固化位置：
+// logoX/exifY 等为 null 时由 FooterInfo.defaultPos / exporter 按当前开关动态计算默认布局
+// （镜头型号行/日期行增减、字号变化均自动重排）；用户拖拽后才写入具体坐标。
 function onPhotoReady(info: { w: number; h: number }) {
   photoNatural.value = { w: info.w, h: info.h }
-  // 首次加载：若未手动定位照片，则按默认居中（保持当前 scale）
-  if (state.photoX == null || state.photoY == null) {
-    const w = (availW.value * state.scale) / 100
-    // 按初始照片高度 + 2*padding 计算并固定画布高度（照片缩放不再改变画布）
-    const aspect = photoDisplayAspect.value
-    const photoH = aspect > 0 ? w / aspect : w
-    patch({
-      photoX: Math.round((availW.value - w) / 2),
-      photoY: 0,
-      canvasH: Math.round(photoH + state.padding * 2),
-    })
-  }
-  nextTick(autoPlaceFooter)
 }
 
-// 切换照片：清空手动定位、页脚位置与画布高度，等重新加载后按新比例重新布局
+// 调整边框宽度(padding)时：照片保持「当前位置」视觉不动，四周留白等量增大，画布从照片中心向外扩展。
+// 做法：photoX/photoY 内容区坐标与照片大小均不变；容器宽/高 = 内容区 + 2*padding 随之增大。
+// 屏幕层面由 Workspace.fit() 配合：识别「内容区不变、仅 border-box 变化」时保持 fitScale 不变，
+// 照片在屏幕上的位置与大小完全不动，画布经 .stage 居中向四周对称扩展。
+
+// 切换照片：不做位置重置 —— App 层在原子切换时已通过 loadCursorFor 恢复该照片历史保存的
+// 完整参数（含 photoX/photoY/canvasH/页脚位置）；无历史时默认参数即自动布局。
+// 这里仅同步更新 photoNatural：bgImage 与 photoSrc 在同一 tick 更新，直接用新图的自然尺寸，
+// 避免容器先塌缩成 1:1 再跳变导致的切换卡顿。
 watch(
   () => props.photoSrc,
   () => {
-    const reset: Record<string, number | null> = {
-      photoX: null,
-      photoY: null,
-      canvasH: 0,
-    }
-    if (
-      state.logoX != null || state.logoY != null ||
-      state.modelX != null || state.modelY != null ||
-      state.exifX != null || state.exifY != null
-    ) {
-      reset.logoX = null
-      reset.logoY = null
-      reset.modelX = null
-      reset.modelY = null
-      reset.exifX = null
-      reset.exifY = null
-    }
-    patch(reset as any)
-    photoNatural.value = { w: 1, h: 1 }
+    const img = props.bgImage
+    const w = img && img instanceof HTMLImageElement && img.naturalWidth ? img.naturalWidth : 1
+    const h = img && img instanceof HTMLImageElement && img.naturalHeight ? img.naturalHeight : 1
+    photoNatural.value = { w, h }
   },
 )
+
+// 暴露照片设计尺寸（供 Workspace.fit 判断「照片是否变化」，避免依赖 DOM 测量）。
+// 边框宽度/背景扩展变化时照片尺寸不变，Workspace 据此保持 fitScale 不重算。
+defineExpose({
+  getPhotoSize(): { w: number; h: number } {
+    return { w: photoRect.value.width, h: photoRect.value.height }
+  },
+  // 画板设计尺寸（响应式）：供 Workspace 同一 Vue flush 内推导 wrap 布局尺寸，
+  // 与本组件 :style 同帧更新、同一次布局原子生效（消除 RO 回调写 wrap 滞后一帧的中间态）。
+  frameW: containerWDesign,
+  frameH: containerHDesign,
+})
 </script>
 
 <template>
+  <!-- 画板（由内向外第 4 层，最外承载一切）：同心嵌套结构由内向外为「照片 → 背景 → 边框 → 画板」 -->
   <div
     class="frame-container"
     ref="root"
-    :style="{ height: containerHDesign + 'px', background: state.artboardColor }"
+    :style="{ width: containerWDesign + 'px', height: containerHDesign + 'px' }"
     @pointerdown.self="selectedLayer = 'artboard'"
   >
-    <!-- 背景层（裁剪，含圆角）；SelectionBox 在裁剪层之外以便手柄不被裁切 -->
+    <!-- 背景层（由内向外第 2 层）：覆盖范围独立于内容区（bgExpand 四等宽扩展）。
+         背景 = 画板 content box（padding 内侧），边框层随画板尺寸同步包裹背景。 -->
     <div class="bg-clip" v-show="isVisible('bg')">
-      <BgCanvas :image="bgImage" :blur="bgBlur" class="bg-layer" />
+      <BgCanvas :image="bgImage" :blur="bgBlur" :container-w="bgAreaW" :container-h="bgAreaH" class="bg-layer" />
     </div>
 
-    <!-- 背景选择框：拖拽平移 / 角点缩放（保持图像比例） -->
+    <!-- 边框层（由内向外第 3 层）：纯色相框，包裹背景内容区的一圈 -->
+    <div class="border-layer" />
+
+    <!-- 背景选择框：仅自由拖拽模式启用拖拽平移 / 角点缩放 -->
     <SelectableBox
-      v-if="state.bgMode !== 'none' && isVisible('bg')"
-      :rect="bgRect"
+      v-if="interactive && state.bgMode !== 'solid' && isVisible('bg')"
+      :rect="bgRectAbs"
       :scale="contScale"
       :selected="selectedLayer === 'bg'"
       :lock-aspect="true"
@@ -242,40 +286,47 @@ watch(
       class="bg-select"
     />
 
-    <!-- 主照片选择框：拖拽移动 / 角点缩放（保持比例） -->
-    <SelectableBox
-      v-if="photoSrc && isVisible('photo')"
-      :rect="photoRect"
-      :scale="contScale"
-      :selected="selectedLayer === 'photo'"
-      :lock-aspect="true"
-      :min-size="60"
-      @select="selectedLayer = 'photo'"
-      @update:rect="onPhotoRect"
-      class="photo-select"
-    >
-      <MainPhoto :src="photoSrc" :rotation="state.photoRotation" :crop="state.photoCrop" @ready="onPhotoReady" />
-    </SelectableBox>
+    <!-- 主照片层（由内向外第 1 层，最内核心）：始终渲染；仅自由拖拽模式外加 SelectableBox 控制点 -->
+    <template v-if="photoSrc && isVisible('photo')">
+      <SelectableBox
+        v-if="interactive"
+        :rect="photoRectAbs"
+        :scale="contScale"
+        :selected="selectedLayer === 'photo'"
+        :lock-aspect="true"
+        :min-size="60"
+        @select="selectedLayer = 'photo'"
+        @update:rect="onPhotoRect"
+        class="photo-select"
+      >
+        <MainPhoto :src="photoSrc" :image="photoImg" :rotation="state.photoRotation" :crop="state.photoCrop" @ready="onPhotoReady" />
+      </SelectableBox>
+      <div
+        v-else
+        class="photo-static"
+        :style="{
+          left: photoRectAbs.left + 'px',
+          top: photoRectAbs.top + 'px',
+          width: photoRectAbs.width + 'px',
+          height: photoRectAbs.height + 'px',
+        }"
+      >
+        <MainPhoto :src="photoSrc" :image="photoImg" :rotation="state.photoRotation" :crop="state.photoCrop" @ready="onPhotoReady" />
+      </div>
+    </template>
 
-    <!-- 信息图层（顶层：Logo + 相机型号 + EXIF） -->
+    <!-- 未选择照片提示：编辑页且无主照片时显示在画板上 -->
+    <div v-if="!photoSrc" class="no-photo-hint">请选择导入照片</div>
+
+    <!-- 信息图层（顶层：Logo + 相机型号 + EXIF）：未导入照片时不显示 -->
     <div
-      v-show="isVisible('info')"
+      v-show="photoSrc && isVisible('info')"
       class="info-layer"
       :class="{ selected: selectedLayer === 'info' }"
-      @pointerdown="selectedLayer = 'info'"
+      @pointerdown="interactive && (selectedLayer = 'info')"
     >
-      <FooterInfo @placed="autoPlaceFooter" />
+      <FooterInfo />
     </div>
-
-    <!-- 顶层 INFO 多元素容器层（自由拖拽排版）：bindTarget 决定继承照片变换与否 -->
-    <InfoLayerDisplay
-      v-show="isVisible('info')"
-      :photo-rect="{ center: { x: photoRect.left + photoRect.width / 2, y: photoRect.top + photoRect.height / 2 }, angleDeg: state.photoRotation }"
-      :canvas-w="availW"
-      :canvas-h="contentHDesign"
-      :scale="contScale"
-      :visible="true"
-    />
 
     <!-- 顶层效果叠加：暗角 + 颗粒 + 水印（与导出一致） -->
     <EffectOverlay :container-h="containerHDesign" />
@@ -285,43 +336,84 @@ watch(
 <style scoped>
 .frame-container {
   position: relative;
-  width: 1200px;
-  max-width: 100%;
-  padding: var(--frame-padding);
-  border-radius: calc(var(--border-radius) + 8px);
+  /* 宽度/高度由 :style 动态绑定（containerWDesign × containerHDesign）。
+     注意：不要设置 max-width: 100%。
+     它会被祖先 .fit-wrap 的 transform: scale(fitScale*zoom) 二次压缩（layout 一次 + transform 一次），
+     导致内部「设计px ≠ CSSpx」、坐标错乱，照片拖拽按下点无法跟随光标。
+     正确做法是 frame-container 布局尺寸恒等于设计px（内容区+边框），缩放完全交给 fit-wrap 的 transform。 */
+  padding: var(--frame-pad-top) var(--frame-pad-x) var(--frame-pad-bottom);
+  border-radius: var(--frame-radius);
   /* 允许选择框手柄溢出容器显示（背景放大时手柄在容器外） */
   overflow: visible;
-  background: #0a0a0a;
+  /* 边框底色兜底（正常使用时背景层/边框层会覆盖它；隐藏背景层时可见） */
+  background: var(--frame-color);
   box-sizing: border-box;
 }
 .bg-clip {
   position: absolute;
-  inset: 0;
-  border-radius: calc(var(--border-radius) + 8px);
+  /* 背景 = 画板 content box（padding 内侧）= 背景区域（bgExpand 四等宽扩展后） */
+  inset: var(--frame-pad-top) var(--frame-pad-x) var(--frame-pad-bottom);
+  border-radius: var(--frame-radius-inner);
   overflow: hidden;
   z-index: 0;
+  /* 形成独立层叠上下文，确保内部 effect-overlay(z-index:4) 不会溢出到照片之上 */
+  isolation: isolate;
+}
+/* 纯色相框边框层：用 border 模拟 padding 留白区，包裹背景区域的一圈（画板之上、背景之下）。
+   背景扩宽时画板尺寸同步增大，边框外缘跟随扩大。内圆角由 border-radius 与 border-width 自动同心。 */
+.border-layer {
+  position: absolute;
+  inset: 0;
+  border: solid var(--frame-color);
+  border-width: var(--frame-pad-top) var(--frame-pad-x) var(--frame-pad-bottom);
+  border-radius: var(--frame-radius);
+  z-index: 1;
+  pointer-events: none;
 }
 .bg-layer {
   z-index: 0;
 }
 .bg-select {
-  z-index: 1;
-}
-.photo-select {
   z-index: 2;
 }
-/* 信息图层：铺满容器，作为顶层被点击时选中（不拦截照片/背景拖拽） */
+.photo-select {
+  z-index: 5;
+}
+.photo-static {
+  position: absolute;
+  z-index: 5;
+  pointer-events: none;
+  border-radius: var(--img-radius);
+  /* 立体阴影（由 --photo-shadow 驱动，与导出一致） */
+  box-shadow: var(--photo-shadow);
+  overflow: hidden;
+}
+/* 信息图层：铺满容器，作为顶层被点击时选中（不拦截照片/背景拖拽）。
+   注意：绝不能让 .info-layer 的直接子元素（FooterInfo 的 footer-layer）继承 pointer-events:auto，
+   否则 footer-layer（inset:0 铺满）会拦截照片/背景拖拽。footer-layer 自身已是 pointer-events:none，
+   仅 logo/model/exif 三个 .drag-item 为 auto。 */
 .info-layer {
   position: absolute;
   inset: 0;
-  z-index: 3;
+  z-index: 6;
   pointer-events: none;
 }
-.info-layer > * {
-  pointer-events: auto;
-}
 .info-layer.selected {
-  outline: 1.5px dashed rgba(64, 169, 255, 0.9);
+  outline: 1px dashed var(--text);
   outline-offset: -2px;
+}
+/* 未选择照片提示：居中覆盖在画板上方，不拦截交互 */
+.no-photo-hint {
+  position: absolute;
+  inset: 0;
+  z-index: 7;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(255, 255, 255, 0.75);
+  font-size: 26px;
+  letter-spacing: 1px;
+  pointer-events: none;
+  user-select: none;
 }
 </style>

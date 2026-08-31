@@ -1,22 +1,44 @@
 <script setup lang="ts">
-// 左侧可折叠面板组（对标 LrC 左栏）：我的素材 / 相框模板库 / 背景模板库 / 参数快照。支持独奏+折叠+拖宽。
+// 左侧可折叠面板组：我的素材 / 相框模板库 / 修改历史记录。
+// 各面板相互独立展开/收起，互不影响；支持拖拽调宽。
 import { useAppState } from '../../composables/useAppState'
 import { useLibrary } from '../../composables/useLibrary'
 import { useHistory } from '../../composables/useHistory'
 import CollapsiblePanel from '../common/CollapsiblePanel.vue'
 import LeftLibraryPanel from './LeftLibraryPanel.vue'
+import MediaInfoPanel from './MediaInfoPanel.vue'
 import TemplatePanel from './TemplatePanel.vue'
-import SnapshotPanel from './SnapshotPanel.vue'
+import HistoryPanel from './HistoryPanel.vue'
 
 const app = useAppState()
 const library = useLibrary()
 const history = useHistory()
 
 const P = app.state.leftPanels
+
+// ===== 右边缘拖拽调整宽度（持久化到 useAppState.setLeftWidth） =====
+let startX = 0
+let startW = 0
+function onResizeDown(e: PointerEvent) {
+  startX = e.clientX
+  startW = app.state.leftWidth
+  window.addEventListener('pointermove', onResizeMove)
+  window.addEventListener('pointerup', onResizeUp)
+  e.preventDefault()
+}
+function onResizeMove(e: PointerEvent) {
+  app.setLeftWidth(startW + (e.clientX - startX))
+}
+function onResizeUp() {
+  window.removeEventListener('pointermove', onResizeMove)
+  window.removeEventListener('pointerup', onResizeUp)
+}
 </script>
 
 <template>
   <aside class="left-panels" :style="{ width: app.leftWidthPx.value }">
+    <!-- 右边缘拖拽手柄：向右拖变宽 -->
+    <div class="resize-handle" title="拖拽调整左栏宽度" @pointerdown="onResizeDown" />
     <CollapsiblePanel
       title="我的素材"
       :open="P.library"
@@ -24,6 +46,15 @@ const P = app.state.leftPanels
       @toggle="app.togglePanel('left', 'library')"
     >
       <LeftLibraryPanel />
+    </CollapsiblePanel>
+
+    <CollapsiblePanel
+      title="基础信息"
+      :open="P.mediaInfo"
+      :badge="library.activeId.value ? 1 : 0"
+      @toggle="app.togglePanel('left', 'mediaInfo')"
+    >
+      <MediaInfoPanel />
     </CollapsiblePanel>
 
     <CollapsiblePanel
@@ -35,33 +66,38 @@ const P = app.state.leftPanels
     </CollapsiblePanel>
 
     <CollapsiblePanel
-      title="背景模板库"
-      :open="P.bgTemplates"
-      @toggle="app.togglePanel('left', 'bgTemplates')"
-    >
-      <TemplatePanel category="background" />
-    </CollapsiblePanel>
-
-    <CollapsiblePanel
-      title="参数快照"
+      title="修改历史记录"
       :open="P.snapshots"
-      :badge="history.items.value.length"
+      :badge="history.records.value.length"
       @toggle="app.togglePanel('left', 'snapshots')"
     >
-      <SnapshotPanel />
+      <HistoryPanel />
     </CollapsiblePanel>
   </aside>
 </template>
 
 <style scoped>
 .left-panels {
+  position: relative;
   height: 100%;
   overflow-y: auto;
   background: var(--panel);
   border-right: 1px solid var(--border);
   flex-shrink: 0;
-  resize: horizontal;
-  min-width: 180px;
-  max-width: 480px;
+  min-width: 200px;
+  max-width: 420px;
+}
+.resize-handle {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 4px;
+  cursor: ew-resize;
+  z-index: 4;
+  background: transparent;
+}
+.resize-handle:hover {
+  background: var(--hover);
 }
 </style>
