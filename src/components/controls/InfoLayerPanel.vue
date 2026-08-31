@@ -4,7 +4,7 @@
 // 展开本面板时画布上的三个元素可拖拽微调位置；收起后固定显示（打印态）。
 import { computed, ref } from 'vue'
 import { useFrameConfig } from '../../composables/useFrameConfig'
-import { BRANDS, RANGES, MAX_CUSTOM_LOGOS, CROP_FACTORS, BRAND_LOGO_COLORS } from '../../core/constants'
+import { BRANDS, PHONE_BRANDS, RANGES, MAX_CUSTOM_LOGOS, CROP_FACTORS, BRAND_LOGO_COLORS } from '../../core/constants'
 import { buildExifText, formatDate, type DateFormat } from '../../composables/useExif'
 import { footerTextColor, logoAutoColor } from '../../core/colorUtils'
 import ColorField from '../common/ColorField.vue'
@@ -22,6 +22,7 @@ const { listCustomLogos, uploadCustomLogo, removeCustomLogo } = useLogoStore()
 
 // ===== 品牌选项 =====
 const brandOptions = BRANDS.map((b) => ({ value: b.id, label: b.name }))
+const phoneBrandOptions = PHONE_BRANDS.map((b) => ({ value: b.id, label: b.name }))
 const customLogos = ref(listCustomLogos())
 const customBrandOptions = computed(() =>
   customLogos.value.map((c) => ({ value: `${CUSTOM_PREFIX}${c.id}`, label: c.name })),
@@ -125,14 +126,39 @@ async function onDeleteCustom(id: string) {
 <template>
   <div class="info-panel">
     <!-- 信息布局预设：classic=纵向堆叠；duo=杂志双栏（左镜头/机型 / 中Logo / 右参数+日期）；
-         inline=悬浮双行（Logo+机型内联居中，参数居中其下） -->
+         inline=悬浮双行（Logo+机型内联居中，参数居中其下）；
+         card=手机白底水印卡（左机型+日期 / 右参数+镜头 / 右端联名标块） -->
     <div class="field layout-field">
       <label>信息布局</label>
       <select v-model="state.infoLayout" class="select">
         <option value="classic">经典纵向</option>
         <option value="duo">杂志双栏</option>
         <option value="inline">悬浮双行</option>
+        <option value="card">手机白底卡</option>
       </select>
+    </div>
+    <!-- card 模式专属：卡片底色 / 日期行开关 -->
+    <div v-if="state.infoLayout === 'card'" class="field">
+      <label>卡片底色</label>
+      <select
+        :value="state.infoCardTheme"
+        class="select"
+        @change="patch({ infoCardTheme: ($event.target as HTMLSelectElement).value as 'white' | 'black' })"
+      >
+        <option value="white">白底深字</option>
+        <option value="black">黑底浅字</option>
+      </select>
+    </div>
+    <div v-if="state.infoLayout === 'card'" class="field">
+      <label class="show-switch">
+        <input
+          type="checkbox"
+          :checked="state.cardShowDate"
+          @change="patch({ cardShowDate: ($event.target as HTMLInputElement).checked })"
+        />
+        <span class="box" />
+        <span class="sw-tag">卡内显示日期</span>
+      </label>
     </div>
     <!-- 板块 1：相机品牌 -->
     <CollapsiblePanel title="相机品牌" :open="openLogo" @toggle="openLogo = !openLogo">
@@ -149,7 +175,12 @@ async function onDeleteCustom(id: string) {
       <div class="field">
         <label>品牌</label>
         <select v-model="state.brand" class="select">
-          <option v-for="o in brandOptions" :key="o.value" :value="o.value">{{ o.label }}</option>
+          <optgroup label="相机">
+            <option v-for="o in brandOptions" :key="o.value" :value="o.value">{{ o.label }}</option>
+          </optgroup>
+          <optgroup label="手机">
+            <option v-for="o in phoneBrandOptions" :key="o.value" :value="o.value">{{ o.label }}</option>
+          </optgroup>
           <optgroup v-if="customBrandOptions.length" label="自定义">
             <option v-for="o in customBrandOptions" :key="o.value" :value="o.value">{{ o.label }}</option>
           </optgroup>

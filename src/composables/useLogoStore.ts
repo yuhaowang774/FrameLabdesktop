@@ -8,7 +8,7 @@
 // 自定义 Logo 为彩色原图，不随主题重绘。
 
 import { ref } from 'vue'
-import { BRANDS } from '../core/constants'
+import { BRANDS, PHONE_BRANDS } from '../core/constants'
 import {
   getAllCustomLogos,
   putCustomLogo,
@@ -41,7 +41,8 @@ function brandSvgUrl(id: string): string {
  */
 const TEXT_LOGO_FONT = `600 44px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif`
 function renderTextLogo(id: string, color?: string): HTMLCanvasElement {
-  const name = BRANDS.find((b) => b.id === id)?.name ?? id
+  // 相机品牌用名称；手机品牌用 logoText 文字标记（HUAWEI/XIAOMI…）
+  const name = BRANDS.find((b) => b.id === id)?.name ?? PHONE_BRANDS.find((b) => b.id === id)?.logoText ?? id
   const canvas = document.createElement('canvas')
   // 先在临时尺寸上测量文本宽，再定稿画布尺寸
   const probe = document.createElement('canvas').getContext('2d')!

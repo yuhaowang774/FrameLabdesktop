@@ -5,12 +5,16 @@ import { useFrameConfig } from '../../composables/useFrameConfig'
 import { useAppState } from '../../composables/useAppState'
 import { useViewer } from '../../composables/useViewer'
 import { resolveLogoDataURL, resolveLogo } from '../../composables/useLogoStore'
-import { DESIGN_CONTAINER } from '../../core/constants'
+import { DESIGN_CONTAINER, phoneBrandOf } from '../../core/constants'
 import {
   computeFooterLayout,
   computeClassicLayout,
+  computeCardLayout,
+  cardThemeColors,
+  CARD_RADIUS,
   LENS_LINE_GAP,
   type FooterLayout,
+  type CardRect,
 } from '../../core/infoLayout'
 import { logoAutoColor } from '../../core/colorUtils'
 import { modelAlias } from '../../core/modelAlias'
@@ -301,6 +305,30 @@ function defaultPos(key: ItemKey): { x: number; y: number } {
   return L[key]
 }
 
+// card 白底水印卡：与 exporter drawCardFooter 同源布局（computeCardLayout），不支持拖拽
+const cardLayout = computed(() => {
+  if (state.infoLayout !== 'card') return null
+  const canvasBottom = frameContainerH.value > 0
+    ? frameContainerH.value - pad.value - bgExpand.value
+    : contentH.value
+  return computeCardLayout(state, canvasBottom)
+})
+const cardTheme = computed(() => cardThemeColors(state.infoCardTheme))
+const cardBadge = computed(() => {
+  const phone = phoneBrandOf(state.brand)
+  if (!phone?.badge.text) return null
+  return { text: phone.badge.text, bg: phone.badge.bg ?? phone.accent, fg: phone.badge.fg ?? '#ffffff' }
+})
+/** 卡内子项定位：内容区坐标 + padding + bgExpand → 画板坐标 */
+function cardPos(r: CardRect) {
+  return {
+    left: pad.value + bgExpand.value + r.x + 'px',
+    top: pad.value + bgExpand.value + r.y + 'px',
+    width: r.w + 'px',
+    height: r.h + 'px',
+  }
+}
+
 // duo 双栏分隔竖线：右栏文字左侧浅灰线（与 exporter 一致，几何来自共享布局计算）
 const duoDividerStyle = computed(() => {
   if (state.infoLayout !== 'duo') return null
@@ -375,8 +403,48 @@ function absStyle(key: ItemKey) {
     <div v-if="guideVisible" class="guide-h" :class="{ snap: guideH }" />
     <!-- duo 双栏分隔竖线 -->
     <div v-if="duoDividerStyle" class="duo-divider" :style="duoDividerStyle" />
+    <!-- card 白底水印卡（手机品牌）：与导出同源布局，静态渲染不支持拖拽 -->
+    <template v-if="cardLayout">
+      <div
+        class="phone-card"
+        :style="[cardPos(cardLayout.card), { background: cardTheme.card, borderRadius: CARD_RADIUS + 'px' }]"
+      />
+      <span
+        v-if="state.showCameraModel && state.cameraModel"
+        class="pc-line pc-model"
+        :style="[cardPos(cardLayout.model), { color: cardTheme.primary, font: `${state.cameraModelItalic ? 'italic ' : ''}${state.cameraModelWeight} ${cardLayout.model.h}px/1 ${state.cameraModelFont}` }]"
+        >{{ modelText }}</span
+      >
+      <span
+        v-if="cardLayout.date && state.dateText"
+        class="pc-line pc-date"
+        :style="[cardPos(cardLayout.date), { color: cardTheme.secondary, font: `${state.dateTextWeight ?? state.textWeight} ${cardLayout.date.h}px/1 ${state.dateFontFamily ?? state.fontFamily}` }]"
+        >{{ state.dateText }}</span
+      >
+      <span
+        v-if="state.showExif && state.exifText"
+        class="pc-line pc-exif"
+        :style="[cardPos(cardLayout.exif), { color: cardTheme.primary, font: `${state.exifTextWeight ?? state.textWeight} ${cardLayout.exif.h}px/1 ${state.exifFontFamily ?? state.fontFamily}` }]"
+        >{{ state.exifText }}</span
+      >
+      <span
+        v-if="cardLayout.lens && state.lensText"
+        class="pc-line pc-lens"
+        :style="[cardPos(cardLayout.lens), { color: cardTheme.secondary, font: `${state.lensTextWeight ?? state.textWeight} ${cardLayout.lens.h}px/1 ${state.lensFontFamily ?? state.fontFamily}` }]"
+        >{{ state.lensText }}</span
+      >
+      <span
+        v-if="cardBadge && cardLayout.badge"
+        class="pc-badge"
+        :style="[
+          cardPos(cardLayout.badge),
+          { background: cardBadge.bg, color: cardBadge.fg, fontSize: '20px', fontWeight: 600, lineHeight: cardLayout.badge.h + 'px' },
+        ]"
+        >{{ cardBadge.text }}</span
+      >
+    </template>
     <img
-      v-if="state.showLogo && logoSrc"
+      v-if="state.showLogo && logoSrc && state.infoLayout !== 'card'"
       class="brand-logo drag-item"
       data-item="logo"
       :class="{ dragging: dragging === 'logo' }"
@@ -389,7 +457,7 @@ function absStyle(key: ItemKey) {
     <span
       class="camera-model drag-item"
       data-item="model"
-      v-if="state.showCameraModel"
+      v-if="state.showCameraModel && state.infoLayout !== 'card'"
       :class="{ dragging: dragging === 'model' }"
       :style="[
         absStyle('model'),
@@ -408,7 +476,7 @@ function absStyle(key: ItemKey) {
     <div
       class="exif-text drag-item"
       data-item="exif"
-      v-if="state.showExif"
+      v-if="state.showExif && state.infoLayout !== 'card'"
       :class="{ dragging: dragging === 'exif' }"
       :style="[
         absStyle('exif'),
@@ -459,7 +527,7 @@ function absStyle(key: ItemKey) {
     <div
       class="date-text drag-item"
       data-item="date"
-      v-if="state.showDate"
+      v-if="state.showDate && state.infoLayout !== 'card'"
       :class="{ dragging: dragging === 'date' }"
       :style="[
         absStyle('date'),
@@ -486,6 +554,19 @@ function absStyle(key: ItemKey) {
   inset: 0;
   z-index: 2;
   pointer-events: none;
+}
+/* card 白底水印卡（手机品牌）：静态渲染，与导出 drawCardFooter 视觉一致 */
+.phone-card {
+  position: absolute;
+}
+.pc-line {
+  position: absolute;
+  white-space: nowrap;
+}
+.pc-badge {
+  position: absolute;
+  text-align: center;
+  letter-spacing: 0.5px;
 }
 /* 居中辅助线：垂直中线（水平居中）与水平中线（垂直居中） */
 .guide-v,
