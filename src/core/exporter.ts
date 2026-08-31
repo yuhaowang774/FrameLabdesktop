@@ -7,12 +7,20 @@ import { resolveLogo, preloadBrandLogo } from '../composables/useLogoStore'
 import { drawInfoLayer, preloadInfoLogos } from './infoRenderer'
 import { buildSrgbICC, embedJpegICC } from './icc'
 import { hexLuminance, hexToRgba, logoAutoColor } from './colorUtils'
-import { DESIGN_CONTAINER } from './constants'
+import { DESIGN_CONTAINER, phoneBrandOf } from './constants'
 import {
   computeFooterLayout,
   computeClassicLayout,
+  computeCardLayout,
+  cardThemeColors,
+  exifTextStyle,
+  lensTextStyle,
+  dateTextStyle,
+  CARD_RADIUS,
+  CARD_BADGE_FONT_SIZE,
   LENS_LINE_GAP,
   type FooterLayout,
+  type CardRect,
 } from './infoLayout'
 import { modelAlias } from './modelAlias'
 import { rotatedSize, drawRotatedCropped } from './photoEdit'
@@ -81,6 +89,85 @@ function roundRectPath(
   ctx.closePath()
 }
 
+/** card 白底水印卡绘制（infoLayout='card'）：左列机型+日期 / 右列参数+镜头 / 右端联名标块 */
+function drawCardFooter(
+  ctx: CanvasRenderingContext2D,
+  config: FrameConfig,
+  unitScale: number,
+  contentOX: number,
+  canvasHpx: number,
+): void {
+  const ox = contentOX * unitScale
+  const s = unitScale
+  const canvasBottomY = canvasHpx / unitScale - config.padding - config.bgExpand
+  const L = computeCardLayout(config, canvasBottomY)
+  const theme = cardThemeColors(config.infoCardTheme)
+
+  // 底色卡（圆角矩形）
+  ctx.save()
+  roundRectPath(ctx, ox + L.card.x * s, ox + L.card.y * s, L.card.w * s, L.card.h * s, CARD_RADIUS * s)
+  ctx.fillStyle = theme.card
+  ctx.fill()
+  ctx.restore()
+
+  const drawLine = (
+    r: CardRect,
+    text: string,
+    color: string,
+    weight: number,
+    font: string,
+    align: 'left' | 'right',
+    italic = false,
+  ): void => {
+    if (!text) return
+    ctx.save()
+    ctx.fillStyle = color
+    ctx.font = fontStr(weight, r.h * s, font, italic)
+    ctx.textAlign = align
+    ctx.textBaseline = 'top'
+    ctx.fillText(text, ox + r.x * s, ox + r.y * s)
+    ctx.restore()
+  }
+
+  // 左列：机型（主色，营销名映射与预览一致）/ 日期（次色）
+  if (config.showCameraModel && config.cameraModel) {
+    drawLine(L.model, modelAlias(config.cameraModel), theme.primary, config.cameraModelWeight, config.cameraModelFont, 'left', config.cameraModelItalic)
+  }
+  if (L.date && config.dateText) {
+    const dateS = dateTextStyle(config)
+    drawLine(L.date, config.dateText, theme.secondary, dateS.weight, dateS.font, 'left')
+  }
+  // 右列：参数（主色）/ 镜头（次色），右对齐
+  if (config.showExif && config.exifText) {
+    const exifS = exifTextStyle(config)
+    drawLine(L.exif, config.exifText, theme.primary, exifS.weight, exifS.font, 'right')
+  }
+  if (L.lens && config.lensText) {
+    const lensS = lensTextStyle(config)
+    drawLine(L.lens, config.lensText, theme.secondary, lensS.weight, lensS.font, 'right')
+  }
+
+  // 标块：品牌色圆角小块 + 文字居中（仅手机品牌且有联名文字时）
+  if (L.badge) {
+    const phone = phoneBrandOf(config.brand)
+    if (phone?.badge.text) {
+      const b = L.badge
+      ctx.save()
+      roundRectPath(ctx, ox + b.x * s, ox + b.y * s, b.w * s, b.h * s, 4 * s)
+      ctx.fillStyle = phone.badge.bg ?? phone.accent
+      ctx.fill()
+      ctx.restore()
+      ctx.save()
+      ctx.fillStyle = phone.badge.fg ?? '#ffffff'
+      ctx.font = `600 ${CARD_BADGE_FONT_SIZE * s}px ${config.fontFamily}`
+      ctx.textAlign = 'center'
+      ctx.textBaseline = 'middle'
+      ctx.fillText(phone.badge.text, ox + (b.x + b.w / 2) * s, ox + (b.y + b.h / 2) * s)
+      ctx.restore()
+    }
+  }
+}
+
 async function drawFooter(
   ctx: CanvasRenderingContext2D,
   config: FrameConfig,
@@ -89,6 +176,11 @@ async function drawFooter(
   contentOX: number,
   canvasHpx: number,
 ): Promise<void> {
+  // card 白底水印卡：独立绘制路径（左右列 + 标块，配色随 infoCardTheme）
+  if (config.infoLayout === 'card') {
+    drawCardFooter(ctx, config, unitScale, contentOX, canvasHpx)
+    return
+  }
   const themeColor = config.bgMode === 'solid' && hexLuminance(config.bgColor) > 0.6 ? 0 : 255
   const logoH = config.logoSize * unitScale
   const modelH = config.cameraModelSize * unitScale

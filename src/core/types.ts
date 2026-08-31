@@ -102,8 +102,13 @@ export interface FrameConfig {
   /** 日期格式：date=YYYY/MM/DD，datetime=含时分，zh=中文年月日 */
   dateFormat: 'date' | 'datetime' | 'zh' | 'dash'
   /** INFO 布局预设：classic=纵向堆叠（默认）；duo=杂志双栏（左：镜头/机型块 / 中：Logo / 右：参数+日期，竖线分隔）；
-   *  inline=悬浮居中双行（行1：Logo+机型内联居中；行2：参数居中） */
-  infoLayout: 'classic' | 'duo' | 'inline'
+   *  inline=悬浮居中双行（行1：Logo+机型内联居中；行2：参数居中）；
+   *  card=手机白底水印卡（左：机型+日期 / 右：参数+镜头 / 右端联名标块，配色随 infoCardTheme） */
+  infoLayout: 'classic' | 'duo' | 'inline' | 'card'
+  /** card 模式卡片底色：white=白底深字（默认），black=黑底浅字 */
+  infoCardTheme: 'white' | 'black'
+  /** card 模式是否显示日期行（左列下行） */
+  cardShowDate: boolean
   fontFamily: string
   fontSize: number
   textWeight: number
@@ -232,6 +237,8 @@ export const defaultFrameConfig: FrameConfig = {
   dateText: '',
   dateFormat: 'date',
   infoLayout: 'classic',
+  infoCardTheme: 'white',
+  cardShowDate: true,
   fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
   fontSize: 30,
   textWeight: 600,

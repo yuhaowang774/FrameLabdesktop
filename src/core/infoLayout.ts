@@ -1,4 +1,4 @@
-// INFO 布局共享计算：duo（杂志双栏）与 inline（悬浮居中双行）的默认排版。
+// INFO 布局共享计算：duo（杂志双栏）、inline（悬浮居中双行）与 card（手机白底水印卡）的默认排版。
 // 预览（FooterInfo.vue）与导出（exporter.ts）共用本模块，保证两端位置一致。
 // 所有坐标为内容区坐标系（x=0 为照片左缘，y 向下），单位：设计 px。
 //
@@ -9,7 +9,7 @@
 // 样例2（模糊悬浮）: 行1 = Logo(高20) + 机型文字(20)，内联居中，间距 35 /
 //   行2 = 参数(18)，行距 21 / 信息底边距 29（相对画布底缘）
 import type { FrameConfig } from './types'
-import { DESIGN_CONTAINER } from './constants'
+import { DESIGN_CONTAINER, phoneBrandOf } from './constants'
 
 /** 单个 INFO 元素的默认位置（内容区坐标，左上角） */
 export interface FooterRect {
@@ -215,4 +215,110 @@ export function computeClassicLayout(cfg: FrameConfig, canvasBottom: number): Fo
     logo: { x: center, y: logoY },
     divider: null,
   }
+}
+
+// ===== card（手机白底水印卡）：对标小米标准徕卡水印排版 =====
+export const CARD_INSET = 24 // 卡片距照片左右缘 / 内容左右内边距（同一值）
+export const CARD_PAD_V = 18 // 卡片上下内边距
+export const CARD_ROW_GAP = 10 // 卡内行距
+export const CARD_RADIUS = 12 // 卡片圆角
+export const CARD_BADGE_GAP = 16 // 右列与标块间距
+export const CARD_BADGE_H = 34 // 标块高度
+export const CARD_BADGE_FONT_SIZE = 20 // 标块文字字号（设计 px）
+
+/** card 主题配色：白卡深字 / 黑卡浅字 */
+export function cardThemeColors(theme: 'white' | 'black'): { card: string; primary: string; secondary: string } {
+  return theme === 'black'
+    ? { card: '#0D0D0D', primary: '#F2F2F2', secondary: '#9A9A9A' }
+    : { card: '#FFFFFF', primary: '#1A1A1A', secondary: '#8A8A8A' }
+}
+
+export interface CardRect {
+  x: number
+  y: number
+  w: number
+  h: number
+}
+
+/** card 布局的完整默认排版结果（内容区坐标） */
+export interface CardLayout {
+  card: CardRect
+  model: CardRect
+  date: CardRect | null
+  exif: CardRect
+  lens: CardRect | null
+  badge: { x: number; y: number; w: number; h: number } | null
+}
+
+/**
+ * 计算 card 白底水印卡的默认排版：左列（机型+日期）/ 右列（EXIF+镜头，右对齐）/ 右端联名标块。
+ * @param cfg 相框配置
+ * @param canvasBottom 画布底缘（内容区坐标系 y 值 = 实测画板高 − padding − bgExpand）
+ */
+export function computeCardLayout(cfg: FrameConfig, canvasBottom: number): CardLayout {
+  const modelS = modelTextStyle(cfg)
+  const exifS = exifTextStyle(cfg)
+  const lensS = lensTextStyle(cfg)
+  const dateS = dateTextStyle(cfg)
+  const showModel = cfg.showCameraModel && !!cfg.cameraModel
+  const showDate = cfg.cardShowDate && cfg.showDate && !!cfg.dateText
+  const showExif = cfg.showExif && !!cfg.exifText
+  const showLens = cfg.showLens && !!cfg.lensText
+
+  // 型号统一走营销名映射（与导出/预览一致）
+  const modelText = cfg.cameraModel
+  const modelW = showModel ? measureTextWidth(modelText, toCanvasFont(modelS, cfg.cameraModelItalic)) : 0
+  const exifW = showExif ? measureTextWidth(cfg.exifText, toCanvasFont(exifS)) : 0
+  const lensW = showLens ? measureTextWidth(cfg.lensText, toCanvasFont(lensS)) : 0
+  const dateW = showDate ? measureTextWidth(cfg.dateText, toCanvasFont(dateS)) : 0
+
+  // 标块：手机品牌且有联名文字时显示
+  const phone = phoneBrandOf(cfg.brand)
+  const badgeText = phone?.badge.text ?? null
+  const badgeFont = `600 ${CARD_BADGE_FONT_SIZE}px ${cfg.fontFamily}`
+  const badgeW = badgeText ? measureTextWidth(badgeText, badgeFont) + 24 : 0
+  const badge = badgeText
+    ? { x: 0, y: 0, w: badgeW, h: CARD_BADGE_H } // x/y 在卡片定位后回填
+    : null
+
+  // 左列高（机型 + 可选日期）；右列高（EXIF + 可选镜头）
+  const leftH = modelS.size + (showDate ? CARD_ROW_GAP + dateS.size : 0)
+  const rightH = exifS.size + (showLens ? CARD_ROW_GAP + lensS.size : 0)
+  const contentH = Math.max(leftH, rightH, phone ? CARD_BADGE_H : 0)
+  const cardH = CARD_PAD_V * 2 + contentH
+  const card: CardRect = {
+    x: CARD_INSET,
+    y: Math.max(0, canvasBottom - cfg.overlayBottom - cardH),
+    w: DESIGN_CONTAINER - CARD_INSET * 2,
+    h: cardH,
+  }
+
+  const leftX = card.x + CARD_INSET
+  const rightEdge = card.x + card.w - CARD_INSET - (badge ? badgeW + CARD_BADGE_GAP : 0)
+  const row1Top = card.y + CARD_PAD_V
+
+  // 左列：机型上行（缺省机型时日期占首行）；右列：EXIF 上行 + 镜头下行（右对齐）
+  const model: CardRect = {
+    x: leftX,
+    y: row1Top + (contentH - (showDate ? modelS.size + CARD_ROW_GAP + dateS.size : modelS.size)) / 2,
+    w: modelW,
+    h: modelS.size,
+  }
+  const date: CardRect | null = showDate
+    ? { x: leftX, y: model.y + modelS.size + CARD_ROW_GAP, w: dateW, h: dateS.size }
+    : null
+  const exif: CardRect = {
+    x: rightEdge - exifW,
+    y: row1Top + (contentH - (showLens ? exifS.size + CARD_ROW_GAP + lensS.size : exifS.size)) / 2,
+    w: exifW,
+    h: exifS.size,
+  }
+  const lens: CardRect | null = showLens
+    ? { x: rightEdge - lensW, y: exif.y + exifS.size + CARD_ROW_GAP, w: lensW, h: lensS.size }
+    : null
+  if (badge) {
+    badge.x = card.x + card.w - CARD_INSET - badgeW
+    badge.y = card.y + (cardH - CARD_BADGE_H) / 2
+  }
+  return { card, model, date, exif, lens, badge }
 }

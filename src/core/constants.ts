@@ -48,9 +48,58 @@ export const EXIF_MAKE_TO_BRAND: Record<string, string> = {
   dji: 'dji',
   panasonic: 'panasonic',
   olympus: 'olympus',
-  apple: 'apple',
+  apple: 'iphone',
   insta360: 'insta360',
   'arashi vision': 'insta360',
+  // 手机品牌（Make 归一化；iQOO 的 Make 多为 vivo，需手动切换）
+  huawei: 'huawei',
+  xiaomi: 'xiaomi',
+  redmi: 'redmi',
+  samsung: 'samsung',
+  oppo: 'oppo',
+  oneplus: 'oneplus',
+  '1+': 'oneplus',
+  vivo: 'vivo',
+  iqoo: 'iqoo',
+  honor: 'honor',
+  realme: 'realme',
+  meizu: 'meizu',
+}
+
+/**
+ * 手机品牌（白底水印 card 模式）。Logo 以 logoText 文字标记渲染（零版权风险），
+ * badge 为底部联名标块（text=null 表示无联名，不绘制标块）。
+ * bg/fg 缺省 = accent / #ffffff。
+ */
+export interface PhoneBrandDef {
+  id: string
+  name: string
+  /** Logo 文字标记（如 HUAWEI / XIAOMI） */
+  logoText: string
+  /** 品牌主色（近似，用于标块底色/文字强调） */
+  accent: string
+  /** 底部联名标块；text=null 无标块 */
+  badge: { text: string | null; bg?: string; fg?: string }
+}
+
+export const PHONE_BRANDS: PhoneBrandDef[] = [
+  { id: 'huawei', name: '华为', logoText: 'HUAWEI', accent: '#C7000B', badge: { text: 'XMAGE' } },
+  { id: 'xiaomi', name: '小米', logoText: 'XIAOMI', accent: '#FF6900', badge: { text: 'LEICA', bg: '#E20612', fg: '#ffffff' } },
+  { id: 'iphone', name: '苹果', logoText: 'iPhone', accent: '#1D1D1F', badge: { text: null } },
+  { id: 'samsung', name: '三星', logoText: 'SAMSUNG', accent: '#1428A0', badge: { text: null } },
+  { id: 'oppo', name: 'OPPO', logoText: 'OPPO', accent: '#006B54', badge: { text: 'HASSELBLAD', bg: '#111111', fg: '#F7941D' } },
+  { id: 'oneplus', name: '一加', logoText: 'OnePlus', accent: '#EB0028', badge: { text: 'HASSELBLAD', bg: '#111111', fg: '#F7941D' } },
+  { id: 'vivo', name: 'vivo', logoText: 'vivo', accent: '#415FFF', badge: { text: 'ZEISS', bg: '#0064C8', fg: '#ffffff' } },
+  { id: 'iqoo', name: 'iQOO', logoText: 'iQOO', accent: '#FF5000', badge: { text: null } },
+  { id: 'honor', name: '荣耀', logoText: 'HONOR', accent: '#00A0E9', badge: { text: null } },
+  { id: 'redmi', name: '红米', logoText: 'Redmi', accent: '#FF6900', badge: { text: null } },
+  { id: 'realme', name: '真我', logoText: 'realme', accent: '#E8B800', badge: { text: null } },
+  { id: 'meizu', name: '魅族', logoText: 'MEIZU', accent: '#000000', badge: { text: null } },
+]
+
+/** 按品牌 id 查手机品牌定义（相机品牌返回 undefined） */
+export function phoneBrandOf(id: string): PhoneBrandDef | undefined {
+  return PHONE_BRANDS.find((b) => b.id === id)
 }
 
 /** 字体选项（系统字体栈，首版不做 Web Font 内嵌；按 group 分组展示）。
