@@ -2,17 +2,14 @@
 // 左侧模板库面板：按类别展示内置/自定义模板，点击应用，支持删除自定义模板。
 // 模板条目上「⇉」= 批量应用到全部选中照片（无选中时应用到全部照片）。
 import { computed, watch, reactive } from 'vue'
-import { useTemplates, type TemplateCategory } from '../../composables/useTemplates'
-import { useFrameConfig } from '../../composables/useFrameConfig'
+import { useTemplates, applyTemplateToState, type TemplateCategory } from '../../composables/useTemplates'
 import { useAppState } from '../../composables/useAppState'
 import { useLibrary } from '../../composables/useLibrary'
 import { applyTemplateToPhotos } from '../../composables/useHistory'
-import { buildExifText, formatDate, cleanLens } from '../../composables/useExif'
 import { templateThumbDataUrl, renderTemplateThumbDataUrl } from '../../core/templateThumb'
 
 const props = defineProps<{ category: TemplateCategory }>()
 const templates = useTemplates()
-const { state, loadConfig } = useFrameConfig()
 const app = useAppState()
 const library = useLibrary()
 
@@ -51,52 +48,8 @@ const batchTargets = computed(() => {
 function apply(t: { id: string }) {
   const found = templates.templates.find((x) => x.id === t.id)
   if (!found) return
-  // INFO 文本（EXIF/日期/镜头）在「复位 INFO」时会被清空为 ''；模板不保存这些字段（保留照片 EXIF 语义），
-  // 故此处兜底：若文本为空且照片仍保留 exifRaw，则从 raw 重新生成，避免应用模板后 INFO 参数行无内容。
-  const raw = state.exifRaw
-  const exifText = state.exifText || (raw ? buildExifText(raw, { eqFocal: state.eqFocal, cropFactor: state.cropFactor }) : '')
-  const dateText = state.dateText || (raw?.dateTimeOriginal ? formatDate(raw.dateTimeOriginal, state.dateFormat) : '')
-  const lensText = state.lensText || (raw ? cleanLens(raw.lensMake, raw.lensModel) ?? '' : '')
-  // 模板不覆盖当前照片/变换/自身EXIF信息（与批量应用 keep 集合语义一致）；其余装饰参数整体按模板重置 → 右栏参数随之更新
-  loadConfig({
-    ...found.config,
-    // ===== 以下为「照片自身内容 / 用户设置」，必须写在 ...found.config 之后 =====
-    // 顺序很重要：历史自定义模板（toTemplateConfig 全量保存）会带上保存时那张照片的
-    // 型号/EXIF 文本/品牌，若写在模板配置之前会被反向覆盖，
-    // 导致应用模板后相机型号变成模板里的值（甚至空），看起来像「模板下型号不显示」。
-    photoSrc: state.photoSrc,
-    photoX: state.photoX,
-    photoY: state.photoY,
-    photoRotation: state.photoRotation,
-    photoCrop: state.photoCrop,
-    bgScale: state.bgScale,
-    bgOffsetX: state.bgOffsetX,
-    bgOffsetY: state.bgOffsetY,
-    canvasH: state.canvasH,
-    exifText,
-    exifRaw: raw,
-    dateText,
-    cameraModel: state.cameraModel,
-    brand: state.brand,
-    lensText,
-    // 保留用户对各 INFO 文本（EXIF/镜头/日期）的独立样式覆盖，不被模板默认覆盖
-    exifFontFamily: state.exifFontFamily,
-    exifFontSize: state.exifFontSize,
-    exifTextWeight: state.exifTextWeight,
-    exifTextOpacity: state.exifTextOpacity,
-    lensFontFamily: state.lensFontFamily,
-    lensFontSize: state.lensFontSize,
-    lensTextWeight: state.lensTextWeight,
-    lensTextOpacity: state.lensTextOpacity,
-    dateFontFamily: state.dateFontFamily,
-    dateFontSize: state.dateFontSize,
-    dateTextWeight: state.dateTextWeight,
-    dateTextOpacity: state.dateTextOpacity,
-    exifTextColor: state.exifTextColor,
-    lensTextColor: state.lensTextColor,
-    dateTextColor: state.dateTextColor,
-    cameraModelColor: state.cameraModelColor,
-  })
+  // 统一入口：模板只覆盖装饰/布局，保留当前照片的 EXIF/型号/品牌/文本与用户独立样式
+  applyTemplateToState(found.config)
   // 展开右栏「背景 / 边框」面板，方便查看模板参数并继续微调
   app.state.rightOpen = true
   app.setPanel('right', 'background', true)

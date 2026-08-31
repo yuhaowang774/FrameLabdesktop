@@ -6,6 +6,7 @@ import { useCssVars } from './composables/useCssVars'
 import { useHistory } from './composables/useHistory'
 import { initCustomLogos } from './composables/useLogoStore'
 import { isTauri } from './platform/env'
+import { getStartupTemplatePref } from './composables/usePrefs'
 
 const app = createApp(App)
 
@@ -36,3 +37,12 @@ const { restoreActive } = await import('./composables/useLibrary')
 restoreActive()
 
 app.mount('#app')
+
+// 首选项「启动默认模板」：应用内置模板装饰参数（不覆盖已恢复照片的 EXIF/位置/变换）
+void (async () => {
+  const tplId = getStartupTemplatePref()
+  if (!tplId) return
+  const { useTemplates, applyTemplateToState } = await import('./composables/useTemplates')
+  const t = useTemplates().templates.find((x) => x.id === tplId)
+  if (t) applyTemplateToState(t.config)
+})()

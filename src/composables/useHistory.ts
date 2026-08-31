@@ -24,6 +24,7 @@
 import { reactive, computed, ref } from 'vue'
 import type { FrameConfig } from '../core/types'
 import { MAX_HISTORY, HISTORY_DEBOUNCE_MS } from '../core/constants'
+import { getHistoryLimitPref } from './usePrefs'
 import { useFrameConfig, registerCommit } from './useFrameConfig'
 import { buildExifText, formatDate, cleanLens } from './useExif'
 import {
@@ -258,9 +259,11 @@ export function recordEdit(photoId: string, state: FrameConfig, name: string): v
   }
   chain.push(node)
   let overflow: HistoryNodeRecord[] = []
-  if (chain.length > MAX_HISTORY) {
+  // 上限可在「首选项 → 编辑」中调整；默认与 MAX_HISTORY 一致
+  const limit = getHistoryLimitPref()
+  if (chain.length > limit) {
     // 防膨胀：保留 Import（index 0），裁剪最旧编辑节点
-    overflow = chain.splice(1, chain.length - MAX_HISTORY)
+    overflow = chain.splice(1, chain.length - limit)
     if (cur >= 1 && cursors[photoId] != null) cursors[photoId] = Math.max(0, (cursors[photoId] ?? 0) - overflow.length)
   }
   cursors[photoId] = chain.length - 1

@@ -4,12 +4,7 @@
 import { ref, onMounted, onBeforeUnmount } from 'vue'
 import { useAppState, type ModuleTab } from '../../composables/useAppState'
 import { isTauri } from '../../platform/env'
-import {
-  getGpuPrefEnabled,
-  setGpuPrefEnabled,
-  openGraphicsSettings,
-  detectDiscreteGpu,
-} from '../../platform/gpu'
+import PreferencesModal from './PreferencesModal.vue'
 
 const app = useAppState()
 
@@ -35,58 +30,20 @@ try {
   /* localStorage 不可用时仅手动触发 */
 }
 
-// ===== 首选项弹窗（独显加速）=====
-// 桌面端由原生菜单「文件 → 首选项…」/ Ctrl+, 触发；网页端无入口（GPU 设置仅桌面有效）。
+// ===== 首选项弹窗 =====
+// 桌面端由原生菜单「文件 → 首选项…」/ Ctrl+, 触发；网页端通过顶栏 ⚙ 打开。
 const prefOpen = ref(false)
-const gpuEnabled = ref(getGpuPrefEnabled())
-const gpuSaving = ref(false)
-const dgpuChecked = ref(false)
-const dgpuList = ref<string[]>([])
-const dgpuChecking = ref(false)
 
 let unlisten: (() => void) | null = null
 async function setupPrefMenu() {
   if (!isTauri) return
   const { listen } = await import('@tauri-apps/api/event')
   unlisten = await listen<string>('framelab://menu', (e) => {
-    if (e.payload === 'preferences') openPrefs()
+    if (e.payload === 'preferences') prefOpen.value = true
   })
 }
 function openPrefs() {
   prefOpen.value = true
-  refreshGpuStatus()
-}
-async function refreshGpuStatus() {
-  if (!isTauri) return
-  gpuEnabled.value = getGpuPrefEnabled()
-  dgpuChecking.value = true
-  try {
-    const [has, list] = await detectDiscreteGpu()
-    dgpuChecked.value = has
-    dgpuList.value = list
-  } catch {
-    dgpuChecked.value = false
-    dgpuList.value = []
-  } finally {
-    dgpuChecking.value = false
-  }
-}
-function toggleGpu() {
-  if (gpuSaving.value) return
-  gpuSaving.value = true
-  const next = !gpuEnabled.value
-  gpuEnabled.value = next
-  void setGpuPrefEnabled(next)
-    .catch(() => {
-      gpuEnabled.value = !next
-      window.alert('设置 GPU 首选项失败，可尝试在 Windows 图形设置中手动指定。')
-    })
-    .finally(() => {
-      gpuSaving.value = false
-    })
-}
-function onOpenGraphicsSettings() {
-  void openGraphicsSettings().catch(() => window.alert('打开系统设置失败'))
 }
 onMounted(() => {
   void setupPrefMenu()
@@ -119,6 +76,7 @@ onBeforeUnmount(() => {
       <button class="icon-btn" title="隐藏/显示胶片条" @click="app.toggleFilmstrip()">
         {{ app.state.filmstripVisible ? '▭' : '▯' }}
       </button>
+      <button class="icon-btn" title="首选项" @click="openPrefs">⚙</button>
       <button class="icon-btn" title="帮助" @click="onHelp">?</button>
     </div>
 
@@ -172,42 +130,8 @@ onBeforeUnmount(() => {
       </div>
     </Teleport>
 
-    <!-- 首选项弹窗：独显加速（桌面端菜单「文件 → 首选项…」触发） -->
-    <Teleport to="body">
-      <div v-if="prefOpen" class="pref-mask" @click.self="prefOpen = false">
-        <div class="pref-box">
-          <div class="pref-head">
-            <span class="pref-title">首选项</span>
-            <button class="pref-close" title="关闭" @click="prefOpen = false">×</button>
-          </div>
-          <div class="pref-body">
-            <div class="pref-section">性能</div>
-            <div class="pref-row">
-              <span class="pref-label">独立显卡加速</span>
-              <button
-                class="gpu-toggle"
-                :class="{ on: gpuEnabled }"
-                :title="gpuEnabled ? '已开启（重启应用后生效）' : '开启后重启应用生效'"
-                @click="toggleGpu"
-              >
-                <span class="knob" />
-              </button>
-            </div>
-            <p class="pref-status">
-              <template v-if="dgpuChecking">正在检测独立显卡…</template>
-              <template v-else-if="dgpuChecked">
-                检测到独立显卡：{{ dgpuList.join('、') }}
-              </template>
-              <template v-else>未检测到独立显卡</template>
-            </p>
-            <p class="pref-hint">
-              默认自动开启：启动时检测到独显即写入 Windows GPU 首选项（高性能）。实际显卡由 Windows/驱动分配，若仍使用集显，可点击下方按钮手动把 FrameLab 设为「高性能」。
-            </p>
-            <button class="pref-link" @click="onOpenGraphicsSettings">打开 Windows 图形设置</button>
-          </div>
-        </div>
-      </div>
-    </Teleport>
+    <!-- 首选项弹窗（菜单「文件 → 首选项…」/ 顶栏 ⚙ 均可打开） -->
+    <PreferencesModal v-if="prefOpen" @close="prefOpen = false" />
   </header>
 </template>
 
@@ -280,114 +204,6 @@ onBeforeUnmount(() => {
   padding: 0;
 }
 .icon-btn:hover { background: var(--hover); color: var(--text); }
-/* ===== 首选项弹窗 ===== */
-.pref-mask {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.55);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
-}
-.pref-box {
-  width: 380px;
-  background: var(--panel);
-  border: 1px solid var(--border);
-}
-.pref-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  height: 28px;
-  padding: 0 8px 0 12px;
-  border-bottom: 1px solid var(--border);
-}
-.pref-title {
-  font-size: 13px;
-  color: var(--text);
-}
-.pref-close {
-  width: 22px;
-  height: 22px;
-  border: none;
-  background: transparent;
-  color: var(--text-dim);
-  font-size: 16px;
-  line-height: 1;
-  cursor: pointer;
-}
-.pref-close:hover { background: var(--hover); color: var(--text); }
-.pref-body {
-  padding: 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.pref-section {
-  font-size: 11px;
-  color: var(--text-dim);
-  text-transform: uppercase;
-  line-height: 14px;
-}
-.pref-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  line-height: 20px;
-}
-.pref-label {
-  font-size: 12px;
-  color: var(--text);
-}
-.gpu-toggle {
-  width: 34px;
-  height: 18px;
-  padding: 0;
-  border: 1px solid var(--border);
-  background: var(--panel-3);
-  position: relative;
-  cursor: pointer;
-}
-.gpu-toggle .knob {
-  position: absolute;
-  top: 1px;
-  left: 1px;
-  width: 14px;
-  height: 14px;
-  background: var(--text-dim);
-  transition: left 0.15s;
-}
-.gpu-toggle.on {
-  background: var(--accent);
-  border-color: var(--accent);
-}
-.gpu-toggle.on .knob {
-  left: 17px;
-  background: #fff;
-}
-.pref-status {
-  margin: 0;
-  font-size: 12px;
-  line-height: 16px;
-  color: var(--text);
-}
-.pref-hint {
-  margin: 0;
-  font-size: 11px;
-  line-height: 15px;
-  color: var(--text-dim);
-}
-.pref-link {
-  height: 24px;
-  border: 1px solid var(--border);
-  background: var(--panel-2);
-  color: var(--text);
-  font-size: 12px;
-  line-height: 16px;
-  cursor: pointer;
-}
-.pref-link:hover { background: var(--hover); }
 .task-bar {
   position: absolute;
   left: 12px;

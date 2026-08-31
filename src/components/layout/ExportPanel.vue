@@ -9,6 +9,7 @@ import { useAppState } from '../../composables/useAppState'
 import { useTemplates } from '../../composables/useTemplates'
 import type { FrameConfig } from '../../core/types'
 import { buildExifText, formatDate } from '../../composables/useExif'
+import { getExportFormatPref, getExportQualityPref } from '../../composables/usePrefs'
 import {
   exportFrame,
   downloadBlob,
@@ -24,8 +25,9 @@ const { state } = useFrameConfig()
 const app = useAppState()
 const templates = useTemplates()
 
-const format = ref<ExportFormat>('png')
-const jpgQuality = ref(0.95)
+// 默认格式/画质可在「首选项 → 导出」中调整，打开导出页时采用该默认值
+const format = ref<ExportFormat>(getExportFormatPref())
+const jpgQuality = ref(getExportQualityPref())
 const supersample = ref(1)
 // 批量导出回填：开启后每张照片使用导入时解析的自身 EXIF（参数/型号/品牌 Logo）出图，
 // 而非当前编辑器里的全局参数；关闭则全部照片沿用当前编辑参数（含手动改过的文本）。

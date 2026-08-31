@@ -4,6 +4,8 @@
 // 列表缩略图由 core/templateThumb.ts 按 config 程序化生成，与成片几何一致。
 import { reactive } from 'vue'
 import type { FrameConfig } from '../core/types'
+import { useFrameConfig } from './useFrameConfig'
+import { buildExifText, formatDate, cleanLens } from './useExif'
 
 const STORAGE_KEY = 'frame-templates'
 
@@ -170,6 +172,55 @@ function toTemplateConfig(cfg: FrameConfig): Partial<FrameConfig> {
   return { ...tpl }
 }
 
+/**
+ * 应用模板到「当前编辑状态」（与模板面板点击行为一致，供首选项「启动默认模板」复用）：
+ * 模板只覆盖装饰/布局参数；当前照片的 EXIF 文本/型号/品牌/位置/变换与用户对
+ * INFO 文本的独立样式（字体/字号/粗细/透明度/颜色）一律保留。
+ */
+export function applyTemplateToState(config: Partial<FrameConfig>): void {
+  const { state, loadConfig } = useFrameConfig()
+  // INFO 文本被「复位 INFO」清空时，从 exifRaw 兜底重建，避免应用模板后参数行无内容
+  const raw = state.exifRaw
+  const exifText = state.exifText || (raw ? buildExifText(raw, { eqFocal: state.eqFocal, cropFactor: state.cropFactor }) : '')
+  const dateText = state.dateText || (raw?.dateTimeOriginal ? formatDate(raw.dateTimeOriginal, state.dateFormat) : '')
+  const lensText = state.lensText || (raw ? cleanLens(raw.lensMake, raw.lensModel) ?? '' : '')
+  loadConfig({
+    ...config,
+    // ===== 以下为照片自身内容 / 用户设置，覆盖模板中可能残留的同名字段 =====
+    photoSrc: state.photoSrc,
+    photoX: state.photoX,
+    photoY: state.photoY,
+    photoRotation: state.photoRotation,
+    photoCrop: state.photoCrop,
+    bgScale: state.bgScale,
+    bgOffsetX: state.bgOffsetX,
+    bgOffsetY: state.bgOffsetY,
+    canvasH: state.canvasH,
+    exifText,
+    exifRaw: raw,
+    dateText,
+    cameraModel: state.cameraModel,
+    brand: state.brand,
+    lensText,
+    exifFontFamily: state.exifFontFamily,
+    exifFontSize: state.exifFontSize,
+    exifTextWeight: state.exifTextWeight,
+    exifTextOpacity: state.exifTextOpacity,
+    lensFontFamily: state.lensFontFamily,
+    lensFontSize: state.lensFontSize,
+    lensTextWeight: state.lensTextWeight,
+    lensTextOpacity: state.lensTextOpacity,
+    dateFontFamily: state.dateFontFamily,
+    dateFontSize: state.dateFontSize,
+    dateTextWeight: state.dateTextWeight,
+    dateTextOpacity: state.dateTextOpacity,
+    exifTextColor: state.exifTextColor,
+    lensTextColor: state.lensTextColor,
+    dateTextColor: state.dateTextColor,
+    cameraModelColor: state.cameraModelColor,
+  })
+}
+
 export function useTemplates() {
   function saveCurrent(name: string, cfg: FrameConfig, category: TemplateCategory = 'all'): void {
     const trimmed = name.trim()
@@ -217,6 +268,14 @@ export function useTemplates() {
     }
   }
 
+  /** 清除全部自定义模板（保留内置），供「首选项 → 数据」清理 */
+  function clearCustom(): void {
+    for (let i = templates.length - 1; i >= 0; i--) {
+      if (!templates[i].builtin) templates.splice(i, 1)
+    }
+    persist()
+  }
+
   return {
     templates,
     saveCurrent,
@@ -224,5 +283,6 @@ export function useTemplates() {
     exportJson,
     importJson,
     toTemplateConfig,
+    clearCustom,
   }
 }
