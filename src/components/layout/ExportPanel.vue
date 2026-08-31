@@ -14,11 +14,15 @@ import {
   exportFrame,
   downloadBlob,
   makeExportFilename,
+  estimateExportSize,
   type ExportFormat,
   type ExportOptions,
 } from '../../core/exporter'
+import { makeRuleApplier } from '../../core/textRules'
 import type { ImgSource } from '../../core/bgRenderer'
 import { isTauri } from '../../platform/env'
+import Icon from '../common/Icon.vue'
+import RangeSlider from '../common/RangeSlider.vue'
 
 const library = useLibrary()
 const { state } = useFrameConfig()
@@ -56,14 +60,84 @@ watch([rulesEnabled, rulesText], () => {
   }
 })
 
-import { makeRuleApplier } from '../../core/textRules'
+// ===== 导出预览（分辨率/体积实测 + 1:1 查看 + 保存定位） =====
+const preview = ref<{
+  url: string
+  name: string
+  blob: Blob
+  w: number
+  h: number
+  sizeText: string
+} | null>(null)
+const zoom1x = ref(false)
+const saved = ref(false)
+const savedPath = ref<string | null>(null)
 
-// ===== 导出预览 =====
-const preview = ref<{ url: string; name: string; blob: Blob } | null>(null)
+function formatBytes(n: number): string {
+  if (n >= 1024 * 1024) return `${(n / 1024 / 1024).toFixed(1)} MB`
+  if (n >= 1024) return `${Math.round(n / 1024)} KB`
+  return `${n} B`
+}
+
+/** 展示导出结果：blob 实测分辨率（预览图即导出成品，实测最准） */
+async function showPreview(blob: Blob, name: string) {
+  if (preview.value) URL.revokeObjectURL(preview.value.url)
+  const url = URL.createObjectURL(blob)
+  let w = 0
+  let h = 0
+  try {
+    const im = await loadImage(url)
+    w = im.naturalWidth
+    h = im.naturalHeight
+  } catch {
+    /* 实测失败显示 — */
+  }
+  preview.value = { url, name, blob, w, h, sizeText: formatBytes(blob.size) }
+  zoom1x.value = false
+  saved.value = false
+  savedPath.value = null
+}
+
 function closePreview() {
   if (preview.value) URL.revokeObjectURL(preview.value.url)
   preview.value = null
 }
+
+// ===== 输出预估：当前照片尺寸懒加载缓存 + 任务卡实时估算（与 exporter 同源公式） =====
+const sizeCache = new Map<string, { w: number; h: number }>()
+const activeItem = computed(() => library.items.find((i) => i.id === library.activeId.value) ?? null)
+const activeSize = ref<{ w: number; h: number } | null>(null)
+
+watch(activeItem, async (item) => {
+  activeSize.value = null
+  if (!item) return
+  const hit = sizeCache.get(item.id)
+  if (hit) {
+    activeSize.value = hit
+    return
+  }
+  try {
+    const im = await loadImage(item.url)
+    const s = { w: im.naturalWidth, h: im.naturalHeight }
+    sizeCache.set(item.id, s)
+    // 异步竞态保护：仅当仍是当前照片时更新
+    if (library.activeId.value === item.id) activeSize.value = s
+  } catch {
+    /* 尺寸读取失败：预估显示 —，不阻塞导出 */
+  }
+}, { immediate: true })
+
+/** JPG 体积粗估（B/px 经验系数随画质线性），PNG 不估 */
+const estimate = computed(() => {
+  if (!activeSize.value) return null
+  const { w, h } = estimateExportSize(activeSize.value.w, activeSize.value.h, state, supersample.value)
+  let sizeText = ''
+  if (format.value === 'jpg') {
+    const bytes = w * h * (0.08 + jpgQuality.value * 0.24)
+    sizeText = bytes >= 1024 * 1024 ? `≈ ${(bytes / 1024 / 1024).toFixed(1)} MB` : `≈ ${Math.round(bytes / 1024)} KB`
+  }
+  return { w, h, sizeText }
+})
 
 const selectedCount = computed(() => library.items.filter((i) => i.selected).length)
 const targetCount = computed(() => (selectedCount.value > 0 ? selectedCount.value : library.items.length))
@@ -124,10 +198,9 @@ async function exportSingle() {
     // （否则会用手动改过的文本会被导入时的原始解析结果覆盖）。
     const blob = await renderOne(active, false)
     app.setTaskProgress(1)
-    // 生成预览
-    if (preview.value) URL.revokeObjectURL(preview.value.url)
+    // 生成预览（blob 实测分辨率/体积）
     const name = makeExportFilename(format.value, active.name.replace(/\.[^.]+$/, ''))
-    preview.value = { url: URL.createObjectURL(blob), name, blob }
+    await showPreview(blob, name)
   } catch (e) {
     window.alert('导出失败：' + (e as Error).message)
   } finally {
@@ -135,21 +208,56 @@ async function exportSingle() {
   }
 }
 
-/** 保存预览中的图片：桌面端弹系统保存对话框（Rust 写盘），网页端触发浏览器下载 */
+/** 保存预览中的图片：桌面端弹系统保存对话框（Rust 写盘，返回路径），网页端触发浏览器下载 */
 async function savePreview() {
   if (!preview.value) return
   const { blob, name } = preview.value
-  if (isTauri) {
-    const { saveBlobAs } = await import('../../platform/fs')
-    await saveBlobAs(blob, name)
-  } else {
-    downloadBlob(blob, name)
+  try {
+    if (isTauri) {
+      const { saveBlobAs } = await import('../../platform/fs')
+      savedPath.value = await saveBlobAs(blob, name)
+    } else {
+      downloadBlob(blob, name)
+      savedPath.value = null
+    }
+    saved.value = true
+  } catch (e) {
+    window.alert('保存失败：' + (e as Error).message)
   }
+}
+
+/** 桌面端：在资源管理器中定位已保存的文件 */
+async function openSavedFolder() {
+  if (!savedPath.value) return
+  try {
+    const { revealInExplorer } = await import('../../platform/fs')
+    await revealInExplorer(savedPath.value)
+  } catch (e) {
+    window.alert('打开文件夹失败：' + (e as Error).message)
+  }
+}
+
+// ===== 页内批量进度（导出任务卡展示；顶部全局任务条保留不动） =====
+const batch = ref({
+  running: false,
+  done: 0,
+  total: 0,
+  label: '',
+  finished: false,
+  cancelled: false,
+  success: 0,
+  failed: [] as { name: string; reason: string }[],
+})
+function cancelBatch() {
+  if (batch.value.running) batch.value.cancelled = true
+}
+function resetBatch() {
+  batch.value = { running: false, done: 0, total: 0, label: '', finished: false, cancelled: false, success: 0, failed: [] }
 }
 
 async function exportBatch() {
   const list = selectedCount.value > 0 ? library.items.filter((i) => i.selected) : library.items
-  if (!list.length) return
+  if (!list.length || batch.value.running) return
   // 桌面端：先选导出目录；取消则中止。网页端：逐张触发浏览器下载。
   let folder: string | null = null
   if (isTauri) {
@@ -157,14 +265,17 @@ async function exportBatch() {
     folder = await pickExportFolder()
     if (!folder) return
   }
+  batch.value = { running: true, done: 0, total: list.length, label: '', finished: false, cancelled: false, success: 0, failed: [] }
   app.startTask('批量导出')
+  let last: { blob: Blob; name: string } | null = null
   try {
-    let last: { blob: Blob; name: string } | null = null
     for (let i = 0; i < list.length; i++) {
-      // 逐张反馈：标签显示当前正在渲染的照片（96MP 单张渲染可达十余秒）
-      app.setTaskLabel(`批量导出 ${i + 1}/${list.length} · ${list[i].name}`)
-      const blob = await renderOne(list[i], backfillExif.value)
-      const name = makeExportFilename(format.value, list[i].name.replace(/\.[^.]+$/, ''))
+      // 中途取消：当前张渲染完成后停止
+      if (batch.value.cancelled) break
+      const item = list[i]
+      batch.value.label = item.name
+      const blob = await renderOne(item, backfillExif.value)
+      const name = makeExportFilename(format.value, item.name.replace(/\.[^.]+$/, ''))
       if (folder) {
         const { writeBlobTo } = await import('../../platform/fs')
         await writeBlobTo(folder, name, blob)
@@ -172,17 +283,19 @@ async function exportBatch() {
         downloadBlob(blob, name)
       }
       last = { blob, name }
+      batch.value.done = i + 1
+      batch.value.success++
       app.setTaskProgress((i + 1) / list.length)
       await new Promise((r) => setTimeout(r, 30))
     }
-    // 批量导出也弹预览（最后一张）
-    if (last) {
-      if (preview.value) URL.revokeObjectURL(preview.value.url)
-      preview.value = { url: URL.createObjectURL(last.blob), name: last.name, blob: last.blob }
-    }
+    batch.value.finished = true
   } catch (e) {
-    window.alert('批量导出失败：' + (e as Error).message)
+    batch.value.failed.push({ name: batch.value.label, reason: (e as Error).message })
+    batch.value.finished = true
   } finally {
+    batch.value.running = false
+    // 批量导出也弹预览（最后一张成功图）
+    if (last && !batch.value.cancelled) void showPreview(last.blob, last.name)
     setTimeout(() => app.endTask(), 400)
   }
 }
@@ -210,12 +323,19 @@ function onThumbClick(item: { id: string }, e: MouseEvent) {
 
 <template>
   <div class="export-view">
-    <h2 class="title">导出</h2>
-    <p class="sub">配置成品输出参数，支持单张 / 批量导出。所有处理在本地完成。</p>
+    <header class="page-head">
+      <h2 class="title">导出</h2>
+      <p class="sub">配置成品输出参数，支持单张 / 批量导出。所有处理在本地完成。</p>
+    </header>
 
     <div class="cards">
+      <!-- 输出设置 -->
       <section class="card">
-        <h3>输出设置</h3>
+        <div class="group-head">
+          <Icon name="photo" />
+          <h3>输出设置</h3>
+          <span class="head-hint">格式 · 画质 · 尺寸</span>
+        </div>
         <div class="row">
           <label>格式</label>
           <div class="seg">
@@ -225,8 +345,7 @@ function onThumbClick(item: { id: string }, e: MouseEvent) {
         </div>
         <div v-if="format === 'jpg'" class="row">
           <label>画质</label>
-          <input type="range" min="0.5" max="1" step="0.01" v-model.number="jpgQuality" />
-          <span class="val">{{ jpgQuality.toFixed(2) }}</span>
+          <RangeSlider v-model="jpgQuality" :min="0.5" :max="1" :step="0.01" />
         </div>
         <div class="row">
           <label>超采样</label>
@@ -236,6 +355,7 @@ function onThumbClick(item: { id: string }, e: MouseEvent) {
             <button :class="{ on: supersample === 3 }" @click="supersample = 3">3x</button>
           </div>
         </div>
+        <div class="divider" />
         <div class="row">
           <label>批量回填</label>
           <label class="check" title="开启后批量导出的每张照片使用各自导入时解析的 EXIF、相机型号与品牌 Logo">
@@ -261,26 +381,35 @@ function onThumbClick(item: { id: string }, e: MouseEvent) {
         </div>
       </section>
 
-      <section class="card">
-        <h3>批量同步</h3>
-        <p class="hint">把当前相框/背景配置保存为模板，应用到多张选中照片。</p>
+      <!-- 批量同步（次级） -->
+      <section class="card secondary">
+        <div class="group-head">
+          <Icon name="border" />
+          <h3>批量同步</h3>
+          <span class="head-hint">保存当前配置为模板</span>
+        </div>
+        <p class="hint">把当前相框/背景配置保存为模板，在左侧模板库一键应用到各照片。</p>
         <div class="row">
           <input v-model="syncName" class="inp" placeholder="模板名称" />
-          <button class="btn primary" @click="syncToSelected">保存为模板</button>
+          <button class="btn" @click="syncToSelected">保存为模板</button>
         </div>
       </section>
     </div>
 
+    <!-- 照片选择（网格） -->
     <section class="card select">
-      <h3>选择要导出的照片</h3>
-      <div class="row">
+      <div class="group-head">
+        <Icon name="photo" />
+        <h3>选择要导出的照片</h3>
+        <span class="count">已选 {{ selectedCount }} / {{ library.items.length }} 张</span>
+      </div>
+      <div class="row tools">
         <button class="btn" :disabled="!library.items.length" @click="library.selectAll()">全选</button>
         <button class="btn" :disabled="!selectedCount" @click="library.selectNone()">取消全选</button>
-        <span class="count">已选 {{ selectedCount }} / {{ library.items.length }} 张</span>
         <span class="hint-inline">点击选择 · Ctrl/⌘+点击切换 · Shift+点击范围多选</span>
       </div>
       <div v-if="library.items.length === 0" class="hint">图库暂无照片，请先在图库模块导入。</div>
-      <div v-else class="thumb-strip">
+      <div v-else class="thumb-grid">
         <div
           v-for="item in library.items"
           :key="item.id"
@@ -296,11 +425,43 @@ function onThumbClick(item: { id: string }, e: MouseEvent) {
       </div>
     </section>
 
-    <section class="card actions">
-      <h3>导出任务（{{ targetCount }} 张）</h3>
+    <!-- 吸底任务卡 -->
+    <section class="card taskbar">
+      <div class="estimate" v-if="estimate">
+        <span class="est-title">输出</span>
+        <span class="est-val">≈ {{ estimate.w }} × {{ estimate.h }} px</span>
+        <span v-if="estimate.sizeText" class="est-val">{{ estimate.sizeText }}</span>
+      </div>
+      <div class="estimate" v-else>
+        <span class="est-title">输出</span>
+        <span class="est-val">—</span>
+      </div>
+
+      <div class="progress-zone">
+        <template v-if="batch.running">
+          <div class="prog-line">
+            <div class="prog-track"><div class="prog-fill" :style="{ width: (batch.total ? (batch.done / batch.total) * 100 : 0) + '%' }" /></div>
+            <span class="prog-text">{{ batch.done }}/{{ batch.total }} · {{ batch.label }}</span>
+            <button class="btn danger" @click="cancelBatch">取消</button>
+          </div>
+        </template>
+        <template v-else-if="batch.finished">
+          <div class="summary">
+            <span class="sum-ok">✓ 成功 {{ batch.success }}</span>
+            <span v-if="batch.failed.length" class="sum-bad">· 失败 {{ batch.failed.length }}</span>
+            <span v-if="batch.cancelled" class="sum-dim">（已取消）</span>
+            <button class="btn dim" @click="resetBatch">清除</button>
+          </div>
+          <div v-if="batch.failed.length" class="fail-list">
+            <div v-for="f in batch.failed.slice(0, 5)" :key="f.name" class="fail-item" :title="f.reason">{{ f.name }} — {{ f.reason }}</div>
+            <div v-if="batch.failed.length > 5" class="fail-item dim">等 {{ batch.failed.length }} 张失败</div>
+          </div>
+        </template>
+      </div>
+
       <div class="btns">
-        <button class="btn primary" :disabled="!library.activeId.value" @click="exportSingle">导出当前照片</button>
-        <button class="btn" :disabled="!targetCount" @click="exportBatch">
+        <button class="btn primary big" :disabled="!library.activeId.value || batch.running" @click="exportSingle">导出当前照片</button>
+        <button class="btn" :disabled="!targetCount || batch.running" @click="exportBatch">
           批量导出（{{ selectedCount ? selectedCount + ' 张选中' : '全部 ' + targetCount + ' 张' }}）
         </button>
       </div>
@@ -314,11 +475,15 @@ function onThumbClick(item: { id: string }, e: MouseEvent) {
         <span class="preview-title">导出成功</span>
         <button class="preview-close" title="关闭" @click="closePreview">×</button>
       </div>
-      <div class="preview-img-wrap">
-        <img :src="preview.url" :alt="preview.name" class="preview-img" />
+      <div class="preview-img-wrap" :class="{ zoom: zoom1x }" @click="zoom1x = !zoom1x">
+        <img :src="preview.url" :alt="preview.name" class="preview-img" :class="{ one: zoom1x }" />
       </div>
       <div class="preview-foot">
         <span class="preview-name" :title="preview.name">{{ preview.name }}</span>
+        <span class="preview-meta">{{ preview.w && preview.h ? preview.w + ' × ' + preview.h + ' px' : '—' }}</span>
+        <span class="preview-meta">{{ preview.sizeText }}</span>
+        <span v-if="saved" class="preview-saved">已保存 ✓</span>
+        <button v-if="saved && savedPath" class="btn" @click="openSavedFolder">打开所在文件夹</button>
         <button class="btn primary" @click="savePreview">保存图片</button>
       </div>
     </div>
@@ -329,9 +494,12 @@ function onThumbClick(item: { id: string }, e: MouseEvent) {
 .export-view {
   height: 100%;
   overflow: auto;
-  padding: 16px 20px;
+  padding: 16px 20px 12px;
   background: var(--shell);
+  max-width: 960px;
+  margin: 0 auto;
 }
+.page-head { margin-bottom: 12px; }
 .title {
   font-size: 13px;
   font-weight: 400;
@@ -344,28 +512,39 @@ function onThumbClick(item: { id: string }, e: MouseEvent) {
   font-size: 12px;
   font-weight: 400;
   line-height: 16px;
-  margin: 0 0 16px;
+  margin: 0;
 }
 .cards {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: 8px;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 12px;
 }
 .card {
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: 0;
-  padding: 12px;
+  padding: 12px 14px;
 }
-.card h3 {
-  margin: 0 0 8px;
+.card.secondary { opacity: 0.92; }
+.group-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 10px;
+  color: var(--text-dim);
+}
+.group-head h3 {
+  margin: 0;
   font-size: 12px;
   font-weight: 400;
   line-height: 16px;
-  color: var(--text-dim);
+  color: var(--text);
   text-transform: uppercase;
   letter-spacing: 0;
 }
+.head-hint { margin-left: auto; font-size: 11px; color: var(--text-dim); }
+.divider { height: 1px; background: var(--border); margin: 10px 0; }
 .row {
   display: flex;
   align-items: center;
@@ -373,18 +552,20 @@ function onThumbClick(item: { id: string }, e: MouseEvent) {
   margin-bottom: 8px;
   line-height: 16px;
 }
-.row label {
+.row > label:first-child {
   width: 56px;
+  flex: none;
   font-size: 12px;
   font-weight: 400;
   color: var(--text-dim);
 }
+.row.tools { margin-bottom: 8px; gap: 8px; }
 .seg {
   display: flex;
   border: 1px solid var(--border);
   border-radius: 0;
   overflow: hidden;
-  height: 22px;
+  height: 24px;
 }
 .seg button {
   background: var(--panel-2);
@@ -401,14 +582,8 @@ function onThumbClick(item: { id: string }, e: MouseEvent) {
 .seg button:last-child { border-right: none; }
 .seg button:hover { background: var(--hover); color: var(--text); }
 .seg button.on {
-  background: var(--accent);
-  color: var(--text-dim);
-}
-.val {
-  font-size: 12px;
-  color: var(--text);
-  min-width: 36px;
-  line-height: 16px;
+  background: var(--text);
+  color: var(--shell);
 }
 .check {
   display: flex;
@@ -470,16 +645,16 @@ function onThumbClick(item: { id: string }, e: MouseEvent) {
   line-height: 16px;
   margin-left: auto;
 }
-.thumb-strip {
-  display: flex;
-  gap: 6px;
-  overflow-x: auto;
-  padding: 4px 0 6px;
+.thumb-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
+  gap: 8px;
+  max-height: 260px;
+  overflow-y: auto;
+  padding: 2px;
 }
 .thumb {
   position: relative;
-  flex: none;
-  width: 96px;
   background: var(--panel-2);
   border: 1px solid var(--border);
   border-radius: 0;
@@ -504,7 +679,7 @@ function onThumbClick(item: { id: string }, e: MouseEvent) {
 .thumb img {
   display: block;
   width: 100%;
-  height: 64px;
+  height: 76px;
   object-fit: cover;
   background: var(--canvas-empty);
 }
@@ -556,14 +731,43 @@ function onThumbClick(item: { id: string }, e: MouseEvent) {
   border-color: var(--accent);
 }
 .btn.primary:hover { background: var(--hover); }
-.actions {
-  margin-top: 12px;
-}
+.btn.big { height: 30px; padding: 0 20px; }
+.btn.danger { color: var(--text); border-color: var(--accent); }
+.btn.dim { opacity: 0.7; height: 20px; padding: 0 8px; font-size: 11px; }
 .btns {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
+  flex: none;
 }
+
+/* 吸底任务卡 */
+.taskbar {
+  position: sticky;
+  bottom: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  border-top: 1px solid var(--border);
+  background: var(--panel);
+  box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.18);
+}
+.estimate { display: flex; align-items: baseline; gap: 8px; flex: none; }
+.est-title { font-size: 11px; color: var(--text-dim); }
+.est-val { font-size: 12px; color: var(--text); font-variant-numeric: tabular-nums; }
+.progress-zone { flex: 1; min-width: 0; }
+.prog-line { display: flex; align-items: center; gap: 8px; }
+.prog-track { flex: 1; height: 4px; background: var(--panel-2); border: 1px solid var(--border); }
+.prog-fill { height: 100%; background: var(--accent); transition: width 0.2s; }
+.prog-text { font-size: 11px; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 40%; }
+.summary { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+.sum-ok { color: var(--text); }
+.sum-bad { color: var(--text-dim); }
+.sum-dim { color: var(--text-dim); }
+.fail-list { margin-top: 4px; }
+.fail-item { font-size: 11px; color: var(--text-dim); line-height: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fail-item.dim { opacity: 0.7; }
 
 /* ===== 导出预览弹窗（无玻璃拟态/无圆角/灰度） ===== */
 .preview-mask {
@@ -618,7 +822,9 @@ function onThumbClick(item: { id: string }, e: MouseEvent) {
   overflow: auto;
   background: var(--canvas-loaded);
   padding: 12px;
+  cursor: zoom-in;
 }
+.preview-img-wrap.zoom { cursor: zoom-out; }
 .preview-img {
   display: block;
   max-width: 100%;
@@ -626,23 +832,31 @@ function onThumbClick(item: { id: string }, e: MouseEvent) {
   object-fit: contain;
   margin: 0 auto;
 }
+.preview-img.one { max-width: none; max-height: none; cursor: zoom-out; }
 .preview-foot {
   display: flex;
   align-items: center;
   gap: 12px;
-  height: 32px;
-  padding: 0 12px;
+  min-height: 36px;
+  padding: 4px 12px;
   border-top: 1px solid var(--border);
   background: var(--panel);
 }
 .preview-name {
-  flex: 1;
+  flex: 0 1 auto;
   min-width: 0;
+  max-width: 40%;
   font-size: 12px;
   font-weight: 400;
-  color: var(--text-dim);
+  color: var(--text);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+.preview-meta { font-size: 11px; color: var(--text-dim); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.preview-saved { font-size: 11px; color: var(--text); white-space: nowrap; }
+@media (max-width: 860px) {
+  .cards { grid-template-columns: 1fr; }
+  .taskbar { flex-wrap: wrap; }
 }
 </style>
