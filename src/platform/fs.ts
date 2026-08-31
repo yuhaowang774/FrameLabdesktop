@@ -110,19 +110,25 @@ function blobToBase64(blob: Blob): Promise<string> {
 
 /**
  * 保存合成结果：
- * - 桌面端：弹出系统保存对话框，经 Rust 写入所选路径；取消返回 false。
- * - 网页端：触发浏览器下载。
+ * - 桌面端：弹出系统保存对话框，经 Rust 写入所选路径；取消返回 null。
+ * - 网页端：触发浏览器下载，返回 null。
+ * 返回值：桌面端成功保存的绝对路径（供「打开所在文件夹」定位）；其余 null。
  */
-export async function saveBlobAs(blob: Blob, filename: string): Promise<boolean> {
+export async function saveBlobAs(blob: Blob, filename: string): Promise<string | null> {
   if (!isTauri) {
     downloadBlob(blob, filename)
-    return true
+    return null
   }
   const path = await tauriInvoke<string | null>('save_file_dialog', { defaultName: filename })
-  if (!path) return false
+  if (!path) return null
   const b64 = await blobToBase64(blob)
   await tauriInvoke('write_file_base64', { path, base64Data: b64 })
-  return true
+  return path
+}
+
+/** 桌面端：在资源管理器中定位文件（explorer /select，仅 Windows；网页端不应调用） */
+export async function revealInExplorer(path: string): Promise<void> {
+  await tauriInvoke('reveal_path', { path })
 }
 
 /** 桌面端：选择导出保存目录 */

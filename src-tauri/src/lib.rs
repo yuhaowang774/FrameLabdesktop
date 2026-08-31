@@ -374,6 +374,37 @@ fn open_graphics_settings() -> Result<(), String> {
     }
 }
 
+/// 在资源管理器中定位文件（explorer /select）。仅 Windows；失败返回错误串。
+#[tauri::command]
+fn reveal_path(path: String) -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        let p = std::path::PathBuf::from(path.replace('/', "\\"));
+        if !p.exists() {
+            return Err(format!("路径不存在: {}", p.display()));
+        }
+        // canonicalize 会带 \\?\ 前缀，explorer 不识别，需剥掉
+        let full = match std::fs::canonicalize(&p) {
+            Ok(c) => {
+                let s = c.to_string_lossy().into_owned();
+                s.strip_prefix("\\\\?\\").map(|x| x.to_string()).unwrap_or(s)
+            }
+            Err(_) => p.to_string_lossy().into_owned(),
+        };
+        std::process::Command::new("explorer")
+            .raw_arg(format!("\"/select,{}\"", full))
+            .spawn()
+            .map_err(|e| format!("打开资源管理器失败: {e}"))?;
+        return Ok(());
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = path;
+        Err("仅支持 Windows".into())
+    }
+}
+
 /// 检测是否存在独立显卡（dxdiag 输出解析 Card name 行，出现第二块非 Intel 虚拟显卡即视为有独显）。
 /// 返回 (是否有独显, 独显名称列表)。
 #[tauri::command]
@@ -448,7 +479,8 @@ pub fn run() {
             save_file_dialog,
             set_gpu_preference,
             open_graphics_settings,
-            detect_discrete_gpu
+            detect_discrete_gpu,
+            reveal_path
         ])
         .run(tauri::generate_context!())
         .expect("error while running FrameLab");
