@@ -331,6 +331,26 @@ export function useLibrary() {
     selected.forEach((i) => remove(i.id))
   }
 
+  // ===== 移除确认（LrC 语义：仅从图库移除，不删磁盘原文件）=====
+  // Delete/Backspace 快捷键请求移除 → 由 Filmstrip 的确认弹窗 → confirmRemoval 执行
+  const removalConfirm = ref<{ open: boolean; count: number }>({ open: false, count: 0 })
+
+  /** 快捷键请求移除：有选中照片时移除全部选中，否则移除当前活动照片 */
+  function requestRemoveViaKeyboard(): void {
+    const selCount = items.filter((i) => i.selected).length
+    const count = selCount > 0 ? selCount : activeId.value ? 1 : 0
+    if (!count) return
+    removalConfirm.value = { open: true, count }
+  }
+  function confirmRemoval(): void {
+    if (items.some((i) => i.selected)) removeSelected()
+    else if (activeId.value) remove(activeId.value)
+    removalConfirm.value = { open: false, count: 0 }
+  }
+  function cancelRemoval(): void {
+    removalConfirm.value = { open: false, count: 0 }
+  }
+
   function clearAll(): void {
     items.forEach((i) => {
       releaseUrl(i.url)
@@ -394,6 +414,10 @@ export function useLibrary() {
     prev,
     remove,
     removeSelected,
+    removalConfirm,
+    requestRemoveViaKeyboard,
+    confirmRemoval,
+    cancelRemoval,
     clearAll,
     toggleSelect,
     rangeSelect,

@@ -2,9 +2,10 @@
 // 底部胶片窗格 Filmstrip：跨模块缩略图，点击切换/进入编辑。
 // 支持顶部拖拽调整高度（上推增高），高度/可见性由 useAppState 统一管理。
 // 滚动：显示横向滑动条（覆盖全局隐藏滚动条），鼠标滚轮横滚，切换照片自动跟随当前项。
-import { ref, watch } from 'vue'
+import { ref, watch, computed } from 'vue'
 import { useLibrary } from '../../composables/useLibrary'
 import { useAppState } from '../../composables/useAppState'
+import GlassModal from '../common/GlassModal.vue'
 
 const library = useLibrary()
 const app = useAppState()
@@ -57,6 +58,12 @@ watch(() => library.activeId.value, () => {
   requestAnimationFrame(scrollToActive)
 })
 
+// Delete/Backspace 移除确认（LrC 语义：仅从图库移除，不删磁盘原文件）
+const confirmMsg = computed(
+  () =>
+    `将从图库移除 ${library.removalConfirm.value.count} 张照片。仅从软件图库中移除引用与编辑记录，磁盘上的原文件不会被删除。`,
+)
+
 // ===== 顶部拖拽调整高度 =====
 let startY = 0
 let startH = 0
@@ -94,6 +101,15 @@ function onHandleUp() {
         <span v-if="item.selected" class="sel-dot" />
       </button>
     </div>
+    <GlassModal
+      v-model="library.removalConfirm.value.open"
+      title="从图库移除"
+      :message="confirmMsg"
+      confirm-text="移除"
+      cancel-text="取消"
+      @confirm="library.confirmRemoval()"
+      @cancel="library.cancelRemoval()"
+    />
   </div>
 </template>
 

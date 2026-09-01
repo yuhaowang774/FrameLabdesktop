@@ -115,6 +115,12 @@ function onKey(e: KeyboardEvent) {
   } else if (e.key === 'Escape') {
     // Esc：复位画布视图（放大预览后快速回到适配状态）
     useViewer().resetView()
+  } else if (e.key === 'Delete' || e.key === 'Backspace') {
+    // Delete：从图库移除（有选中移除选中，否则移除当前照片）——弹确认，不删磁盘原文件
+    if (library.items.length) {
+      library.requestRemoveViaKeyboard()
+      e.preventDefault()
+    }
   }
 }
 onMounted(() => window.addEventListener('keydown', onKey))
