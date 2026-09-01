@@ -221,6 +221,10 @@ export function useLibrary() {
       if (exif.lens) {
         data.lensText = exif.lens
         data.showLens = true
+      } else {
+        // 无镜头信息（手机照片等）：清空镜头文本，避免继承上一张照片的镜头值
+        // （各布局对空 lensText 自动隐藏镜头行，card 白底卡同理）
+        data.lensText = ''
       }
       if (text) data.showExif = true
       if (data.dateText) data.showDate = true
