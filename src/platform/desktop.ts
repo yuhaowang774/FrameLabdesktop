@@ -67,6 +67,7 @@ export async function setupDesktopShell(): Promise<void> {
       case 'next_photo':
         library.next()
         break
+      // show_help（使用指南）由 TopBar 的菜单监听直接处理（组件内状态）
       default:
         break
     }

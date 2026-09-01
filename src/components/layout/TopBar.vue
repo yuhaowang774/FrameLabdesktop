@@ -40,6 +40,8 @@ async function setupPrefMenu() {
   const { listen } = await import('@tauri-apps/api/event')
   unlisten = await listen<string>('framelab://menu', (e) => {
     if (e.payload === 'preferences') prefOpen.value = true
+    // 原生菜单「帮助 → 使用帮助」：打开使用指南弹窗
+    if (e.payload === 'show_help') guideOpen.value = true
   })
 }
 function openPrefs() {
