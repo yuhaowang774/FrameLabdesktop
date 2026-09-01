@@ -1,11 +1,9 @@
 <script setup lang="ts">
-// 图库模块：网格缩略图管理素材，支持拖拽/点击上传、多选、移除，点击进编辑。
-// 桌面端（Tauri）额外提供「打开本地文件夹」：扫描磁盘目录引用原图，不拷贝。
+// 图库模块：网格缩略图管理素材，支持拖拽/点击导入、多选、移除，点击进编辑。
 // 移除语义（同 LrC）：仅从软件图库中移除引用与编辑记录，磁盘上的原文件不会被删除。
 import { ref, computed } from 'vue'
 import { useLibrary } from '../../composables/useLibrary'
 import { useAppState } from '../../composables/useAppState'
-import { isTauri } from '../../platform/env'
 import GlassModal from '../common/GlassModal.vue'
 
 const library = useLibrary()
@@ -13,8 +11,6 @@ const app = useAppState()
 
 const dragOver = ref(false)
 const fileInput = ref<HTMLInputElement | null>(null)
-/** 桌面端：当前打开的本地文件夹路径（展示用） */
-const folderLabel = ref('')
 
 const selectedCount = computed(() => library.items.filter((i) => i.selected).length)
 
@@ -32,15 +28,6 @@ function onDrop(e: DragEvent) {
   if (e.dataTransfer?.files) {
     void library.addFiles(Array.from(e.dataTransfer.files))
   }
-}
-
-/** 桌面端：选择本地文件夹 → 扫描图片 → 以磁盘路径引用加入图库 */
-async function openFolder() {
-  const { pickImageFolder, loadFolderIntoLibrary } = await import('../../platform/fs')
-  const r = await pickImageFolder()
-  if (!r || !r.images.length) return
-  await loadFolderIntoLibrary(r)
-  folderLabel.value = r.folder
 }
 
 function onItemClick(item: { id: string }, e: MouseEvent) {
@@ -99,7 +86,6 @@ function onConfirmRemove() {
         <p>拖拽照片到此处，或点击导入</p>
         <div class="empty-actions">
           <button class="btn-primary" @click="fileInput?.click()">导入照片</button>
-          <button v-if="isTauri" class="btn-primary ghost" @click="openFolder">打开本地文件夹</button>
         </div>
         <input ref="fileInput" type="file" accept="image/*" multiple hidden @change="onPick" />
       </div>
@@ -107,8 +93,6 @@ function onConfirmRemove() {
       <template v-else>
         <div class="lib-toolbar">
           <button class="btn" @click="fileInput?.click()">＋ 导入</button>
-          <button v-if="isTauri" class="btn" @click="openFolder">📂 打开文件夹</button>
-          <span v-if="isTauri && folderLabel" class="folder" :title="folderLabel">{{ folderLabel }}</span>
           <span class="count">共 {{ library.items.length }} 张 · 已选 {{ selectedCount }}</span>
           <span class="spacer" />
           <button class="btn" :disabled="!selectedCount" title="仅从图库移除，不删除磁盘原文件" @click="askRemoveSelected">移除选中</button>
