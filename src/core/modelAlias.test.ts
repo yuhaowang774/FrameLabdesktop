@@ -46,11 +46,23 @@ describe('相机型号别名映射', () => {
     expect(modelAlias('V2309A')).toBe('vivo X100')
   })
 
+  it('小米/Redmi/iQOO/荣耀/魅族 数字代号 → 营销名', () => {
+    expect(modelAlias('23127PN0CC')).toBe('Xiaomi 14')
+    expect(modelAlias('24031PN0DC')).toBe('Xiaomi 14 Ultra')
+    expect(modelAlias('23113RKC6C')).toBe('Redmi K70')
+    expect(modelAlias('22127RK46C')).toBe('Redmi K60 Pro')
+    expect(modelAlias('V2307A')).toBe('iQOO 12')
+    expect(modelAlias('V2408A')).toBe('iQOO 13')
+    expect(modelAlias('BVL-AN00')).toBe('HONOR Magic6')
+    expect(modelAlias('PTP-AN10')).toBe('HONOR Magic7 Pro')
+    expect(modelAlias('M461Q')).toBe('魅族 21')
+  })
+
   it('工程代号带品牌前缀时剥前缀查表；未收录代号原样返回', () => {
     expect(modelAlias('HUAWEI ALN-AL00')).toBe('HUAWEI Mate 60 Pro')
     expect(modelAlias('SM-S9280'.toLowerCase())).toBe('Galaxy S24 Ultra')
-    // 未收录（小米/Redmi 数字代号等）保持原文
-    expect(modelAlias('23127PN0CC')).toBe('23127PN0CC')
+    // 未收录代号保持原文
+    expect(modelAlias('99999XX00C')).toBe('99999XX00C')
     expect(modelAlias('iPhone 15 Pro')).toBe('iPhone 15 Pro')
   })
 
