@@ -115,11 +115,128 @@ export const MODEL_ALIASES: Record<string, string> = {
   'E-PL10': 'PEN E-PL10',
   'E-PL9': 'PEN E-PL9',
   'E-P7': 'PEN E-P7',
+  // ===== 手机（EXIF Model 为工程代号 → 营销名）=====
+  // 数据来源：华为官方支持设备清单 / MobileModels（KHwang9883）/ 厂商官网入网型号，多源交叉确认。
+  // 未收录的代号原样显示；小米/Redmi/iQOO/荣耀/魅族的数字代号暂未收录。
+  // —— 华为 Mate（代号 XXX-XX，AN=5G 全网通 / AL=4G，仅录热门旗舰）——
+  'BRA-AL00': 'HUAWEI Mate 60',
+  'ALN-AL00': 'HUAWEI Mate 60 Pro',
+  'ALN-AL80': 'HUAWEI Mate 60 Pro',
+  'ALN-AL10': 'HUAWEI Mate 60 Pro+',
+  'CET-AL00': 'HUAWEI Mate 50',
+  'CET-AL60': 'HUAWEI Mate 50E',
+  'DCO-AL00': 'HUAWEI Mate 50 Pro',
+  'NOH-AN00': 'HUAWEI Mate 40 Pro',
+  'NOH-AN01': 'HUAWEI Mate 40 Pro',
+  'NOH-AL00': 'HUAWEI Mate 40 Pro',
+  'NOH-AL10': 'HUAWEI Mate 40 Pro',
+  'NOH-AN50': 'HUAWEI Mate 40E Pro',
+  'NOH-AN80': 'HUAWEI Mate 40E Pro',
+  'OCE-AN10': 'HUAWEI Mate 40',
+  'OCE-AN50': 'HUAWEI Mate 40E',
+  'OCE-AL50': 'HUAWEI Mate 40E',
+  'NOP-AN00': 'HUAWEI Mate 40 Pro+',
+  'CLS-AL00': 'HUAWEI Mate 70',
+  'CLS-AL30': 'HUAWEI Mate 70',
+  'PLR-AL00': 'HUAWEI Mate 70 Pro',
+  'PLR-AL30': 'HUAWEI Mate 70 Pro',
+  'PLR-AL50': 'HUAWEI Mate 70 Pro 优享版',
+  'PLA-AL10': 'HUAWEI Mate 70 Pro+',
+  'PLU-AL10': 'HUAWEI Mate 70 RS 非凡大师',
+  'LIO-AL00': 'HUAWEI Mate 30 Pro',
+  'LIO-AN00': 'HUAWEI Mate 30 Pro',
+  'TAS-AL00': 'HUAWEI Mate 30',
+  'TAS-AN00': 'HUAWEI Mate 30',
+  'HMA-AL00': 'HUAWEI Mate 20',
+  'LYA-AL00': 'HUAWEI Mate 20 Pro',
+  'ALP-AL00': 'HUAWEI Mate 10',
+  'BLA-AL00': 'HUAWEI Mate 10 Pro',
+  'MHA-AL00': 'HUAWEI Mate 9',
+  'NXT-AL10': 'HUAWEI Mate 8',
+  // —— 三星 Galaxy（SM- 国行代号）——
+  'SM-G9810': 'Galaxy S20',
+  'SM-G9860': 'Galaxy S20+',
+  'SM-G9880': 'Galaxy S20 Ultra',
+  'SM-G7810': 'Galaxy S20 FE',
+  'SM-G9910': 'Galaxy S21',
+  'SM-G9960': 'Galaxy S21+',
+  'SM-G9980': 'Galaxy S21 Ultra',
+  'SM-G9900': 'Galaxy S21 FE',
+  'SM-S9010': 'Galaxy S22',
+  'SM-S9060': 'Galaxy S22+',
+  'SM-S9080': 'Galaxy S22 Ultra',
+  'SM-S9110': 'Galaxy S23',
+  'SM-S9160': 'Galaxy S23+',
+  'SM-S9180': 'Galaxy S23 Ultra',
+  'SM-S7110': 'Galaxy S23 FE',
+  'SM-S9210': 'Galaxy S24',
+  'SM-S9260': 'Galaxy S24+',
+  'SM-S9280': 'Galaxy S24 Ultra',
+  'SM-S9310': 'Galaxy S25',
+  'SM-S9360': 'Galaxy S25+',
+  'SM-S9370': 'Galaxy S25 Edge',
+  'SM-S9380': 'Galaxy S25 Ultra',
+  'SM-F9560': 'Galaxy Z Fold6',
+  'SM-F7410': 'Galaxy Z Flip6',
+  // —— OPPO Find / Reno（国行入网代号）——
+  'PEDM00': 'OPPO Find X3',
+  'PEEM00': 'OPPO Find X3 Pro',
+  'PFFM10': 'OPPO Find X5',
+  'PFEM10': 'OPPO Find X5 Pro',
+  'PGFM10': 'OPPO Find X6',
+  'PGEM10': 'OPPO Find X6 Pro',
+  'PHZ110': 'OPPO Find X7',
+  'PHY110': 'OPPO Find X7 Ultra',
+  'PHY120': 'OPPO Find X7 Ultra 卫星通信版',
+  'PKB110': 'OPPO Find X8',
+  'PKC110': 'OPPO Find X8 Pro',
+  'PKC130': 'OPPO Find X8 Pro 卫星通信版',
+  'PKT110': 'OPPO Find X8s',
+  'PLB110': 'OPPO Find X8s+',
+  'PKJ110': 'OPPO Find X8 Ultra',
+  'PKU110': 'OPPO Find X8 Ultra 卫星通信版',
+  'PLJ110': 'OPPO Find X9',
+  'PLG110': 'OPPO Find X9 Pro',
+  'PGU110': 'OPPO Find N2',
+  'PHN110': 'OPPO Find N3',
+  'PKH110': 'OPPO Find N5',
+  'PGBM10': 'OPPO Reno8',
+  'PGAM10': 'OPPO Reno8 Pro',
+  'PFZM10': 'OPPO Reno8 Pro+',
+  'PHM110': 'OPPO Reno9',
+  'PGX110': 'OPPO Reno9 Pro',
+  'PGW110': 'OPPO Reno9 Pro+',
+  'PHW110': 'OPPO Reno10',
+  'PHV110': 'OPPO Reno10 Pro',
+  'PHU110': 'OPPO Reno10 Pro+',
+  'PJH110': 'OPPO Reno11',
+  'PJJ110': 'OPPO Reno11 Pro',
+  'PJV110': 'OPPO Reno12',
+  'PJW110': 'OPPO Reno12 Pro',
+  'PKM110': 'OPPO Reno13',
+  // —— OnePlus（国行代号）——
+  'LE2110': 'OnePlus 9',
+  'LE2120': 'OnePlus 9 Pro',
+  'NE2210': 'OnePlus 10 Pro',
+  'PHB110': 'OnePlus 11',
+  // —— vivo（官方入网型号确认）——
+  'V2309A': 'vivo X100',
 }
+
+/** 工程代号前带品牌名前缀时（如 "HUAWEI ALN-AL00"）剥掉前缀再查表 */
+const MODEL_BRAND_PREFIX_RE = /^(HUAWEI|SAMSUNG|GALAXY|OPPO|VIVO|ONEPLUS|HONOR|REDMI|XIAOMI|MEIZU|APPLE|IPHONE)\s+/
 
 /** 清洗后的型号 → 营销名；未命中则原样返回 */
 export function modelAlias(model?: string): string {
   if (!model) return ''
-  const key = model.trim().toUpperCase()
-  return MODEL_ALIASES[key] ?? model.trim()
+  const raw = model.trim()
+  const key = raw.toUpperCase()
+  const hit = MODEL_ALIASES[key]
+  if (hit) return hit
+  if (MODEL_BRAND_PREFIX_RE.test(key)) {
+    const stripped = key.replace(MODEL_BRAND_PREFIX_RE, '')
+    const hit2 = MODEL_ALIASES[stripped]
+    if (hit2) return hit2
+  }
+  return raw
 }

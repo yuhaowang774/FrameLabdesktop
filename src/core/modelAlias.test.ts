@@ -33,6 +33,27 @@ describe('相机型号别名映射', () => {
     expect(modelAlias('')).toBe('')
   })
 
+  it('手机工程代号 → 营销名（华为/三星/OPPO/一加/vivo）', () => {
+    expect(modelAlias('ALN-AL00')).toBe('HUAWEI Mate 60 Pro')
+    expect(modelAlias('BRA-AL00')).toBe('HUAWEI Mate 60')
+    expect(modelAlias('PLR-AL00')).toBe('HUAWEI Mate 70 Pro')
+    expect(modelAlias('SM-S9280')).toBe('Galaxy S24 Ultra')
+    expect(modelAlias('SM-S9180')).toBe('Galaxy S23 Ultra')
+    expect(modelAlias('SM-F9560')).toBe('Galaxy Z Fold6')
+    expect(modelAlias('PHZ110')).toBe('OPPO Find X7')
+    expect(modelAlias('PKB110')).toBe('OPPO Find X8')
+    expect(modelAlias('PHB110')).toBe('OnePlus 11')
+    expect(modelAlias('V2309A')).toBe('vivo X100')
+  })
+
+  it('工程代号带品牌前缀时剥前缀查表；未收录代号原样返回', () => {
+    expect(modelAlias('HUAWEI ALN-AL00')).toBe('HUAWEI Mate 60 Pro')
+    expect(modelAlias('SM-S9280'.toLowerCase())).toBe('Galaxy S24 Ultra')
+    // 未收录（小米/Redmi 数字代号等）保持原文
+    expect(modelAlias('23127PN0CC')).toBe('23127PN0CC')
+    expect(modelAlias('iPhone 15 Pro')).toBe('iPhone 15 Pro')
+  })
+
   it('映射表自身规范：键无空白、值非空', () => {
     for (const [k, v] of Object.entries(MODEL_ALIASES)) {
       expect(k.trim()).toBe(k)
