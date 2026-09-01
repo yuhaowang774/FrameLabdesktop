@@ -41,6 +41,50 @@ const activeId = ref<string | null>(null)
 // Shift 范围选择锚点（最近一次单击/选中项的索引）
 let anchorIndex = -1
 
+// ===== 移除确认（LrC 语义：仅从图库移除，不删磁盘原文件）=====
+// 模块级单例：Delete/Backspace 快捷键（App.vue）请求移除 → Filmstrip 的确认弹窗 → confirmRemoval 执行
+const removalConfirm = ref<{ open: boolean; count: number }>({ open: false, count: 0 })
+
+/** 快捷键请求移除：有选中照片时移除全部选中，否则移除当前活动照片 */
+function requestRemoveViaKeyboard(): void {
+  const selCount = items.filter((i) => i.selected).length
+  const count = selCount > 0 ? selCount : activeId.value ? 1 : 0
+  if (!count) return
+  removalConfirm.value = { open: true, count }
+}
+function confirmRemoval(): void {
+  if (items.some((i) => i.selected)) {
+    items.filter((i) => i.selected).forEach((i) => remove(i.id))
+  } else if (activeId.value) {
+    remove(activeId.value)
+  }
+  removalConfirm.value = { open: false, count: 0 }
+}
+function cancelRemoval(): void {
+  removalConfirm.value = { open: false, count: 0 }
+}
+
+/** 移除单张：仅从软件图库移除引用与历史链，不碰磁盘原文件 */
+function remove(id: string): void {
+  const idx = items.findIndex((i) => i.id === id)
+  if (idx < 0) return
+  releaseUrl(items[idx].url)
+  releaseUrl(items[idx].thumbUrl)
+  items.splice(idx, 1)
+  // 移除照片时清理其独立历史链表（IndexedDB + 内存缓存）
+  void removePhotoHistory(id)
+  if (activeId.value === id) {
+    activeId.value = items.length ? items[Math.min(idx, items.length - 1)].id : null
+  }
+  // 锚点随列表收缩修正
+  if (anchorIndex >= items.length) anchorIndex = items.length - 1
+}
+
+function removeSelected(): void {
+  const selected = items.filter((i) => i.selected)
+  selected.forEach((i) => remove(i.id))
+}
+
 // ===== 当前选中照片持久化：刷新后恢复选中态（历史链在 IndexedDB，选中后参数自动回放） =====
 const ACTIVE_KEY = 'frame-active-photo'
 watch(activeId, () => {
@@ -309,46 +353,6 @@ export function useLibrary() {
     if (!items.length) return
     const i = activeIndex.value < 0 ? 0 : Math.max(0, activeIndex.value - 1)
     selectByIndex(i)
-  }
-
-  function remove(id: string): void {
-    const idx = items.findIndex((i) => i.id === id)
-    if (idx < 0) return
-    releaseUrl(items[idx].url)
-    releaseUrl(items[idx].thumbUrl)
-    items.splice(idx, 1)
-    // 移除照片时清理其独立历史链表（IndexedDB + 内存缓存）
-    void removePhotoHistory(id)
-    if (activeId.value === id) {
-      activeId.value = items.length ? items[Math.min(idx, items.length - 1)].id : null
-    }
-    // 锚点随列表收缩修正
-    if (anchorIndex >= items.length) anchorIndex = items.length - 1
-  }
-
-  function removeSelected(): void {
-    const selected = items.filter((i) => i.selected)
-    selected.forEach((i) => remove(i.id))
-  }
-
-  // ===== 移除确认（LrC 语义：仅从图库移除，不删磁盘原文件）=====
-  // Delete/Backspace 快捷键请求移除 → 由 Filmstrip 的确认弹窗 → confirmRemoval 执行
-  const removalConfirm = ref<{ open: boolean; count: number }>({ open: false, count: 0 })
-
-  /** 快捷键请求移除：有选中照片时移除全部选中，否则移除当前活动照片 */
-  function requestRemoveViaKeyboard(): void {
-    const selCount = items.filter((i) => i.selected).length
-    const count = selCount > 0 ? selCount : activeId.value ? 1 : 0
-    if (!count) return
-    removalConfirm.value = { open: true, count }
-  }
-  function confirmRemoval(): void {
-    if (items.some((i) => i.selected)) removeSelected()
-    else if (activeId.value) remove(activeId.value)
-    removalConfirm.value = { open: false, count: 0 }
-  }
-  function cancelRemoval(): void {
-    removalConfirm.value = { open: false, count: 0 }
   }
 
   function clearAll(): void {
