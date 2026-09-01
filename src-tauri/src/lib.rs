@@ -311,14 +311,20 @@ fn webview2_runtime_exes() -> Vec<PathBuf> {
     out
 }
 
-/// 设置 Windows「GPU 首选项」（HKCU\Software\Microsoft\DirectX\UserGpuPreferences）：
-/// enabled=true 时为 宿主 exe 与全部 msedgewebview2.exe 运行时写 GpuPreference=2（高性能/独显），
-/// false 时全部移除。经 reg.exe 实现；重启应用后由 Windows/驱动生效。
+/// 设置 GPU 首选项（Windows 图形设置 GpuPreference）：
+/// mode = "dgpu"（高性能/独显）| "igpu"（节能/核显）| "auto"（由 Windows 决定，删除注册表值）。
+/// 对宿主 exe 与全部 WebView2 运行时 exe 生效，重启应用后生效。
 #[tauri::command]
-fn set_gpu_preference(enabled: bool) -> Result<(), String> {
+fn set_gpu_preference_mode(mode: String) -> Result<(), String> {
     #[cfg(windows)]
     {
         let key = r"HKCU\Software\Microsoft\DirectX\UserGpuPreferences";
+        let pref: &str = match mode.as_str() {
+            "dgpu" => "GpuPreference=2;",
+            "igpu" => "GpuPreference=1;",
+            "auto" => "",
+            other => return Err(format!("未知 GPU 模式: {other}")),
+        };
         // 目标清单：宿主 exe + 全部 WebView2 运行时 exe
         let mut targets: Vec<String> = Vec::new();
         match std::env::current_exe() {
@@ -330,9 +336,14 @@ fn set_gpu_preference(enabled: bool) -> Result<(), String> {
         }
 
         for t in &targets {
-            if enabled {
+            if pref.is_empty() {
+                // auto：值不存在时 reg delete 返回非零，视为已移除（幂等，失败忽略）
+                let _ = std::process::Command::new("reg")
+                    .args(["delete", key, "/v", t, "/f"])
+                    .output();
+            } else {
                 let output = std::process::Command::new("reg")
-                    .args(["add", key, "/v", t, "/t", "REG_SZ", "/d", "GpuPreference=2;", "/f"])
+                    .args(["add", key, "/v", t, "/t", "REG_SZ", "/d", pref, "/f"])
                     .output()
                     .map_err(|e| format!("执行 reg 失败: {e}"))?;
                 if !output.status.success() {
@@ -341,18 +352,13 @@ fn set_gpu_preference(enabled: bool) -> Result<(), String> {
                         String::from_utf8_lossy(&output.stderr)
                     ));
                 }
-            } else {
-                // 值不存在时 reg delete 返回非零，视为已移除（幂等，失败忽略）
-                let _ = std::process::Command::new("reg")
-                    .args(["delete", key, "/v", t, "/f"])
-                    .output();
             }
         }
         Ok(())
     }
     #[cfg(not(windows))]
     {
-        let _ = enabled;
+        let _ = mode;
         Err("仅支持 Windows".into())
     }
 }
@@ -477,7 +483,7 @@ pub fn run() {
             pick_image_files,
             open_text_file,
             save_file_dialog,
-            set_gpu_preference,
+            set_gpu_preference_mode,
             open_graphics_settings,
             detect_discrete_gpu,
             reveal_path
