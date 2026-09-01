@@ -33,7 +33,7 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": ["nsis"],
     "category": "Photography",
     "shortDescription": "照片相框 & 背景合成工具",
     "icon": [
