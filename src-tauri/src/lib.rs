@@ -442,22 +442,29 @@ async fn list_gpus() -> Result<Vec<GpuInfo>, String> {
                 continue;
             }
             let lower = name.to_lowercase();
-            // 集显/虚拟显卡特征词；NVIDIA/AMD（含 Radeon 独显）视为独显
-            let integrated = lower.contains("intel")
-                || lower.contains("uhd")
-                || lower.contains("iris")
+            // 虚拟/软件适配器（远程桌面会话、系统基础渲染驱动等）不是真实显卡：直接排除
+            let virtual_adapter = lower.contains("basic render")
                 || lower.contains("basic display")
-                || lower.contains("microsoft")
+                || lower.contains("remote")
                 || lower.contains("paravirtual")
-                || lower.contains("virtual")
-                || lower.contains("remote");
-            let amd_like = lower.contains("nvidia")
+                || lower.contains("hyper-v")
+                || lower.contains("virtual");
+            if virtual_adapter {
+                continue;
+            }
+            // 类型启发式：
+            // - Intel（UHD/Iris 等）→ 核显
+            // - NVIDIA（GeForce/Quadro）→ 独显
+            // - AMD Radeon：RX/Pro/HD 型号 → 独显；无型号的 Radeon(TM) Graphics → APU 核显
+            // - 其它未知 → 核显（保守）
+            let discrete = lower.contains("nvidia")
                 || lower.contains("geforce")
-                || lower.contains("radeon")
-                || lower.contains("amd");
+                || lower.contains("quadro")
+                || (lower.contains("radeon")
+                    && (lower.contains("rx") || lower.contains("pro") || lower.contains(" hd ")));
             gpus.push(GpuInfo {
                 name: name.to_string(),
-                discrete: !integrated && amd_like,
+                discrete,
             });
         }
         Ok(gpus)
