@@ -311,6 +311,17 @@ fn webview2_runtime_exes() -> Vec<PathBuf> {
     out
 }
 
+/// 创建隐藏窗口的子进程命令（GUI 应用下 powershell/reg/cmd 等控制台程序
+/// 默认会弹出终端窗口，必须加 CREATE_NO_WINDOW）。
+#[cfg(windows)]
+fn hidden_command(prog: &str) -> std::process::Command {
+    use std::os::windows::process::CommandExt;
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    let mut c = std::process::Command::new(prog);
+    c.creation_flags(CREATE_NO_WINDOW);
+    c
+}
+
 /// 设置 GPU 首选项（Windows 图形设置 GpuPreference）：
 /// mode = "dgpu"（高性能/独显）| "igpu"（节能/核显）| "auto"（由 Windows 决定，删除注册表值）。
 /// 对宿主 exe 与全部 WebView2 运行时 exe 生效，重启应用后生效。
@@ -338,11 +349,11 @@ fn set_gpu_preference_mode(mode: String) -> Result<(), String> {
         for t in &targets {
             if pref.is_empty() {
                 // auto：值不存在时 reg delete 返回非零，视为已移除（幂等，失败忽略）
-                let _ = std::process::Command::new("reg")
+                let _ = hidden_command("reg")
                     .args(["delete", key, "/v", t, "/f"])
                     .output();
             } else {
-                let output = std::process::Command::new("reg")
+                let output = hidden_command("reg")
                     .args(["add", key, "/v", t, "/t", "REG_SZ", "/d", pref, "/f"])
                     .output()
                     .map_err(|e| format!("执行 reg 失败: {e}"))?;
@@ -368,7 +379,7 @@ fn set_gpu_preference_mode(mode: String) -> Result<(), String> {
 fn open_graphics_settings() -> Result<(), String> {
     #[cfg(windows)]
     {
-        std::process::Command::new("cmd")
+        hidden_command("cmd")
             .args(["/C", "start", "", "ms-settings:graphics"])
             .spawn()
             .map_err(|e| format!("打开系统设置失败: {e}"))?;
@@ -398,7 +409,7 @@ fn reveal_path(path: String) -> Result<(), String> {
             }
             Err(_) => p.to_string_lossy().into_owned(),
         };
-        std::process::Command::new("explorer")
+        hidden_command("explorer")
             .raw_arg(format!("\"/select,{}\"", full))
             .spawn()
             .map_err(|e| format!("打开资源管理器失败: {e}"))?;
@@ -423,7 +434,7 @@ struct GpuInfo {
 async fn list_gpus() -> Result<Vec<GpuInfo>, String> {
     #[cfg(windows)]
     {
-        let out = std::process::Command::new("powershell")
+        let out = hidden_command("powershell")
             .args([
                 "-NoProfile",
                 "-Command",
@@ -482,7 +493,7 @@ async fn detect_discrete_gpu() -> Result<(bool, Vec<String>), String> {
     #[cfg(windows)]
     {
         // dxdiag 输出 UTF-16；WMI 查询更稳，但需引依赖；此处用 PowerShell CIM（系统自带）
-        let out = std::process::Command::new("powershell")
+        let out = hidden_command("powershell")
             .args([
                 "-NoProfile",
                 "-Command",
