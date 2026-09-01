@@ -1,11 +1,14 @@
 <script setup lang="ts">
 // 底部胶片窗格 Filmstrip：跨模块缩略图，点击切换/进入编辑。
 // 支持顶部拖拽调整高度（上推增高），高度/可见性由 useAppState 统一管理。
+// 滚动：显示横向滑动条（覆盖全局隐藏滚动条），鼠标滚轮横滚，切换照片自动跟随当前项。
+import { ref, watch } from 'vue'
 import { useLibrary } from '../../composables/useLibrary'
 import { useAppState } from '../../composables/useAppState'
 
 const library = useLibrary()
 const app = useAppState()
+const trackEl = ref<HTMLElement | null>(null)
 
 // 点击交互：
 //  - 普通点击：单选并切换主图（图库模块下进入编辑）
@@ -23,6 +26,36 @@ function onItem(id: string, e: MouseEvent) {
   }
   if (app.activeModule.value === 'library') app.setModule('develop')
 }
+
+// 鼠标滚轮 → 横向滚动（deltaMode=1 行模式按 16px/行换算）
+function onWheel(e: WheelEvent) {
+  const track = trackEl.value
+  if (!track) return
+  const dy = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY
+  const dx = e.deltaMode === 1 ? e.deltaX * 16 : e.deltaX
+  const delta = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? dx : dy
+  if (delta === 0) return
+  track.scrollLeft += delta
+  e.preventDefault()
+}
+
+// 当前活动项滚入可视区（水平方向，不打扰外层布局）
+function scrollToActive() {
+  const track = trackEl.value
+  const el = track?.querySelector<HTMLButtonElement>('.frame.active')
+  if (!track || !el) return
+  const left = el.offsetLeft
+  const right = left + el.offsetWidth
+  if (left < track.scrollLeft + 12) {
+    track.scrollLeft = left - 12
+  } else if (right > track.scrollLeft + track.clientWidth - 12) {
+    track.scrollLeft = right - track.clientWidth + 12
+  }
+}
+watch(() => library.activeId.value, () => {
+  // 等待 active class 应用后再定位
+  requestAnimationFrame(scrollToActive)
+})
 
 // ===== 顶部拖拽调整高度 =====
 let startY = 0
@@ -48,7 +81,7 @@ function onHandleUp() {
   <div class="filmstrip" :style="{ height: app.filmstripHeightPx.value }">
     <div class="resize-handle" title="拖拽调整胶片条高度" @pointerdown="onHandleDown" />
     <div v-if="library.items.length === 0" class="empty">导入照片后这里将显示胶片条</div>
-    <div v-else class="track">
+    <div v-else ref="trackEl" class="track" @wheel="onWheel">
       <button
         v-for="item in library.items"
         :key="item.id"
@@ -106,6 +139,23 @@ function onHandleUp() {
   overflow-y: hidden;
   align-items: center;
   width: 100%;
+  /* 局部恢复滑动条（全局样式隐藏了所有滚动条） */
+  scrollbar-width: thin;
+  scrollbar-color: var(--text-dim) transparent;
+}
+/* 横向滑动条：细样式，悬停加亮 */
+.track::-webkit-scrollbar {
+  display: block;
+  height: 8px;
+}
+.track::-webkit-scrollbar-track {
+  background: transparent;
+}
+.track::-webkit-scrollbar-thumb {
+  background: var(--border);
+}
+.track::-webkit-scrollbar-thumb:hover {
+  background: var(--text-dim);
 }
 .frame {
   position: relative;
