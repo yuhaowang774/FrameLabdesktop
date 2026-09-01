@@ -411,6 +411,63 @@ fn reveal_path(path: String) -> Result<(), String> {
     }
 }
 
+/// 系统显示适配器信息（独显/核显为名称启发式判定）
+#[derive(serde::Serialize)]
+struct GpuInfo {
+    name: String,
+    discrete: bool,
+}
+
+/// 列出系统全部显示适配器（Win32_VideoController，PowerShell CIM），附独显/核显启发式判定。
+#[tauri::command]
+async fn list_gpus() -> Result<Vec<GpuInfo>, String> {
+    #[cfg(windows)]
+    {
+        let out = std::process::Command::new("powershell")
+            .args([
+                "-NoProfile",
+                "-Command",
+                "Get-CimInstance Win32_VideoController | ForEach-Object { $_.Name }",
+            ])
+            .output()
+            .map_err(|e| format!("查询显卡失败: {e}"))?;
+        if !out.status.success() {
+            return Err("查询显卡失败".into());
+        }
+        let text = String::from_utf8_lossy(&out.stdout);
+        let mut gpus: Vec<GpuInfo> = Vec::new();
+        for line in text.lines() {
+            let name = line.trim();
+            if name.is_empty() {
+                continue;
+            }
+            let lower = name.to_lowercase();
+            // 集显/虚拟显卡特征词；NVIDIA/AMD（含 Radeon 独显）视为独显
+            let integrated = lower.contains("intel")
+                || lower.contains("uhd")
+                || lower.contains("iris")
+                || lower.contains("basic display")
+                || lower.contains("microsoft")
+                || lower.contains("paravirtual")
+                || lower.contains("virtual")
+                || lower.contains("remote");
+            let amd_like = lower.contains("nvidia")
+                || lower.contains("geforce")
+                || lower.contains("radeon")
+                || lower.contains("amd");
+            gpus.push(GpuInfo {
+                name: name.to_string(),
+                discrete: !integrated && amd_like,
+            });
+        }
+        Ok(gpus)
+    }
+    #[cfg(not(windows))]
+    {
+        Err("仅支持 Windows".into())
+    }
+}
+
 /// 检测是否存在独立显卡（dxdiag 输出解析 Card name 行，出现第二块非 Intel 虚拟显卡即视为有独显）。
 /// 返回 (是否有独显, 独显名称列表)。
 #[tauri::command]
@@ -486,6 +543,7 @@ pub fn run() {
             set_gpu_preference_mode,
             open_graphics_settings,
             detect_discrete_gpu,
+            list_gpus,
             reveal_path
         ])
         .run(tauri::generate_context!())

@@ -6,11 +6,11 @@
 import { ref, computed, onMounted } from 'vue'
 import { isTauri } from '../../platform/env'
 import {
-  getGpuPrefMode,
-  setGpuPrefMode,
+  listGpus,
+  getGpuSelection,
+  setGpuSelection,
   openGraphicsSettings,
-  detectDiscreteGpu,
-  type GpuPrefMode,
+  type GpuInfo,
 } from '../../platform/gpu'
 import {
   getExportFormatPref,
@@ -33,40 +33,32 @@ const emit = defineEmits<{ (e: 'close'): void }>()
 const library = useLibrary()
 const templates = useTemplates()
 
-// ===== 性能（GPU 首选项三选，仅桌面端）=====
-const gpuMode = ref<GpuPrefMode>(getGpuPrefMode())
+// ===== 性能（显卡检测 + 下拉选择，仅桌面端）=====
+const gpus = ref<GpuInfo[]>([])
+const gpuSel = ref('auto')
 const gpuSaving = ref(false)
-const dgpuChecked = ref(false)
-const dgpuList = ref<string[]>([])
-const dgpuChecking = ref(false)
-const GPU_MODES: { value: GpuPrefMode; label: string }[] = [
-  { value: 'auto', label: '自动' },
-  { value: 'dgpu', label: '独显' },
-  { value: 'igpu', label: '核显' },
-]
+const gpuLoading = ref(false)
 async function refreshGpuStatus() {
   if (!isTauri) return
-  gpuMode.value = getGpuPrefMode()
-  dgpuChecking.value = true
+  gpuLoading.value = true
+  gpuSel.value = getGpuSelection()
   try {
-    const [has, list] = await detectDiscreteGpu()
-    dgpuChecked.value = has
-    dgpuList.value = list
+    gpus.value = await listGpus()
   } catch {
-    dgpuChecked.value = false
-    dgpuList.value = []
+    gpus.value = []
   } finally {
-    dgpuChecking.value = false
+    gpuLoading.value = false
   }
 }
-function onGpuMode(mode: GpuPrefMode) {
-  if (gpuSaving.value || mode === gpuMode.value) return
+function onGpuSel(e: Event) {
+  const sel = (e.target as HTMLSelectElement).value
+  if (gpuSaving.value || sel === gpuSel.value) return
   gpuSaving.value = true
-  const prev = gpuMode.value
-  gpuMode.value = mode
-  void setGpuPrefMode(mode)
+  const prev = gpuSel.value
+  gpuSel.value = sel
+  void setGpuSelection(sel)
     .catch(() => {
-      gpuMode.value = prev
+      gpuSel.value = prev
       window.alert('设置 GPU 首选项失败，可尝试在 Windows 图形设置中手动指定。')
     })
     .finally(() => {
@@ -153,23 +145,18 @@ onMounted(() => {
             <div class="pf-text">
               <span class="pf-label">显卡选择</span>
               <span class="pf-desc">
-                独显 = 加入 Windows「高性能」GPU 首选项；核显 = 节能；自动 = 由系统决定。重启应用后生效。
+                检测到的显示适配器如下（括号内为判定类型）；选择后立即写入系统首选项，重启应用生效。
               </span>
             </div>
-            <div class="pf-seg" :class="{ saving: gpuSaving }">
-              <button
-                v-for="m in GPU_MODES"
-                :key="m.value"
-                :class="{ on: gpuMode === m.value }"
-                :disabled="gpuSaving"
-                @click="onGpuMode(m.value)"
-              >{{ m.label }}</button>
-            </div>
-          </div>
-          <div v-if="isTauri" class="pf-gpu-status">
-            <span v-if="dgpuChecking">正在检测独立显卡…</span>
-            <span v-else-if="dgpuChecked">检测到独立显卡：{{ dgpuList.join('、') }}</span>
-            <span v-else>未检测到独立显卡</span>
+            <select class="pf-select" :value="gpuSel" :disabled="gpuLoading || gpuSaving" @change="onGpuSel">
+              <option v-if="gpuLoading" value="auto">正在检测显卡…</option>
+              <template v-else>
+                <option value="auto">自动（由系统决定）</option>
+                <option v-for="g in gpus" :key="g.name" :value="g.name">
+                  {{ g.name }}（{{ g.discrete ? '独显' : '核显' }}）
+                </option>
+              </template>
+            </select>
           </div>
           <div class="pf-row" v-if="isTauri">
             <div class="pf-text">
