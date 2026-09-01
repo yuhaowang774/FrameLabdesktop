@@ -176,14 +176,37 @@ function toTemplateConfig(cfg: FrameConfig): Partial<FrameConfig> {
  * 应用模板到「当前编辑状态」（与模板面板点击行为一致，供首选项「启动默认模板」复用）：
  * 模板只覆盖装饰/布局参数；当前照片的 EXIF 文本/型号/品牌/位置/变换与用户对
  * INFO 文本的独立样式（字体/字号/粗细/透明度/颜色）一律保留。
+ *
+ * @returns 缺失的 INFO 字段中文名列表（模板开启了显示但无内容，已用「自定义」占位）；
+ *          空数组 = 信息齐全。调用方可据此弹框提示。
  */
-export function applyTemplateToState(config: Partial<FrameConfig>): void {
+export function applyTemplateToState(config: Partial<FrameConfig>): string[] {
   const { state, loadConfig } = useFrameConfig()
   // INFO 文本被「复位 INFO」清空时，从 exifRaw 兜底重建，避免应用模板后参数行无内容
   const raw = state.exifRaw
-  const exifText = state.exifText || (raw ? buildExifText(raw, { eqFocal: state.eqFocal, cropFactor: state.cropFactor }) : '')
-  const dateText = state.dateText || (raw?.dateTimeOriginal ? formatDate(raw.dateTimeOriginal, state.dateFormat) : '')
-  const lensText = state.lensText || (raw ? cleanLens(raw.lensMake, raw.lensModel) ?? '' : '')
+  let exifText = state.exifText || (raw ? buildExifText(raw, { eqFocal: state.eqFocal, cropFactor: state.cropFactor }) : '')
+  let dateText = state.dateText || (raw?.dateTimeOriginal ? formatDate(raw.dateTimeOriginal, state.dateFormat) : '')
+  let lensText = state.lensText || (raw ? cleanLens(raw.lensMake, raw.lensModel) ?? '' : '')
+  // 模板开启显示但内容缺失的字段：用「自定义」占位并汇总，供调用方弹框提示
+  const missing: string[] = []
+  const showExif = config.showExif ?? state.showExif
+  const showLens = config.showLens ?? state.showLens
+  const showDate = config.showDate ?? state.showDate
+  const showModel = config.showCameraModel ?? state.showCameraModel
+  if (showExif && !exifText) {
+    exifText = '自定义'
+    missing.push('EXIF 参数')
+  }
+  if (showLens && !lensText) {
+    lensText = '自定义'
+    missing.push('镜头信息')
+  }
+  if (showDate && !dateText) {
+    dateText = '自定义'
+    missing.push('拍摄日期')
+  }
+  const cameraModel = state.cameraModel
+  if (showModel && !cameraModel) missing.push('相机型号')
   loadConfig({
     ...config,
     // ===== 以下为照片自身内容 / 用户设置，覆盖模板中可能残留的同名字段 =====
@@ -199,7 +222,7 @@ export function applyTemplateToState(config: Partial<FrameConfig>): void {
     exifText,
     exifRaw: raw,
     dateText,
-    cameraModel: state.cameraModel,
+    cameraModel,
     brand: state.brand,
     lensText,
     exifFontFamily: state.exifFontFamily,
@@ -219,6 +242,7 @@ export function applyTemplateToState(config: Partial<FrameConfig>): void {
     dateTextColor: state.dateTextColor,
     cameraModelColor: state.cameraModelColor,
   })
+  return missing
 }
 
 export function useTemplates() {

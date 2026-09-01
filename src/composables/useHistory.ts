@@ -307,12 +307,15 @@ export async function jumpTo(photoId: string, index: number): Promise<void> {
  * 批量应用模板配置到多张照片：每张照片在其历史链追加一条「应用模板」节点。
  * 各照片保留自身的照片变换/位置/EXIF（模板只覆盖装饰参数，与单张 apply 语义一致）；
  * 当前编辑的照片在列表内时同步刷新预览到模板化后的参数。
+ *
+ * @returns 是否存在「模板开启显示但内容缺失」的照片（缺失字段已用「自定义」占位），
+ *          供调用方弹框提示。
  */
 export async function applyTemplateToPhotos(
   photoIds: string[],
   config: Partial<FrameConfig>,
   name = '应用模板',
-): Promise<void> {
+): Promise<boolean> {
   await flushPending()
   const keep = new Set([
     'photoSrc', 'photoX', 'photoY', 'photoRotation', 'photoCrop',
@@ -324,6 +327,7 @@ export async function applyTemplateToPhotos(
     'dateFontFamily', 'dateFontSize', 'dateTextWeight', 'dateTextOpacity',
     'exifTextColor', 'lensTextColor', 'dateTextColor', 'cameraModelColor',
   ])
+  let anyMissing = false
   for (const id of photoIds) {
     await ensureChain(id)
     const base = chainOf(id)[cursors[id] ?? -1]?.state
@@ -337,12 +341,29 @@ export async function applyTemplateToPhotos(
     if (!next.exifText && raw) next.exifText = buildExifText(raw, { eqFocal: next.eqFocal, cropFactor: next.cropFactor })
     if (!next.dateText && raw?.dateTimeOriginal) next.dateText = formatDate(raw.dateTimeOriginal, next.dateFormat)
     if (!next.lensText) next.lensText = cleanLens(raw?.lensMake, raw?.lensModel) ?? ''
+    // 模板开启显示但内容仍缺失的字段：用「自定义」占位并汇总提示
+    let missing = false
+    if (next.showExif && !next.exifText) {
+      next.exifText = '自定义'
+      missing = true
+    }
+    if (next.showLens && !next.lensText) {
+      next.lensText = '自定义'
+      missing = true
+    }
+    if (next.showDate && !next.dateText) {
+      next.dateText = '自定义'
+      missing = true
+    }
+    if (next.showCameraModel && !next.cameraModel) missing = true
+    if (missing) anyMissing = true
     recordEdit(id, next, name)
   }
   const target = currentTarget()
   if (target && photoIds.includes(target.id)) {
     loadCursorFor(target.id)
   }
+  return anyMissing
 }
 
 /** Clear History Above This Step：删除指定节点上方全部历史。

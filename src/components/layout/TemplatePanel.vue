@@ -1,12 +1,13 @@
 <script setup lang="ts">
 // 左侧模板库面板：按类别展示内置/自定义模板，点击应用，支持删除自定义模板。
 // 模板条目上「⇉」= 批量应用到全部选中照片（无选中时应用到全部照片）。
-import { computed, watch, reactive } from 'vue'
+import { computed, watch, reactive, ref } from 'vue'
 import { useTemplates, applyTemplateToState, type TemplateCategory } from '../../composables/useTemplates'
 import { useAppState } from '../../composables/useAppState'
 import { useLibrary } from '../../composables/useLibrary'
 import { applyTemplateToPhotos } from '../../composables/useHistory'
 import { templateThumbDataUrl, renderTemplateThumbDataUrl } from '../../core/templateThumb'
+import GlassModal from '../common/GlassModal.vue'
 
 const props = defineProps<{ category: TemplateCategory }>()
 const templates = useTemplates()
@@ -45,15 +46,23 @@ const batchTargets = computed(() => {
   return sel.length > 0 ? sel : library.items
 })
 
+// INFO 信息缺失提示弹窗：模板开启显示但未识别到内容的字段已用「自定义」占位
+const missingOpen = ref(false)
+const missingMsg = ref('')
+
 function apply(t: { id: string }) {
   const found = templates.templates.find((x) => x.id === t.id)
   if (!found) return
   // 统一入口：模板只覆盖装饰/布局，保留当前照片的 EXIF/型号/品牌/文本与用户独立样式
-  applyTemplateToState(found.config)
+  const missing = applyTemplateToState(found.config)
   // 展开右栏「背景 / 边框」面板，方便查看模板参数并继续微调
   app.state.rightOpen = true
   app.setPanel('right', 'background', true)
   app.setPanel('right', 'border', true)
+  if (missing.length) {
+    missingMsg.value = `当前照片未识别到以下 INFO 信息：${missing.join('、')}。已用「自定义」占位，可在右侧 INFO 面板手动填写。`
+    missingOpen.value = true
+  }
 }
 
 /** 批量应用：模板装饰参数写入每张目标照片的历史链（保留各照片 EXIF/型号/品牌/日期） */
@@ -62,11 +71,15 @@ async function applyBatch(t: { id: string; name: string }) {
   if (!found) return
   const ids = batchTargets.value.map((i) => i.id)
   if (!ids.length) return
-  await applyTemplateToPhotos(ids, found.config, `应用模板「${found.name}」`)
+  const anyMissing = await applyTemplateToPhotos(ids, found.config, `应用模板「${found.name}」`)
   // 展开右栏方便微调
   app.state.rightOpen = true
   app.setPanel('right', 'background', true)
   app.setPanel('right', 'border', true)
+  if (anyMissing) {
+    missingMsg.value = '部分照片未识别到 EXIF / 镜头 / 日期等信息，已用「自定义」占位，可在编辑页右侧 INFO 面板逐张手动填写。'
+    missingOpen.value = true
+  }
 }
 
 function onRemove(e: Event, id: string) {
@@ -94,6 +107,7 @@ function onRemove(e: Event, id: string) {
       </div>
     </div>
   </div>
+  <GlassModal v-model="missingOpen" title="INFO 信息缺失提示" :message="missingMsg" confirm-text="知道了" />
 </template>
 
 <style scoped>
