@@ -5,10 +5,15 @@ import { importPhoto } from './useHistory'
 import { loadPhotoNodes } from './useHistoryDB'
 import { useLibrary, makeThumbUrl, restoreActive, type LibraryItem } from './useLibrary'
 
+// 内置测试图统一放在 src/assets/seed/（磁盘文件名简化为 ASCII，展示名保留原始文件名）。
+// dsc2291.arw 为 Sony RAW：浏览器无法解码，仅归档不入库。
 const SEED_IMAGES: { url: string; name: string }[] = [
   { url: new URL('../assets/seed/dsc3164.jpg', import.meta.url).href, name: '_DSC3164-已增强-SR-1.jpg' },
   { url: new URL('../assets/seed/dsc3887.jpg', import.meta.url).href, name: '_DSC3887-30.JPG' },
   { url: new URL('../assets/seed/dji0697.jpg', import.meta.url).href, name: 'DJI_0697-9.JPG' },
+  { url: new URL('../assets/seed/img0723.jpg', import.meta.url).href, name: 'IMG_0723.JPG' },
+  { url: new URL('../assets/seed/img20180730-1.jpg', import.meta.url).href, name: 'IMG_20180730_161342.jpg' },
+  { url: new URL('../assets/seed/img20241117-2.jpg', import.meta.url).href, name: 'IMG_20241117_103212.jpg' },
 ]
 
 /** 从 URL 读取图片宽高 */
