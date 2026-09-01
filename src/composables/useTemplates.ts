@@ -193,6 +193,11 @@ export function applyTemplateToState(config: Partial<FrameConfig>): string[] {
   const showLens = config.showLens ?? state.showLens
   const showDate = config.showDate ?? state.showDate
   const showModel = config.showCameraModel ?? state.showCameraModel
+  const showLogo = config.showLogo ?? state.showLogo
+  // 无 EXIF 的照片：品牌/型号视为未识别（brand 残留的只是全局默认值，如 sony）
+  const noExif = !raw
+  let cameraModel = state.cameraModel
+  let brand = state.brand
   if (showExif && !exifText) {
     exifText = '自定义'
     missing.push('EXIF 参数')
@@ -205,8 +210,14 @@ export function applyTemplateToState(config: Partial<FrameConfig>): string[] {
     dateText = '自定义'
     missing.push('拍摄日期')
   }
-  const cameraModel = state.cameraModel
-  if (showModel && !cameraModel) missing.push('相机型号')
+  if (showModel && !cameraModel) {
+    cameraModel = '自定义'
+    missing.push('相机型号')
+  }
+  if (showLogo && noExif) {
+    brand = '自定义'
+    missing.push('品牌信息')
+  }
   loadConfig({
     ...config,
     // ===== 以下为照片自身内容 / 用户设置，覆盖模板中可能残留的同名字段 =====
@@ -223,7 +234,7 @@ export function applyTemplateToState(config: Partial<FrameConfig>): string[] {
     exifRaw: raw,
     dateText,
     cameraModel,
-    brand: state.brand,
+    brand,
     lensText,
     exifFontFamily: state.exifFontFamily,
     exifFontSize: state.exifFontSize,

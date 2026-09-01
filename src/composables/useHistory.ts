@@ -341,7 +341,8 @@ export async function applyTemplateToPhotos(
     if (!next.exifText && raw) next.exifText = buildExifText(raw, { eqFocal: next.eqFocal, cropFactor: next.cropFactor })
     if (!next.dateText && raw?.dateTimeOriginal) next.dateText = formatDate(raw.dateTimeOriginal, next.dateFormat)
     if (!next.lensText) next.lensText = cleanLens(raw?.lensMake, raw?.lensModel) ?? ''
-    // 模板开启显示但内容仍缺失的字段：用「自定义」占位并汇总提示
+    // 模板开启显示但内容仍缺失的字段：用「自定义」占位并汇总提示。
+    // 无 EXIF 的照片：品牌/型号也视为未识别（brand 残留的只是全局默认值，如 sony）
     let missing = false
     if (next.showExif && !next.exifText) {
       next.exifText = '自定义'
@@ -355,7 +356,14 @@ export async function applyTemplateToPhotos(
       next.dateText = '自定义'
       missing = true
     }
-    if (next.showCameraModel && !next.cameraModel) missing = true
+    if (next.showCameraModel && !next.cameraModel) {
+      next.cameraModel = '自定义'
+      missing = true
+    }
+    if (next.showLogo && !next.exifRaw) {
+      next.brand = '自定义'
+      missing = true
+    }
     if (missing) anyMissing = true
     recordEdit(id, next, name)
   }
