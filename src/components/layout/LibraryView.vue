@@ -1,10 +1,12 @@
 <script setup lang="ts">
-// 图库模块：网格缩略图管理素材，支持拖拽/点击上传、多选、删除，点击进编辑。
+// 图库模块：网格缩略图管理素材，支持拖拽/点击上传、多选、移除，点击进编辑。
 // 桌面端（Tauri）额外提供「打开本地文件夹」：扫描磁盘目录引用原图，不拷贝。
+// 移除语义（同 LrC）：仅从软件图库中移除引用与编辑记录，磁盘上的原文件不会被删除。
 import { ref, computed } from 'vue'
 import { useLibrary } from '../../composables/useLibrary'
 import { useAppState } from '../../composables/useAppState'
 import { isTauri } from '../../platform/env'
+import GlassModal from '../common/GlassModal.vue'
 
 const library = useLibrary()
 const app = useAppState()
@@ -54,6 +56,32 @@ function enterDevelop(item: { id: string }) {
   library.select(item.id)
   app.setModule('develop')
 }
+
+// ===== 移除确认（LrC 语义：仅从图库移除，不删磁盘原文件）=====
+const confirmOpen = ref(false)
+type PendingAction = 'removeSelected' | 'clearAll'
+let pendingAction: PendingAction = 'removeSelected'
+const confirmMsg = computed(() => {
+  const tail = '仅从软件图库中移除引用与编辑记录，磁盘上的原文件不会被删除。'
+  return pendingAction === 'removeSelected'
+    ? `将从图库移除选中的 ${selectedCount.value} 张照片。${tail}`
+    : `将清空图库中的全部 ${library.items.length} 张照片。${tail}`
+})
+function askRemoveSelected() {
+  if (!selectedCount.value) return
+  pendingAction = 'removeSelected'
+  confirmOpen.value = true
+}
+function askClearAll() {
+  if (!library.items.length) return
+  pendingAction = 'clearAll'
+  confirmOpen.value = true
+}
+function onConfirmRemove() {
+  confirmOpen.value = false
+  if (pendingAction === 'removeSelected') library.removeSelected()
+  else library.clearAll()
+}
 </script>
 
 <template>
@@ -83,8 +111,8 @@ function enterDevelop(item: { id: string }) {
           <span v-if="isTauri && folderLabel" class="folder" :title="folderLabel">{{ folderLabel }}</span>
           <span class="count">共 {{ library.items.length }} 张 · 已选 {{ selectedCount }}</span>
           <span class="spacer" />
-          <button class="btn" :disabled="!selectedCount" @click="library.removeSelected()">删除选中</button>
-          <button class="btn" @click="library.clearAll()">清空</button>
+          <button class="btn" :disabled="!selectedCount" title="仅从图库移除，不删除磁盘原文件" @click="askRemoveSelected">移除选中</button>
+          <button class="btn" title="仅从图库移除全部照片，不删除磁盘原文件" @click="askClearAll">清空图库</button>
           <input ref="fileInput" type="file" accept="image/*" multiple hidden @change="onPick" />
         </div>
 
@@ -107,6 +135,14 @@ function enterDevelop(item: { id: string }) {
         </div>
       </template>
     </div>
+    <GlassModal
+      v-model="confirmOpen"
+      title="从图库移除"
+      :message="confirmMsg"
+      confirm-text="移除"
+      cancel-text="取消"
+      @confirm="onConfirmRemove"
+    />
   </div>
 </template>
 
