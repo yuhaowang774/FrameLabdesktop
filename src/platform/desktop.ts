@@ -7,8 +7,6 @@ import { useLibrary } from '../composables/useLibrary'
 import { applyGpuPreferenceOnStartup } from './gpu'
 import {
   pickImageFiles,
-  pickImageFolder,
-  loadFolderIntoLibrary,
   addLocalEntries,
   restoreLastFolder,
 } from './fs'
@@ -48,15 +46,6 @@ export async function setupDesktopShell(): Promise<void> {
           const list = await pickImageFiles()
           if (list.length) {
             await addLocalEntries(list)
-            app.setModule('library')
-          }
-        })()
-        break
-      case 'open_folder':
-        void (async () => {
-          const r = await pickImageFolder()
-          if (r && r.images.length) {
-            await loadFolderIntoLibrary(r)
             app.setModule('library')
           }
         })()

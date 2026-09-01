@@ -234,8 +234,6 @@ fn build_menu(app: &AppHandle) -> tauri::Result<()> {
     // 文件
     let import_images =
         MenuItem::with_id(app, "import_images", "导入照片…", true, Some("CmdOrCtrl+Shift+O"))?;
-    let open_folder =
-        MenuItem::with_id(app, "open_folder", "打开图片文件夹…", true, Some("CmdOrCtrl+Shift+L"))?;
     let goto_export =
         MenuItem::with_id(app, "goto_export", "转到导出模块", true, Some("CmdOrCtrl+E"))?;
     let preferences =
@@ -243,7 +241,6 @@ fn build_menu(app: &AppHandle) -> tauri::Result<()> {
     let quit = PredefinedMenuItem::quit(app, Some("退出"))?;
     let file_menu = SubmenuBuilder::new(app, "文件")
         .item(&import_images)
-        .item(&open_folder)
         .item(&goto_export)
         .separator()
         .item(&preferences)
