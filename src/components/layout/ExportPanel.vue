@@ -394,23 +394,24 @@ function onThumbClick(item: { id: string }, e: MouseEvent) {
           <RangeSlider v-model="jpgQuality" :min="0.5" :max="1" :step="0.01" />
         </div>
         <div class="row">
-          <label>超采样</label>
+          <label title="导出时先把画布放大到目标尺寸的 N 倍渲染，再把文字 / Logo / 模糊背景等装饰以更高精度绘制后缩回，成片装饰层更锐利（照片本身始终是原生分辨率）。倍率越高导出越慢、内存占用越大，日常导出 1x 已足够清晰。">超采样</label>
           <div class="seg">
             <button :class="{ on: supersample === 1 }" @click="supersample = 1">1x</button>
             <button :class="{ on: supersample === 2 }" @click="supersample = 2">2x</button>
             <button :class="{ on: supersample === 3 }" @click="supersample = 3">3x</button>
           </div>
         </div>
+        <p class="hint">渲染倍率：倍率越高，文字 / Logo / 模糊背景越锐利，导出越慢；1x 日常已足够。</p>
         <div class="divider" />
         <div class="row">
-          <label>批量回填</label>
+          <label title="批量导出时每张照片使用自己导入时解析出的 EXIF 参数、拍摄日期、相机型号与品牌 Logo（而不是全部套用当前编辑器里的文本），适合索尼 / 无人机 / 手机等不同来源的照片混批导出；无 EXIF 的照片对应文本置空。">批量回填</label>
           <label class="check" title="开启后批量导出的每张照片使用各自导入时解析的 EXIF、相机型号与品牌 Logo">
             <input type="checkbox" v-model="backfillExif" />
             <span>每张照片使用自身 EXIF / 型号 / 品牌</span>
           </label>
         </div>
         <div class="row">
-          <label>文本映射</label>
+          <label title="批量回填导出时，按你写的规则批量替换每张照片的 EXIF 文本 / 相机型号 / 镜头型号。每行一条规则，格式为「查找 => 替换」，多条规则按从上到下顺序依次生效。适合统一不同相机对同一镜头的命名等场景，例如：腾龙28-200 E A071 => 腾龙 28-200。规则会自动保存，下次打开仍在。">文本映射</label>
           <label class="check" title="批量导出时按规则替换各照片的 EXIF 文本 / 相机型号 / 镜头型号（仅影响批量回填）">
             <input type="checkbox" v-model="rulesEnabled" />
             <span>启用批量文本映射</span>
