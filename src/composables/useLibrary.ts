@@ -52,6 +52,46 @@ function requestRemoveViaKeyboard(): void {
   if (!count) return
   removalConfirm.value = { open: true, count }
 }
+
+// ===== 已移除路径墓碑（LrC 目录语义）=====
+// 启动时会自动重扫上次文件夹并把扫到的图加回图库；被用户从图库移除的
+// 磁盘路径记录在此，重扫时跳过，避免「删除后重启又复活」。
+// 手动重新导入同一文件夹时自动解除对应墓碑（用户明确要求加回来）。
+const REMOVED_KEY = 'framelab-removed-paths'
+const REMOVED_MAX = 5000
+const removedPaths = new Set<string>()
+try {
+  const raw = localStorage.getItem(REMOVED_KEY)
+  if (raw) {
+    const arr = JSON.parse(raw) as unknown
+    if (Array.isArray(arr)) arr.forEach((p) => typeof p === 'string' && removedPaths.add(p))
+  }
+} catch {
+  /* ignore */
+}
+function saveRemoved(): void {
+  try {
+    let arr = [...removedPaths]
+    // 上限保护：超出丢弃最早记录
+    if (arr.length > REMOVED_MAX) arr = arr.slice(arr.length - REMOVED_MAX)
+    localStorage.setItem(REMOVED_KEY, JSON.stringify(arr))
+  } catch {
+    /* ignore */
+  }
+}
+function tombstone(path?: string): void {
+  if (!path) return
+  removedPaths.add(path)
+  saveRemoved()
+}
+function untombstone(path?: string): void {
+  if (!path) return
+  if (removedPaths.delete(path)) saveRemoved()
+}
+/** 启动重扫过滤用：被用户移除过的磁盘路径集合 */
+export function getRemovedPaths(): ReadonlySet<string> {
+  return removedPaths
+}
 function confirmRemoval(): void {
   if (items.some((i) => i.selected)) {
     items.filter((i) => i.selected).forEach((i) => remove(i.id))
@@ -64,10 +104,12 @@ function cancelRemoval(): void {
   removalConfirm.value = { open: false, count: 0 }
 }
 
-/** 移除单张：仅从软件图库移除引用与历史链，不碰磁盘原文件 */
+/** 移除单张：仅从软件图库移除引用与历史链，不碰磁盘原文件；
+ *  磁盘路径记入墓碑，启动重扫不再自动加回 */
 function remove(id: string): void {
   const idx = items.findIndex((i) => i.id === id)
   if (idx < 0) return
+  tombstone(items[idx].path)
   releaseUrl(items[idx].url)
   releaseUrl(items[idx].thumbUrl)
   items.splice(idx, 1)
@@ -308,6 +350,8 @@ export function useLibrary() {
       }
       items.push(item)
       added.push(item)
+      // 明确（重新）导入的路径解除墓碑：用户手动要求加回，启动重扫不再跳过
+      untombstone(e.path)
       // 异步生成缩略图（asset URL 若污染 canvas 会失败回退原图）
       void makeThumbUrl(url, width, height).then((t) => {
         if (t) item.thumbUrl = t
@@ -357,6 +401,7 @@ export function useLibrary() {
 
   function clearAll(): void {
     items.forEach((i) => {
+      tombstone(i.path)
       releaseUrl(i.url)
       releaseUrl(i.thumbUrl)
       void removePhotoHistory(i.id)

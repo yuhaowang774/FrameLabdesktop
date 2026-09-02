@@ -180,7 +180,8 @@ export async function loadFolderIntoLibrary(
   return items.length
 }
 
-/** 桌面端：启动时恢复上次打开的文件夹（目录失效则静默清除） */
+/** 桌面端：启动时恢复上次打开的文件夹（目录失效则静默清除）。
+ *  被用户从图库移除过的路径（墓碑）不再自动加回，LrC 目录语义 */
 export async function restoreLastFolder(): Promise<void> {
   let last = ''
   try {
@@ -191,7 +192,9 @@ export async function restoreLastFolder(): Promise<void> {
   if (!last) return
   try {
     const images = await listDirImages(last, true)
-    await addLocalEntries(images)
+    const { getRemovedPaths } = await import('../composables/useLibrary')
+    const removed = getRemovedPaths()
+    await addLocalEntries(removed.size ? images.filter((i) => !removed.has(i.path)) : images)
   } catch {
     try {
       localStorage.removeItem(LAST_FOLDER_KEY)
