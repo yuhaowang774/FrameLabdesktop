@@ -542,6 +542,15 @@ async fn detect_discrete_gpu() -> Result<(bool, Vec<String>), String> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        // 单实例：重复启动（含开发版/正式版并行）时聚焦已有窗口，
+        // 避免第二个实例因 WebView2 用户数据目录被占用而创建出白屏窗口。
+        // 官方要求此插件必须最先注册。
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            if let Some(w) = app.get_webview_window("main") {
+                let _ = w.unminimize();
+                let _ = w.set_focus();
+            }
+        }))
         .plugin(tauri_plugin_dialog::init())
         .on_menu_event(|app, event| {
             // 菜单项 → 前端事件分发（前端在 platform/desktop.ts 中消费）
