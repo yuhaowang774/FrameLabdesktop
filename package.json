@@ -1,7 +1,7 @@
 {
   "name": "framelab",
   "private": true,
-  "version": "0.1.6",
+  "version": "0.1.7",
   "type": "module",
   "scripts": {
     "dev": "vite --port 5180 --strictPort",
@@ -19,6 +19,7 @@
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2.9.0",
+    "@types/node": "^26.4.1",
     "@vitejs/plugin-vue": "^5.2.1",
     "@vue/test-utils": "^2.4.11",
     "jsdom": "^25.0.1",

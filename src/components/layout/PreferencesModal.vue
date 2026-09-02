@@ -140,7 +140,18 @@ async function onRestart() {
   }
 }
 
-const APP_VERSION = '0.1.0'
+// 应用版本：桌面端运行时读取 tauri.conf.json（与安装包严格一致）；Web 端用构建时注入的 package.json 版本
+const APP_VERSION = ref(isTauri ? '' : __APP_VERSION__)
+if (isTauri) {
+  import('@tauri-apps/api/app')
+    .then((m) => m.getVersion())
+    .then((v) => {
+      APP_VERSION.value = v
+    })
+    .catch(() => {
+      APP_VERSION.value = __APP_VERSION__
+    })
+}
 
 onMounted(() => {
   if (isTauri) void refreshGpuStatus()
