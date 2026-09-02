@@ -131,8 +131,10 @@ fn data_file(app: &AppHandle, filename: &str) -> Result<PathBuf, String> {
         .app_data_dir()
         .map_err(|e| format!("无法定位 AppData 目录: {e}"))?;
     fs::create_dir_all(&dir).map_err(|e| format!("创建 AppData 目录失败: {e}"))?;
+    // 开发版数据文件独立存放（dev- 前缀），与正式版完全互不干扰
+    let owned = if cfg!(debug_assertions) { format!("dev-{filename}") } else { filename.to_string() };
     // 文件名白名单化，避免路径穿越
-    let safe: String = filename
+    let safe: String = owned
         .chars()
         .map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
         .collect();
@@ -541,16 +543,21 @@ async fn detect_discrete_gpu() -> Result<(bool, Vec<String>), String> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
-        // 单实例：重复启动（含开发版/正式版并行）时聚焦已有窗口，
-        // 避免第二个实例因 WebView2 用户数据目录被占用而创建出白屏窗口。
-        // 官方要求此插件必须最先注册。
-        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+    // debug 构建不需要 mut（单实例仅注册于正式版）
+    #[cfg_attr(debug_assertions, allow(unused_mut))]
+    let mut builder = tauri::Builder::default();
+    // 单实例仅限正式版自身：重复启动正式版时聚焦已有窗口。
+    // 开发版不注册此插件，开发版与正式版数据目录完全隔离，可并行运行互不干扰。
+    #[cfg(not(debug_assertions))]
+    {
+        builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             if let Some(w) = app.get_webview_window("main") {
                 let _ = w.unminimize();
                 let _ = w.set_focus();
             }
-        }))
+        }));
+    }
+    builder
         .plugin(tauri_plugin_dialog::init())
         .on_menu_event(|app, event| {
             // 菜单项 → 前端事件分发（前端在 platform/desktop.ts 中消费）
@@ -559,6 +566,25 @@ pub fn run() {
         })
         .setup(|app| {
             build_menu(app.handle())?;
+            // 窗口改为 Rust 侧创建：开发版需要指定独立 WebView2 数据目录
+            // （此前开发/正式版共用 EBWebView 目录，并行启动会因目录被占用而白屏）。
+            let mut win = tauri::WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::App("index.html".into()))
+                .title("FrameLab · 照片相框 & 背景合成")
+                .inner_size(1360.0, 860.0)
+                .min_inner_size(1024.0, 660.0)
+                .additional_browser_args(
+                    "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --ignore-gpu-blocklist --enable-gpu-rasterization",
+                )
+                .drag_and_drop(false);
+            if cfg!(debug_assertions) {
+                let dir = app
+                    .path()
+                    .app_local_data_dir()
+                    .map_err(|e| format!("无法定位数据目录: {e}"))?
+                    .join("webview-data-dev");
+                win = win.data_directory(dir);
+            }
+            win.build()?;
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
