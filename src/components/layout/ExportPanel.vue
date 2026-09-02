@@ -73,6 +73,22 @@ const zoom1x = ref(false)
 const saved = ref(false)
 const savedPath = ref<string | null>(null)
 
+// ===== 导出文件夹（桌面端）：选定后导出直接写入，成功弹窗不再需要「保存图片」 =====
+const EXPORT_FOLDER_KEY = 'framelab-export-folder'
+const exportFolder = ref<string | null>(isTauri ? localStorage.getItem(EXPORT_FOLDER_KEY) : null)
+async function chooseExportFolder() {
+  const { pickExportFolder } = await import('../../platform/fs')
+  const r = await pickExportFolder()
+  if (r) {
+    exportFolder.value = r
+    localStorage.setItem(EXPORT_FOLDER_KEY, r)
+  }
+}
+function clearExportFolder() {
+  exportFolder.value = null
+  localStorage.removeItem(EXPORT_FOLDER_KEY)
+}
+
 function formatBytes(n: number): string {
   if (n >= 1024 * 1024) return `${(n / 1024 / 1024).toFixed(1)} MB`
   if (n >= 1024) return `${Math.round(n / 1024)} KB`
@@ -80,7 +96,7 @@ function formatBytes(n: number): string {
 }
 
 /** 展示导出结果：blob 实测分辨率（预览图即导出成品，实测最准） */
-async function showPreview(blob: Blob, name: string) {
+async function showPreview(blob: Blob, name: string, writtenPath?: string | null) {
   if (preview.value) URL.revokeObjectURL(preview.value.url)
   const url = URL.createObjectURL(blob)
   let w = 0
@@ -94,8 +110,14 @@ async function showPreview(blob: Blob, name: string) {
   }
   preview.value = { url, name, blob, w, h, sizeText: formatBytes(blob.size) }
   zoom1x.value = false
-  saved.value = false
-  savedPath.value = null
+  if (writtenPath) {
+    // 已直接写盘（选定了导出文件夹）：弹窗进入「已导出」态，不显示保存按钮
+    saved.value = true
+    savedPath.value = writtenPath
+  } else {
+    saved.value = false
+    savedPath.value = null
+  }
 }
 
 function closePreview() {
@@ -188,7 +210,7 @@ async function renderOne(item: LibraryItem, backfill: boolean): Promise<Blob> {
   return res.blob
 }
 
-/** 导出并弹出预览 */
+/** 导出并弹出预览；选定了导出文件夹时直接写盘（重名自动加序号） */
 async function exportSingle() {
   const active = library.items.find((i) => i.id === library.activeId.value)
   if (!active) return
@@ -200,7 +222,14 @@ async function exportSingle() {
     app.setTaskProgress(1)
     // 生成预览（blob 实测分辨率/体积）
     const name = makeExportFilename(format.value, active.name.replace(/\.[^.]+$/, ''))
-    await showPreview(blob, name)
+    if (isTauri && exportFolder.value) {
+      const { writeBlobTo } = await import('../../platform/fs')
+      const written = await writeBlobTo(exportFolder.value, name, blob)
+      await showPreview(blob, name, written)
+    } else {
+      // 未选导出文件夹：保持「预览 → 保存图片」流程（网页端也走此路）
+      await showPreview(blob, name)
+    }
   } catch (e) {
     window.alert('导出失败：' + (e as Error).message)
   } finally {
@@ -267,7 +296,7 @@ async function exportBatch() {
   }
   batch.value = { running: true, done: 0, total: list.length, label: '', finished: false, cancelled: false, success: 0, failed: [] }
   app.startTask('批量导出')
-  let last: { blob: Blob; name: string } | null = null
+  let last: { blob: Blob; name: string; written?: string } | null = null
   try {
     for (let i = 0; i < list.length; i++) {
       // 中途取消：当前张渲染完成后停止
@@ -278,11 +307,12 @@ async function exportBatch() {
       const name = makeExportFilename(format.value, item.name.replace(/\.[^.]+$/, ''))
       if (folder) {
         const { writeBlobTo } = await import('../../platform/fs')
-        await writeBlobTo(folder, name, blob)
+        const written = await writeBlobTo(folder, name, blob)
+        last = { blob, name, written }
       } else {
         downloadBlob(blob, name)
+        last = { blob, name }
       }
-      last = { blob, name }
       batch.value.done = i + 1
       batch.value.success++
       app.setTaskProgress((i + 1) / list.length)
@@ -294,8 +324,8 @@ async function exportBatch() {
     batch.value.finished = true
   } finally {
     batch.value.running = false
-    // 批量导出也弹预览（最后一张成功图）
-    if (last && !batch.value.cancelled) void showPreview(last.blob, last.name)
+    // 批量导出也弹预览（最后一张成功图）；已写盘时弹窗为「已导出」态
+    if (last && !batch.value.cancelled) void showPreview(last.blob, last.name, last.written ?? null)
     setTimeout(() => app.endTask(), 400)
   }
 }
@@ -465,6 +495,13 @@ function onThumbClick(item: { id: string }, e: MouseEvent) {
           批量导出（{{ selectedCount ? selectedCount + ' 张选中' : '全部 ' + targetCount + ' 张' }}）
         </button>
       </div>
+
+      <div v-if="isTauri" class="export-folder" title="选定后导出直接写入该文件夹，重名自动加序号">
+        <span class="folder-title">导出文件夹</span>
+        <span class="folder-path" :title="exportFolder || ''">{{ exportFolder || '未选择（导出后手动保存）' }}</span>
+        <button class="btn dim" @click="chooseExportFolder">选择</button>
+        <button v-if="exportFolder" class="btn dim" @click="clearExportFolder">清除</button>
+      </div>
     </section>
   </div>
 
@@ -482,9 +519,9 @@ function onThumbClick(item: { id: string }, e: MouseEvent) {
         <span class="preview-name" :title="preview.name">{{ preview.name }}</span>
         <span class="preview-meta">{{ preview.w && preview.h ? preview.w + ' × ' + preview.h + ' px' : '—' }}</span>
         <span class="preview-meta">{{ preview.sizeText }}</span>
-        <span v-if="saved" class="preview-saved">已保存 ✓</span>
-        <button v-if="saved && savedPath" class="btn" @click="openSavedFolder">打开所在文件夹</button>
-        <button class="btn primary" @click="savePreview">保存图片</button>
+        <span v-if="saved && savedPath" class="preview-saved" :title="savedPath">已导出到文件夹 ✓</span>
+        <button v-if="saved && savedPath" class="btn primary" @click="openSavedFolder">打开所在文件夹</button>
+        <button v-else class="btn primary" @click="savePreview">保存图片</button>
       </div>
     </div>
   </div>
@@ -739,6 +776,30 @@ function onThumbClick(item: { id: string }, e: MouseEvent) {
   gap: 8px;
   flex-wrap: wrap;
   flex: none;
+}
+
+/* 导出文件夹选择行（吸底任务卡内） */
+.export-folder {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  min-width: 0;
+  max-width: 320px;
+}
+.export-folder .folder-title {
+  font-size: 11px;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+.export-folder .folder-path {
+  font-size: 11px;
+  color: var(--text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  direction: rtl; /* 长路径省略左侧，保留末级目录名 */
+  text-align: left;
 }
 
 /* 吸底任务卡 */

@@ -136,12 +136,24 @@ export async function pickExportFolder(): Promise<string | null> {
   return tauriInvoke<string | null>('pick_folder')
 }
 
-/** 桌面端：把合成结果写入指定目录 */
-export async function writeBlobTo(folder: string, filename: string, blob: Blob): Promise<void> {
+/** 桌面端：路径是否已存在 */
+async function pathExists(path: string): Promise<boolean> {
+  return tauriInvoke<boolean>('path_exists', { path })
+}
+
+/** 桌面端：把合成结果写入指定目录；重名自动加序号（name.jpg → name-2.jpg …），返回实际写入路径 */
+export async function writeBlobTo(folder: string, filename: string, blob: Blob): Promise<string> {
   const sep = folder.includes('\\') && !folder.includes('/') ? '\\' : '/'
-  const path = `${folder}${sep}${filename}`
+  const dot = filename.lastIndexOf('.')
+  const stem = dot > 0 ? filename.slice(0, dot) : filename
+  const ext = dot > 0 ? filename.slice(dot) : ''
+  let target = `${folder}${sep}${filename}`
+  for (let n = 2; await pathExists(target); n++) {
+    target = `${folder}${sep}${stem}-${n}${ext}`
+  }
   const b64 = await blobToBase64(blob)
-  await tauriInvoke('write_file_base64', { path, base64Data: b64 })
+  await tauriInvoke('write_file_base64', { path: target, base64Data: b64 })
+  return target
 }
 
 // ===== 图库接入（桌面端） =====

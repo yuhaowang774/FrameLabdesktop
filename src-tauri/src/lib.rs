@@ -96,6 +96,12 @@ fn read_file_base64(path: String) -> Result<String, String> {
     Ok(base64::engine::general_purpose::STANDARD.encode(buf))
 }
 
+/// 判断路径是否已存在（导出重名检测用）
+#[tauri::command]
+async fn path_exists(path: String) -> Result<bool, String> {
+    Ok(std::fs::metadata(&path).is_ok())
+}
+
 /// 把合成结果（base64）写入指定路径，自动创建父目录
 #[tauri::command]
 fn write_file_base64(path: String, base64_data: String) -> Result<(), String> {
@@ -547,6 +553,7 @@ pub fn run() {
             list_dir_images,
             read_file_base64,
             write_file_base64,
+            path_exists,
             write_text_file,
             read_app_json,
             write_app_json,
