@@ -28,10 +28,14 @@ import { useLibrary } from '../../composables/useLibrary'
 import { useTemplates } from '../../composables/useTemplates'
 import { clearAllHistoryNodes } from '../../composables/useHistoryDB'
 import { listCustomLogos, removeCustomLogo } from '../../composables/useLogoStore'
+import UpdateModal from './UpdateModal.vue'
 
 const emit = defineEmits<{ (e: 'close'): void }>()
 const library = useLibrary()
 const templates = useTemplates()
+
+// 更新记录弹窗（历史查看模式）：关于分组「查看」按钮打开
+const updateOpen = ref(false)
 
 // ===== 性能（显卡检测 + 下拉选择，仅桌面端）=====
 const gpus = ref<GpuInfo[]>([])
@@ -375,6 +379,13 @@ onMounted(() => {
               {{ restarting ? '正在重启…' : '重启' }}
             </button>
           </div>
+          <div class="pf-row">
+            <div class="pf-text">
+              <span class="pf-label">更新记录</span>
+              <span class="pf-desc">查看各版本的新增功能、功能优化、问题修复与已知问题。</span>
+            </div>
+            <button class="pf-btn" @click="updateOpen = true">查看</button>
+          </div>
           <div class="pf-about">
             <span class="pf-about-logo">◎ FrameLab</span>
             <span class="pf-about-ver">版本 {{ APP_VERSION }}</span>
@@ -383,6 +394,7 @@ onMounted(() => {
         </section>
       </div>
     </div>
+    <UpdateModal v-model="updateOpen" />
   </div>
 </template>
 

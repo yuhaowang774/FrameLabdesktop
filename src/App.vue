@@ -18,6 +18,8 @@ import { suspendCommit } from './composables/useFrameConfig'
 import { useHistory, registerActiveProvider } from './composables/useHistory'
 import { editingPhoto, photoImage } from './composables/useUi'
 import { isTauri } from './platform/env'
+import UpdateModal from './components/layout/UpdateModal.vue'
+import { detectUpdate, type UpdateHit } from './composables/useUpdateLog'
 
 const library = useLibrary()
 const app = useAppState()
@@ -126,6 +128,26 @@ function onKey(e: KeyboardEvent) {
 onMounted(() => window.addEventListener('keydown', onKey))
 onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
 
+// ===== 更新完成检测：版本号较上次启动有升级时，自动弹出更新详情弹窗 =====
+// 桌面端版本运行时读取 tauri.conf.json（updater 静默安装重启后即为新版本首次启动）；Web 端用构建时注入版本。
+const showUpdateModal = ref(false)
+const updateHit = ref<UpdateHit | null>(null)
+onMounted(async () => {
+  let ver = __APP_VERSION__ as string
+  if (isTauri) {
+    try {
+      ver = await (await import('@tauri-apps/api/app')).getVersion()
+    } catch {
+      /* 版本获取失败退回构建注入值 */
+    }
+  }
+  const hit = detectUpdate(ver)
+  if (hit) {
+    updateHit.value = hit
+    showUpdateModal.value = true
+  }
+})
+
 const showLeft = computed(() => app.activeModule.value === 'develop' && app.state.leftOpen)
 const showRight = computed(() => app.activeModule.value === 'develop' && app.state.rightOpen)
 
@@ -164,6 +186,9 @@ document.body.classList.add('theme-dark')
     <Filmstrip v-if="app.state.filmstripVisible" />
 
     <PhotoEditor v-if="editingPhoto" @close="editingPhoto = false" />
+
+    <!-- 更新完成弹窗：升级后首次启动自动弹出；也可从首选项「关于 → 更新记录」打开 -->
+    <UpdateModal v-model="showUpdateModal" :update="updateHit" />
   </div>
 </template>
 
