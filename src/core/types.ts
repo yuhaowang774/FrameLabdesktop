@@ -78,10 +78,9 @@ export interface FrameConfig {
   logoSize: number
   logoOpacity: number
   /**
-   * 品牌 Logo 着色：
-   * - 'auto'=随背景明暗自适应（纯色浅底用近黑 #1a1a1a，其余深底/模糊/照片用纯白），保证对比可见；
-   * - 其余为具体色值（如品牌主色 '#FFE100'、'#ffffff'），由用户显式指定。
-   * 解析见 core/colorUtils.logoAutoColor（预览与导出共用）。
+   * 品牌 Logo 着色：具体色值（'#ffffff' / '#000000' / 品牌主色 / 自定义色）。
+   * 旧数据中的 'auto'（随底色自适应）由 useFrameConfig.loadConfig 归一化为 '#ffffff'；
+   * core/colorUtils.logoAutoColor 仍兼容解析 'auto'（预览与导出共用）。
    */
   logoColor: string
 
@@ -113,8 +112,6 @@ export interface FrameConfig {
   cardBadgeBg: string | null
   /** card 模式联名标块文字色：null = 跟随品牌默认（badge.fg ?? '#ffffff'） */
   cardBadgeFg: string | null
-  /** 品牌 Logo「品牌主色」预设的定制值：null = 用内置 BRAND_LOGO_COLORS；设置后覆盖内置色 */
-  brandColorCustom: string | null
   fontFamily: string
   fontSize: number
   textWeight: number
@@ -168,7 +165,8 @@ export interface FrameConfig {
   lensX: number | null
   lensY: number | null
   /** duo 杂志双栏分隔竖线手动几何（内容区坐标 px）：null = 跟随默认布局。
-   *  x 仅水平拖动；top/bottom 为竖线上/下端 y（两端手柄拖动调节高度），导出端同规则应用 */
+   *  x 仅水平拖动；top/bottom 为竖线上/下端 y（悬停出现的手柄拖动调节高度），
+   *  默认（null）自动跟随下边白框带（padding + borderRatio）全高，导出端同规则应用 */
   infoDividerX: number | null
   infoDividerTop: number | null
   infoDividerBottom: number | null
@@ -236,7 +234,7 @@ export const defaultFrameConfig: FrameConfig = {
   showLogo: false,
   logoSize: 40,
   logoOpacity: 1,
-  logoColor: 'auto',
+  logoColor: '#ffffff',
 
   showExif: false,
   exifText: '200mm f/4 1/800s ISO400',
@@ -252,7 +250,6 @@ export const defaultFrameConfig: FrameConfig = {
   cardShowDate: true,
   cardBadgeBg: null,
   cardBadgeFg: null,
-  brandColorCustom: null,
   fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
   fontSize: 30,
   textWeight: 600,

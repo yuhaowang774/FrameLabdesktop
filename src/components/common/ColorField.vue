@@ -17,8 +17,8 @@ const props = withDefaults(
     autoLabel?: string
     /** 自动状态下色块显示的参考色（自适应黑白），让色块始终可见 */
     autoSwatch?: string
-    /** 额外预设项；picker 存在时选中该项直接打开取色器（初值=picker），确认后经 update:modelValue + extra-pick 返回 */
-    extraOptions?: { value: string; label: string; picker?: string }[]
+    /** 额外预设项（如品牌主色） */
+    extraOptions?: { value: string; label: string }[]
   }>(),
   {
     autoValue: null,
@@ -29,11 +29,7 @@ const props = withDefaults(
   },
 )
 
-const emit = defineEmits<{
-  (e: 'update:modelValue', v: string | null): void
-  /** 从带 picker 的额外预设项取色确认（如「品牌主色」），供调用方记录预设定制值 */
-  (e: 'extra-pick', v: string): void
-}>()
+const emit = defineEmits<{ (e: 'update:modelValue', v: string | null): void }>()
 
 const isAuto = computed(() => props.auto && props.modelValue === props.autoValue)
 const KNOWN = ['#ffffff', '#000000']
@@ -47,21 +43,14 @@ const selectValue = computed(() => {
 const swatch = computed(() => (isAuto.value ? props.autoSwatch || '' : props.modelValue || ''))
 const pickerColor = ref(props.modelValue && props.modelValue.startsWith('#') ? props.modelValue : '#888888')
 const inputEl = ref<HTMLInputElement | null>(null)
-// 取色来源：从带 picker 的额外预设项打开时记录该项，取色确认后额外发出 extra-pick
-let pendingExtra: { value: string; label: string; picker?: string } | null = null
 
 function openPicker() {
-  pendingExtra = null
   pickerColor.value = props.modelValue && props.modelValue.startsWith('#') ? props.modelValue : '#888888'
   inputEl.value?.click()
 }
 function onPick(v: string) {
   pickerColor.value = v
   emit('update:modelValue', v)
-  if (pendingExtra) {
-    emit('extra-pick', v)
-    pendingExtra = null
-  }
 }
 function onSelect(v: string) {
   if (v === 'custom') {
@@ -70,14 +59,6 @@ function onSelect(v: string) {
   }
   if (v === 'auto') {
     emit('update:modelValue', props.autoValue ?? null)
-    return
-  }
-  const opt = props.extraOptions.find((o) => o.value === v)
-  if (opt?.picker !== undefined) {
-    // 品牌主色类预设：直接打开取色器（初值 = 当前预设色），用户可即选即改
-    pendingExtra = opt
-    pickerColor.value = opt.picker
-    inputEl.value?.click()
     return
   }
   emit('update:modelValue', v)

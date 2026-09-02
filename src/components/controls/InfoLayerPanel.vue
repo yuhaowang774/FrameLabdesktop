@@ -6,7 +6,7 @@ import { computed, ref } from 'vue'
 import { useFrameConfig } from '../../composables/useFrameConfig'
 import { BRANDS, PHONE_BRANDS, RANGES, MAX_CUSTOM_LOGOS, CROP_FACTORS, BRAND_LOGO_COLORS, phoneBrandOf } from '../../core/constants'
 import { buildExifText, formatDate, type DateFormat } from '../../composables/useExif'
-import { footerTextColor, logoAutoColor } from '../../core/colorUtils'
+import { footerTextColor } from '../../core/colorUtils'
 import { cardBadgeColors } from '../../core/infoLayout'
 import ColorField from '../common/ColorField.vue'
 import { useLogoStore, CUSTOM_PREFIX } from '../../composables/useLogoStore'
@@ -29,18 +29,15 @@ const customBrandOptions = computed(() =>
   customLogos.value.map((c) => ({ value: `${CUSTOM_PREFIX}${c.id}`, label: c.name })),
 )
 
-// ===== Logo 颜色：自动 / 白 / 黑 / 品牌主色（有公认标志色的品牌才出现）/ 自定义色 =====
-// 内置品牌色可被 brandColorCustom 覆盖（主色定制），选中「品牌主色」时写入当前生效值
-const builtinBrandHex = computed(() => BRAND_LOGO_COLORS[state.brand])
-const brandHex = computed(() => state.brandColorCustom ?? builtinBrandHex.value)
+// ===== Logo 颜色：白 / 黑 / 品牌主色（官方原色，仅收录了品牌色的品牌出现）/ 自定义色 =====
+const brandHex = computed(() => BRAND_LOGO_COLORS[state.brand])
 // card 联名标块默认配色（当前品牌无标块时为 null，不显示调节项）
 const badgeDefault = computed(() => {
   if (!phoneBrandOf(state.brand)?.badge.text) return null
   return cardBadgeColors(null, null, state.brand)
 })
-// 「自动」态色块参考色：INFO 文字随底色自适应黑白；Logo 随底色取黑/白
+// 「自动」态色块参考色：INFO 文字随底色自适应黑白
 const footerColor = computed(() => footerTextColor(state.bgMode, state.bgColor, 0.95))
-const logoAutoSwatch = computed(() => logoAutoColor(state.logoColor, state.bgMode, state.bgColor))
 function refreshCustom() {
   customLogos.value = listCustomLogos()
 }
@@ -221,11 +218,9 @@ async function onDeleteCustom(id: string) {
         <label>Logo 颜色</label>
         <ColorField
           :model-value="state.logoColor"
-          auto-value="auto"
-          :auto-swatch="logoAutoSwatch"
-          :extra-options="brandHex ? [{ value: brandHex, label: '品牌主色', picker: brandHex }] : []"
-          @update:model-value="(v: string | null) => patch({ logoColor: v ?? 'auto' })"
-          @extra-pick="(v: string) => patch({ brandColorCustom: v })"
+          :auto="false"
+          :extra-options="brandHex ? [{ value: brandHex, label: '品牌主色' }] : []"
+          @update:model-value="(v: string | null) => patch({ logoColor: v ?? '#ffffff' })"
         />
       </div>
       <!-- 自定义 Logo：上传 + 列表 -->

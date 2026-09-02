@@ -23,7 +23,9 @@ export function suspendCommit(suspend: boolean): void {
 export function useFrameConfig() {
   /** 整体替换（用于历史恢复 / 预设应用），保留未列出的默认字段 */
   function loadConfig(partial: Partial<FrameConfig>): void {
-    Object.assign(state, defaultFrameConfig, partial)
+    // 旧数据归一化：logoColor 'auto'（自动项已从 UI 移除）→ 白色
+    const norm = partial.logoColor === 'auto' ? { ...partial, logoColor: '#ffffff' } : partial
+    Object.assign(state, defaultFrameConfig, norm)
     if (suspendDepth === 0) commitHook?.('loadConfig')
   }
 
