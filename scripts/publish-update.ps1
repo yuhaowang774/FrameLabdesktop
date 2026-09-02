@@ -87,8 +87,8 @@ $latestPath = Join-Path $nsisDir 'latest.json'
 [System.IO.File]::WriteAllText($latestPath, ($latest | ConvertTo-Json -Depth 5), (New-Object System.Text.UTF8Encoding($false)))
 Write-Host "已生成 latest.json（$version）"
 
-# ===== 5) GitHub 凭据（复用 git 凭据管理器已存 token；管道方式在无 TTY 环境也可用）=====
-$credOut = "protocol=https`nhost=github.com`n`n" | git credential fill 2>$null
+# ===== 5) GitHub 凭据（复用 git 凭据管理器已存 token；经 cmd 管道喂入，-File 环境可用）=====
+$credOut = cmd /c "(echo protocol=https& echo host=github.com& echo.) | git credential fill" 2>$null
 if ($LASTEXITCODE -ne 0 -or -not $credOut) { throw 'git credential fill 失败，请先手动 git push 一次以写入凭据' }
 $token = ([regex]::Match(($credOut -join "`n"), 'password=(.+)')).Groups[1].Value.Trim()
 if (-not $token) { throw '未能从 git 凭据管理器获取 GitHub token，请先手动 git push 一次以写入凭据' }
