@@ -567,6 +567,9 @@ pub fn run() {
     }
     builder
         .plugin(tauri_plugin_dialog::init())
+        // 自动更新：前端经 @tauri-apps/plugin-updater 检查/下载/安装，
+        // 签名公钥与更新源见 tauri.conf.json plugins.updater
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .on_menu_event(|app, event| {
             // 菜单项 → 前端事件分发（前端在 platform/desktop.ts 中消费）
             let id = event.id().as_ref().to_string();

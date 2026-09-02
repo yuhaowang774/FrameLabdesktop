@@ -133,6 +133,76 @@ async function onRestart() {
   }
 }
 
+// ===== 软件更新（仅桌面端）：检查 → 下载（进度）→ 静默安装 → 自动重启 =====
+// 更新源与签名公钥见 src-tauri/tauri.conf.json plugins.updater（GitHub Releases latest.json）。
+type UpdState = 'idle' | 'checking' | 'downloading' | 'installing' | 'restarting' | 'latest' | 'error'
+const updState = ref<UpdState>('idle')
+const updVersion = ref('')
+const updProgress = ref<number | null>(null)
+const updError = ref('')
+const updBusy = computed(
+  () =>
+    updState.value === 'checking' ||
+    updState.value === 'downloading' ||
+    updState.value === 'installing' ||
+    updState.value === 'restarting',
+)
+const updDesc = computed(() => {
+  switch (updState.value) {
+    case 'checking':
+      return '正在检查更新…'
+    case 'downloading':
+      return updProgress.value === null
+        ? `发现新版本 v${updVersion.value}，正在下载…`
+        : `发现新版本 v${updVersion.value}，正在下载 ${updProgress.value}%`
+    case 'installing':
+      return '下载完成，正在静默安装…'
+    case 'restarting':
+      return '安装完成，正在重启应用…'
+    case 'latest':
+      return '当前已是最新版本。'
+    case 'error':
+      return updError.value
+    default:
+      return '检查 GitHub Releases 上的新版本；发现后自动下载、静默安装并重启。'
+  }
+})
+async function onCheckUpdate() {
+  if (updBusy.value) return
+  updState.value = 'checking'
+  updProgress.value = null
+  updError.value = ''
+  try {
+    const { check } = await import('@tauri-apps/plugin-updater')
+    const update = await check()
+    if (!update) {
+      updState.value = 'latest'
+      return
+    }
+    updVersion.value = update.version
+    updState.value = 'downloading'
+    let total = 0
+    let received = 0
+    await update.downloadAndInstall((event) => {
+      if (event.event === 'Started') {
+        total = event.data.contentLength ?? 0
+      } else if (event.event === 'Progress') {
+        received += event.data.chunkLength
+        if (total > 0) updProgress.value = Math.min(99, Math.round((received / total) * 100))
+      } else if (event.event === 'Finished') {
+        updState.value = 'installing'
+      }
+    })
+    // Windows passive 静默安装：downloadAndInstall 返回即安装完成，复用既有 restart_app 拉起新版本
+    updState.value = 'restarting'
+    const { invoke } = await import('@tauri-apps/api/core')
+    await invoke('restart_app')
+  } catch (err) {
+    updState.value = 'error'
+    updError.value = `更新失败：${(err as Error)?.message ?? err}（可到 GitHub Releases 页手动下载安装包）`
+  }
+}
+
 // 应用版本：桌面端运行时读取 tauri.conf.json（与安装包严格一致）；Web 端用构建时注入的 package.json 版本
 const APP_VERSION = ref(isTauri ? '' : __APP_VERSION__)
 if (isTauri) {
@@ -287,6 +357,15 @@ onMounted(() => {
         <!-- 关于 -->
         <section class="pf-sec">
           <h3 class="pf-sec-title">关于</h3>
+          <div class="pf-row" v-if="isTauri">
+            <div class="pf-text">
+              <span class="pf-label">软件更新</span>
+              <span class="pf-desc">{{ updDesc }}</span>
+            </div>
+            <button class="pf-btn" :disabled="updBusy" @click="onCheckUpdate">
+              {{ updState === 'checking' ? '检查中…' : updBusy ? '更新中…' : '检查更新' }}
+            </button>
+          </div>
           <div class="pf-row" v-if="isTauri">
             <div class="pf-text">
               <span class="pf-label">重启应用</span>
