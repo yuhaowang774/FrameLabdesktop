@@ -44,6 +44,20 @@ export const IMPORTANCE_LABELS: Record<UpdateImportance, string> = {
 // ===== 更新日志（新版本追加在最上方）=====
 export const UPDATE_LOG: UpdateEntry[] = [
   {
+    version: '0.1.13',
+    date: '2026-09-02',
+    importance: 'normal',
+    groups: {
+      added: [
+        '绿色版在线自更新：检查更新后直接下载替换自身，无需安装器、不受 SmartScreen 拦截',
+        '更新包经过签名校验，校验失败自动拒绝安装',
+      ],
+      improved: [
+        '首选项「软件更新」按安装版 / 绿色版自动切换更新方式',
+      ],
+    },
+  },
+  {
     version: '0.1.12',
     date: '2026-09-02',
     importance: 'normal',
