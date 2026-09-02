@@ -412,8 +412,11 @@ fn reveal_path(path: String) -> Result<(), String> {
             }
             Err(_) => p.to_string_lossy().into_owned(),
         };
+        // 注意：/select, 与带引号路径必须是两个独立 raw_arg；
+        // 整段包在一个引号里 explorer 解析不了，会退化打开默认文件夹（文档）
         hidden_command("explorer")
-            .raw_arg(format!("\"/select,{}\"", full))
+            .raw_arg("/select,")
+            .raw_arg(format!("\"{}\"", full))
             .spawn()
             .map_err(|e| format!("打开资源管理器失败: {e}"))?;
         return Ok(());

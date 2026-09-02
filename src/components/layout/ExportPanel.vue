@@ -210,10 +210,17 @@ async function renderOne(item: LibraryItem, backfill: boolean): Promise<Blob> {
   return res.blob
 }
 
+/** 导出前置检查：桌面端必须先选定导出文件夹（导出直接写盘） */
+function ensureExportFolder(): boolean {
+  if (!isTauri || exportFolder.value) return true
+  window.alert('请先在下方「导出文件夹」中选择导出位置')
+  return false
+}
+
 /** 导出并弹出预览；选定了导出文件夹时直接写盘（重名自动加序号） */
 async function exportSingle() {
   const active = library.items.find((i) => i.id === library.activeId.value)
-  if (!active) return
+  if (!active || !ensureExportFolder()) return
   app.startTask('导出单张 · ' + active.name)
   try {
     // 单张导出 = 当前编辑器所见即所得：state 已随照片切换恢复该照片参数，不回填
@@ -286,14 +293,9 @@ function resetBatch() {
 
 async function exportBatch() {
   const list = selectedCount.value > 0 ? library.items.filter((i) => i.selected) : library.items
-  if (!list.length || batch.value.running) return
-  // 桌面端：先选导出目录；取消则中止。网页端：逐张触发浏览器下载。
-  let folder: string | null = null
-  if (isTauri) {
-    const { pickExportFolder } = await import('../../platform/fs')
-    folder = await pickExportFolder()
-    if (!folder) return
-  }
+  if (!list.length || batch.value.running || !ensureExportFolder()) return
+  // 桌面端写入选定的导出文件夹；网页端逐张触发浏览器下载
+  const folder = exportFolder.value
   batch.value = { running: true, done: 0, total: list.length, label: '', finished: false, cancelled: false, success: 0, failed: [] }
   app.startTask('批量导出')
   let last: { blob: Blob; name: string; written?: string } | null = null
@@ -357,6 +359,20 @@ function onThumbClick(item: { id: string }, e: MouseEvent) {
       <h2 class="title">导出</h2>
       <p class="sub">配置成品输出参数，支持单张 / 批量导出。所有处理在本地完成。</p>
     </header>
+
+    <!-- 导出文件夹（桌面端）：导出前必须先选定，置顶显眼展示 -->
+    <section v-if="isTauri" class="card folder-card" :class="{ missing: !exportFolder }">
+      <div class="group-head">
+        <Icon name="folder" />
+        <h3>导出文件夹</h3>
+        <span class="head-hint">{{ exportFolder ? '导出将直接写入此文件夹（重名自动加序号）' : '导出前必须先选定' }}</span>
+      </div>
+      <div class="row folder-row">
+        <span class="folder-path" :title="exportFolder || ''">{{ exportFolder || '未选择 — 请点击「选择文件夹」指定导出位置' }}</span>
+        <button class="btn" :class="{ primary: !exportFolder }" @click="chooseExportFolder">选择文件夹</button>
+        <button v-if="exportFolder" class="btn dim" @click="clearExportFolder">清除</button>
+      </div>
+    </section>
 
     <div class="cards">
       <!-- 输出设置 -->
@@ -494,13 +510,6 @@ function onThumbClick(item: { id: string }, e: MouseEvent) {
         <button class="btn" :disabled="!targetCount || batch.running" @click="exportBatch">
           批量导出（{{ selectedCount ? selectedCount + ' 张选中' : '全部 ' + targetCount + ' 张' }}）
         </button>
-      </div>
-
-      <div v-if="isTauri" class="export-folder" title="选定后导出直接写入该文件夹，重名自动加序号">
-        <span class="folder-title">导出文件夹</span>
-        <span class="folder-path" :title="exportFolder || ''">{{ exportFolder || '未选择（导出后手动保存）' }}</span>
-        <button class="btn dim" @click="chooseExportFolder">选择</button>
-        <button v-if="exportFolder" class="btn dim" @click="clearExportFolder">清除</button>
       </div>
     </section>
   </div>
@@ -778,22 +787,20 @@ function onThumbClick(item: { id: string }, e: MouseEvent) {
   flex: none;
 }
 
-/* 导出文件夹选择行（吸底任务卡内） */
-.export-folder {
-  display: flex;
+/* 导出文件夹卡片（页面顶部，导出前必须选定） */
+.folder-card {
+  margin-bottom: 14px;
+}
+.folder-card.missing {
+  border-color: #c0392b;
+}
+.folder-row {
   align-items: center;
-  gap: 6px;
-  flex: none;
+}
+.folder-card .folder-path {
+  flex: 1;
   min-width: 0;
-  max-width: 320px;
-}
-.export-folder .folder-title {
-  font-size: 11px;
-  color: var(--text-dim);
-  white-space: nowrap;
-}
-.export-folder .folder-path {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-dim);
   white-space: nowrap;
   overflow: hidden;

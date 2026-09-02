@@ -59,5 +59,9 @@ defineProps<{ name: string }>()
       <path d="M3 6l5 5 5-5" />
       <path d="M3 3l5 5 5-5" />
     </g>
+    <!-- folder: 文件夹 -->
+    <g v-else-if="name === 'folder'">
+      <path d="M2 12.5v-8a.5.5 0 0 1 .5-.5H6l1.2 1.5h6.3a.5.5 0 0 1 .5.5v6.5a.5.5 0 0 1-.5.5h-11a.5.5 0 0 1-.5-.5z" />
+    </g>
   </svg>
 </template>
