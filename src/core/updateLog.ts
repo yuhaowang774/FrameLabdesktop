@@ -44,6 +44,17 @@ export const IMPORTANCE_LABELS: Record<UpdateImportance, string> = {
 // ===== 更新日志（新版本追加在最上方）=====
 export const UPDATE_LOG: UpdateEntry[] = [
   {
+    version: '0.1.12',
+    date: '2026-09-02',
+    importance: 'normal',
+    groups: {
+      added: [
+        '历史更新记录：升级完成后自动弹出本次更新详情弹窗',
+        '首选项「关于 → 更新记录」可查看全部版本的新增功能 / 功能优化 / 问题修复 / 已知问题',
+      ],
+    },
+  },
+  {
     version: '0.1.11',
     date: '2026-09-02',
     importance: 'normal',
