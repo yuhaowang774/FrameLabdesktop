@@ -233,6 +233,22 @@ export function cardThemeColors(theme: 'white' | 'black'): { card: string; prima
     : { card: '#FFFFFF', primary: '#1A1A1A', secondary: '#8A8A8A' }
 }
 
+/**
+ * card 联名标块配色（预览与导出同源）：用户自定义优先，null 回退品牌默认。
+ * 品牌默认：底色 = badge.bg ?? accent；文字色 = badge.fg ?? '#ffffff'；无匹配品牌回退黑底白字。
+ */
+export function cardBadgeColors(
+  cfgBg: string | null | undefined,
+  cfgFg: string | null | undefined,
+  brandId: string,
+): { bg: string; fg: string } {
+  const phone = phoneBrandOf(brandId)
+  return {
+    bg: cfgBg ?? phone?.badge.bg ?? phone?.accent ?? '#111111',
+    fg: cfgFg ?? phone?.badge.fg ?? '#ffffff',
+  }
+}
+
 export interface CardRect {
   x: number
   y: number

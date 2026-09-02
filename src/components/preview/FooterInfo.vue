@@ -11,6 +11,7 @@ import {
   computeClassicLayout,
   computeCardLayout,
   cardThemeColors,
+  cardBadgeColors,
   CARD_RADIUS,
   LENS_LINE_GAP,
   type FooterLayout,
@@ -134,6 +135,7 @@ function onPointerDown(e: PointerEvent, key: ItemKey) {
   guideVisible.value = true
   guideV.value = false
   guideH.value = false
+  guideBand.value = false
   window.addEventListener('pointermove', onPointerMove)
   window.addEventListener('pointerup', onPointerUp)
   cancelAnimationFrame(autoPanRaf)
@@ -212,6 +214,26 @@ function updatePosition(mx: number, my: number) {
 const guideVisible = ref(false)
 const guideV = ref(false) // 水平居中（垂直中线）
 const guideH = ref(false) // 垂直居中（水平中线）
+const guideBand = ref(false) // 下边白框带中线（下边宽度 > 0 时出现）
+
+/** 下边白框带（画板最底部的边框留白 = padding + borderRatio 加宽）中心在内容区坐标系中的 y。
+ *  仅在下边宽度 borderRatio > 0（存在加宽白框）时提供；否则返回 null（不显示、不吸附）。
+ *  画板垂直结构（自顶向下）：pad → bgExpand → 内容区 → (bgExpand + bgBottomRatio 背景下扩展) → (pad + borderRatio 白框)。
+ *  白框带贴画板最底部（背景扩展在其上方内侧），中心 = 画板底缘 − 带高/2，再转内容区坐标（减 pad + bgExpand）。 */
+const bottomBandCenter = computed<number | null>(() => {
+  if (state.borderRatio <= 0) return null
+  const containerH = frameContainerH.value > 0
+    ? frameContainerH.value
+    : contentH.value + state.padding * 2 + state.borderRatio + bgExpand.value * 2 + state.bgBottomRatio
+  return containerH - (pad.value + state.borderRatio) / 2 - pad.value - bgExpand.value
+})
+
+/** 下边白框带中线在画板中的位置样式（内容区坐标 → 画板坐标） */
+const bottomBandStyle = computed(() => {
+  const cy = bottomBandCenter.value
+  if (cy == null) return null
+  return { top: pad.value + bgExpand.value + cy + 'px' }
+})
 
 /** 画板中心在「内容区坐标系」中的位置（footer-layer 覆盖整个画板） */
 function canvasCenterInContent(): { x: number; y: number } {
@@ -224,20 +246,28 @@ function canvasCenterInContent(): { x: number; y: number } {
   return { x: DESIGN_CONTAINER / 2, y: cy }
 }
 
-/** 元素中心接近画板中心时吸附并返回吸附后的坐标 */
+/** 元素中心接近画板中心 / 下边白框带中线时吸附并返回吸附后的坐标 */
 function applyCenterSnap(x: number, y: number): { x: number; y: number } {
   if (!dragEl.value) return { x, y }
   const cx = canvasCenterInContent()
   const elemW = dragEl.value.offsetWidth
   const elemH = dragEl.value.offsetHeight
-  const dx = Math.abs(x + elemW / 2 - cx.x)
-  const dy = Math.abs(y + elemH / 2 - cx.y)
   const T = 10 // 吸附阈值（设计 px）
+  const dx = Math.abs(x + elemW / 2 - cx.x)
   guideV.value = dx < T
-  guideH.value = dy < T
+  // y 向双候选：画板水平中线 / 下边白框带中线（存在时），谁更近吸谁
+  const band = bottomBandCenter.value
+  const dCenter = Math.abs(y + elemH / 2 - cx.y)
+  const dBand = band == null ? Infinity : Math.abs(y + elemH / 2 - band)
+  guideH.value = dCenter < T && dCenter <= dBand
+  guideBand.value = band != null && dBand < T && dBand < dCenter
   return {
     x: guideV.value ? cx.x - elemW / 2 : x,
-    y: guideH.value ? cx.y - elemH / 2 : y,
+    y: guideH.value
+      ? cx.y - elemH / 2
+      : guideBand.value
+        ? (band as number) - elemH / 2
+        : y,
   }
 }
 
@@ -261,6 +291,7 @@ function onPointerUp() {
   guideVisible.value = false
   guideV.value = false
   guideH.value = false
+  guideBand.value = false
   window.removeEventListener('pointermove', onPointerMove)
   window.removeEventListener('pointerup', onPointerUp)
 }
@@ -317,7 +348,8 @@ const cardTheme = computed(() => cardThemeColors(state.infoCardTheme))
 const cardBadge = computed(() => {
   const phone = phoneBrandOf(state.brand)
   if (!phone?.badge.text) return null
-  return { text: phone.badge.text, bg: phone.badge.bg ?? phone.accent, fg: phone.badge.fg ?? '#ffffff' }
+  const c = cardBadgeColors(state.cardBadgeBg, state.cardBadgeFg, state.brand)
+  return { text: phone.badge.text, bg: c.bg, fg: c.fg }
 })
 /** 卡内子项定位：内容区坐标 + padding + bgExpand → 画板坐标 */
 function cardPos(r: CardRect) {
@@ -329,8 +361,12 @@ function cardPos(r: CardRect) {
   }
 }
 
-// duo 双栏分隔竖线：右栏文字左侧浅灰线（与 exporter 一致，几何来自共享布局计算）
-const duoDividerStyle = computed(() => {
+// duo 双栏分隔竖线：右栏文字左侧浅灰线（与 exporter 一致，几何来自共享布局计算）；
+// x 支持水平拖动（infoDividerX），上/下端手柄调高度（infoDividerTop/Bottom），null = 跟随默认布局
+const MIN_DIVIDER_H = 20 // 竖线最小高度（设计 px）
+
+/** 竖线当前几何（内容区坐标）：手动值优先，null 回退默认布局 */
+function dividerGeom(): { x: number; top: number; bottom: number } | null {
   if (state.infoLayout !== 'duo') return null
   if (!(state.showExif && state.exifText) && !(state.showDate && state.dateText)) return null
   const canvasBottom = frameContainerH.value > 0
@@ -339,12 +375,79 @@ const duoDividerStyle = computed(() => {
   const L = computeFooterLayout(state, canvasBottom, logoRatio.value)
   if (!L.divider) return null
   return {
-    left: pad.value + bgExpand.value + L.divider.x + 'px',
-    top: pad.value + bgExpand.value + L.divider.y + 'px',
-    height: L.divider.h + 'px',
-    width: '1px',
+    x: state.infoDividerX ?? L.divider.x,
+    top: state.infoDividerTop ?? L.divider.y,
+    bottom: state.infoDividerBottom ?? L.divider.y + L.divider.h,
+  }
+}
+
+const duoDividerStyle = computed(() => {
+  const g = dividerGeom()
+  if (!g) return null
+  return {
+    // left 恒 0、以 transform 定位：拖动只触发合成不重排（消除拖影的关键）
+    transform: `translateX(${pad.value + bgExpand.value + g.x}px)`,
+    top: pad.value + bgExpand.value + g.top + 'px',
+    height: Math.max(MIN_DIVIDER_H, g.bottom - g.top) + 'px',
   }
 })
+
+// ===== duo 分隔竖线拖拽：线体 = 水平移动；上/下手柄 = 调节对应端（高度） =====
+type DividerEdge = 'x' | 'top' | 'bottom'
+const dividerDragging = ref(false)
+const dividerEdge = ref<DividerEdge>('x')
+let divStart = { x: 0, top: 0, bottom: 0 }
+let divStartClient = { x: 0, y: 0 }
+
+function startDividerDrag(e: PointerEvent, edge: DividerEdge) {
+  if (!infoEditing.value) return
+  e.stopPropagation()
+  const g = dividerGeom()
+  if (!g) return
+  divStart = { x: g.x, top: g.top, bottom: g.bottom }
+  divStartClient = { x: e.clientX, y: e.clientY }
+  dividerEdge.value = edge
+  dividerDragging.value = true
+  try {
+    ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
+  } catch {
+    /* 某些环境（如 pointerId 无效）下忽略 */
+  }
+  window.addEventListener('pointermove', onDividerMove)
+  window.addEventListener('pointerup', onDividerUp)
+  e.preventDefault()
+}
+
+function onDividerMove(e: PointerEvent) {
+  if (!dividerDragging.value) return
+  const rect = containerRect()
+  if (!rect) return
+  const scale = rect.width / canvasW.value
+  const dx = (e.clientX - divStartClient.x) / scale
+  const dy = (e.clientY - divStartClient.y) / scale
+  const boardLo = -(pad.value + bgExpand.value) // 画板顶/左缘（内容区坐标）
+  if (dividerEdge.value === 'x') {
+    const hi = DESIGN_CONTAINER + pad.value + bgExpand.value // 画板右缘
+    patch({ infoDividerX: Math.max(boardLo, Math.min(hi, divStart.x + dx)) })
+  } else if (dividerEdge.value === 'top') {
+    // 顶端跟随鼠标，但不越过底端（保底最小高度）
+    const nt = Math.min(divStart.top + dy, divStart.bottom - MIN_DIVIDER_H)
+    patch({ infoDividerTop: Math.max(boardLo, nt) })
+  } else {
+    // 底端跟随鼠标，但不越过顶端，且不超过画板底缘
+    const canvasBottom = frameContainerH.value > 0
+      ? frameContainerH.value - pad.value - bgExpand.value
+      : contentH.value
+    const nb = Math.max(divStart.bottom + dy, divStart.top + MIN_DIVIDER_H)
+    patch({ infoDividerBottom: Math.min(canvasBottom, nb) })
+  }
+}
+
+function onDividerUp() {
+  dividerDragging.value = false
+  window.removeEventListener('pointermove', onDividerMove)
+  window.removeEventListener('pointerup', onDividerUp)
+}
 
 // duo 布局下日期默认沿用机型样式组（灰细小字，与样例一致）；
 // 但用户在「日期样式」里显式改了任一属性后，以用户的独立设置为准。
@@ -401,8 +504,24 @@ function absStyle(key: ItemKey) {
     <!-- 居中辅助线：INFO 面板展开时显示，拖拽元素接近中心时高亮 -->
     <div v-if="guideVisible" class="guide-v" :class="{ snap: guideV }" />
     <div v-if="guideVisible" class="guide-h" :class="{ snap: guideH }" />
-    <!-- duo 双栏分隔竖线 -->
-    <div v-if="duoDividerStyle" class="duo-divider" :style="duoDividerStyle" />
+    <!-- 下边白框带中线：下边宽度 > 0 时出现，元素拖近带中心时高亮吸附 -->
+    <div
+      v-if="guideVisible && bottomBandStyle"
+      class="guide-band"
+      :class="{ snap: guideBand }"
+      :style="bottomBandStyle"
+    />
+    <!-- duo 双栏分隔竖线：编辑态可水平拖动线体；拖两端手柄调节高度（几何存 infoDivider* 配置） -->
+    <div
+      v-if="duoDividerStyle"
+      class="duo-divider"
+      :class="{ dragging: dividerDragging }"
+      :style="duoDividerStyle"
+      @pointerdown="startDividerDrag($event, 'x')"
+    >
+      <div class="dv-handle top" title="拖动调节顶端" @pointerdown.stop="startDividerDrag($event, 'top')" />
+      <div class="dv-handle bottom" title="拖动调节底端" @pointerdown.stop="startDividerDrag($event, 'bottom')" />
+    </div>
     <!-- card 白底水印卡（手机品牌）：与导出同源布局，静态渲染不支持拖拽 -->
     <template v-if="cardLayout">
       <div
@@ -568,9 +687,10 @@ function absStyle(key: ItemKey) {
   text-align: center;
   letter-spacing: 0.5px;
 }
-/* 居中辅助线：垂直中线（水平居中）与水平中线（垂直居中） */
+/* 居中辅助线：垂直中线（水平居中）、水平中线（垂直居中）、下边白框带中线 */
 .guide-v,
-.guide-h {
+.guide-h,
+.guide-band {
   position: absolute;
   pointer-events: none;
   background: var(--border);
@@ -590,9 +710,16 @@ function absStyle(key: ItemKey) {
   height: 1px;
   transform: translateY(-0.5px);
 }
-/* 元素中心接近画板中心时：高亮 */
+.guide-band {
+  left: 0;
+  right: 0;
+  height: 1px;
+  transform: translateY(-0.5px);
+}
+/* 元素中心接近中心线 / 白框带中线时：高亮 */
 .guide-v.snap,
-.guide-h.snap {
+.guide-h.snap,
+.guide-band.snap {
   background: var(--slider-thumb);
   opacity: 1;
 }
@@ -633,10 +760,53 @@ function absStyle(key: ItemKey) {
   color: var(--footer-text-color);
   white-space: nowrap;
 }
-/* duo 双栏分隔竖线（浅灰，与导出一致） */
+/* duo 双栏分隔竖线（浅灰，与导出一致）：容器 12px 命中热区，视觉 1px 线居中。
+   定位走 transform（合成层），配 user-select/touch-action 约束，消除拖动拖影 */
 .duo-divider {
   position: absolute;
-  background: rgba(0, 0, 0, 0.18);
+  left: 0;
+  width: 12px;
+  margin-left: -6px; /* 以布局 x 为中心展开热区 */
   pointer-events: none;
+  user-select: none;
+  touch-action: none;
+  will-change: transform;
+}
+.duo-divider::before {
+  content: '';
+  position: absolute;
+  left: 5.5px;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: rgba(0, 0, 0, 0.18);
+}
+.footer-layer.editing .duo-divider {
+  pointer-events: auto;
+  cursor: ew-resize;
+}
+.duo-divider.dragging {
+  cursor: ew-resize;
+}
+/* 高度调节手柄：竖线上/下端小方块（仅编辑态显示），拖动改写 infoDividerTop/Bottom */
+.dv-handle {
+  position: absolute;
+  left: 3px; /* 中心对齐 1px 视觉线（5.5 + 0.5） */
+  width: 6px;
+  height: 6px;
+  box-sizing: border-box;
+  background: var(--slider-thumb);
+  border: 1px solid rgba(0, 0, 0, 0.4);
+  cursor: ns-resize;
+  pointer-events: auto;
+}
+.footer-layer:not(.editing) .dv-handle {
+  display: none;
+}
+.dv-handle.top {
+  top: -3px;
+}
+.dv-handle.bottom {
+  bottom: -3px;
 }
 </style>

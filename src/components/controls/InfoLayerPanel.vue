@@ -4,9 +4,10 @@
 // 展开本面板时画布上的三个元素可拖拽微调位置；收起后固定显示（打印态）。
 import { computed, ref } from 'vue'
 import { useFrameConfig } from '../../composables/useFrameConfig'
-import { BRANDS, PHONE_BRANDS, RANGES, MAX_CUSTOM_LOGOS, CROP_FACTORS, BRAND_LOGO_COLORS } from '../../core/constants'
+import { BRANDS, PHONE_BRANDS, RANGES, MAX_CUSTOM_LOGOS, CROP_FACTORS, BRAND_LOGO_COLORS, phoneBrandOf } from '../../core/constants'
 import { buildExifText, formatDate, type DateFormat } from '../../composables/useExif'
 import { footerTextColor, logoAutoColor } from '../../core/colorUtils'
+import { cardBadgeColors } from '../../core/infoLayout'
 import ColorField from '../common/ColorField.vue'
 import { useLogoStore, CUSTOM_PREFIX } from '../../composables/useLogoStore'
 import RangeSlider from '../common/RangeSlider.vue'
@@ -29,7 +30,14 @@ const customBrandOptions = computed(() =>
 )
 
 // ===== Logo 颜色：自动 / 白 / 黑 / 品牌主色（有公认标志色的品牌才出现）/ 自定义色 =====
-const brandHex = computed(() => BRAND_LOGO_COLORS[state.brand])
+// 内置品牌色可被 brandColorCustom 覆盖（主色定制），选中「品牌主色」时写入当前生效值
+const builtinBrandHex = computed(() => BRAND_LOGO_COLORS[state.brand])
+const brandHex = computed(() => state.brandColorCustom ?? builtinBrandHex.value)
+// card 联名标块默认配色（当前品牌无标块时为 null，不显示调节项）
+const badgeDefault = computed(() => {
+  if (!phoneBrandOf(state.brand)?.badge.text) return null
+  return cardBadgeColors(null, null, state.brand)
+})
 // 「自动」态色块参考色：INFO 文字随底色自适应黑白；Logo 随底色取黑/白
 const footerColor = computed(() => footerTextColor(state.bgMode, state.bgColor, 0.95))
 const logoAutoSwatch = computed(() => logoAutoColor(state.logoColor, state.bgMode, state.bgColor))
@@ -160,6 +168,27 @@ async function onDeleteCustom(id: string) {
         <span class="sw-tag">卡内显示日期</span>
       </label>
     </div>
+    <!-- card 标块配色：仅当前手机品牌有联名标块时显示；默认 = 品牌官方配色 -->
+    <template v-if="state.infoLayout === 'card' && badgeDefault">
+      <div class="field">
+        <label title="联名标块（如 XMAGE / LEICA / ZEISS）的底色。默认使用品牌官方配色，可自定义覆盖。">标块底色</label>
+        <ColorField
+          :model-value="state.cardBadgeBg"
+          auto-label="品牌默认"
+          :auto-swatch="badgeDefault.bg"
+          @update:model-value="(v: string | null) => patch({ cardBadgeBg: v })"
+        />
+      </div>
+      <div class="field">
+        <label title="联名标块内文字的颜色。默认使用品牌官方配色，可自定义覆盖。">标块文字色</label>
+        <ColorField
+          :model-value="state.cardBadgeFg"
+          auto-label="品牌默认"
+          :auto-swatch="badgeDefault.fg"
+          @update:model-value="(v: string | null) => patch({ cardBadgeFg: v })"
+        />
+      </div>
+    </template>
     <!-- 板块 1：相机品牌 -->
     <CollapsiblePanel title="相机品牌" :open="openLogo" @toggle="openLogo = !openLogo">
       <template #icon><Icon name="brand" /></template>
@@ -196,6 +225,16 @@ async function onDeleteCustom(id: string) {
           :auto-swatch="logoAutoSwatch"
           :extra-options="brandHex ? [{ value: brandHex, label: '品牌主色' }] : []"
           @update:model-value="(v: string | null) => patch({ logoColor: v ?? 'auto' })"
+        />
+      </div>
+      <!-- 主色定制：覆盖内置品牌主色（仅收录了品牌色的品牌显示）；改后需在上方重新选一次「品牌主色」生效 -->
+      <div v-if="builtinBrandHex" class="field">
+        <label title="自定义该品牌的「品牌主色」预设值（如尼康黄、佳能红）。修改后在上方 Logo 颜色里重新选择「品牌主色」即可应用；选「内置品牌色」恢复官方配色。">主色定制</label>
+        <ColorField
+          :model-value="state.brandColorCustom"
+          auto-label="内置品牌色"
+          :auto-swatch="builtinBrandHex"
+          @update:model-value="(v: string | null) => patch({ brandColorCustom: v })"
         />
       </div>
       <!-- 自定义 Logo：上传 + 列表 -->

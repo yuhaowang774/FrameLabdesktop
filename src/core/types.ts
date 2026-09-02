@@ -109,6 +109,12 @@ export interface FrameConfig {
   infoCardTheme: 'white' | 'black'
   /** card 模式是否显示日期行（左列下行） */
   cardShowDate: boolean
+  /** card 模式联名标块底色：null = 跟随品牌默认（badge.bg ?? accent），由 cardBadgeColors 解析 */
+  cardBadgeBg: string | null
+  /** card 模式联名标块文字色：null = 跟随品牌默认（badge.fg ?? '#ffffff'） */
+  cardBadgeFg: string | null
+  /** 品牌 Logo「品牌主色」预设的定制值：null = 用内置 BRAND_LOGO_COLORS；设置后覆盖内置色 */
+  brandColorCustom: string | null
   fontFamily: string
   fontSize: number
   textWeight: number
@@ -161,6 +167,11 @@ export interface FrameConfig {
   /** 镜头行位置（duo 布局左栏上行；classic 下镜头行随 EXIF 块，不使用） */
   lensX: number | null
   lensY: number | null
+  /** duo 杂志双栏分隔竖线手动几何（内容区坐标 px）：null = 跟随默认布局。
+   *  x 仅水平拖动；top/bottom 为竖线上/下端 y（两端手柄拖动调节高度），导出端同规则应用 */
+  infoDividerX: number | null
+  infoDividerTop: number | null
+  infoDividerBottom: number | null
 
   /** 背景自由变换（缩放 + 平移），设计坐标 */
   bgScale: number // 背景缩放倍数（1 = cover 铺满）
@@ -239,6 +250,9 @@ export const defaultFrameConfig: FrameConfig = {
   infoLayout: 'classic',
   infoCardTheme: 'white',
   cardShowDate: true,
+  cardBadgeBg: null,
+  cardBadgeFg: null,
+  brandColorCustom: null,
   fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
   fontSize: 30,
   textWeight: 600,
@@ -287,6 +301,9 @@ export const defaultFrameConfig: FrameConfig = {
   dateY: null,
   lensX: null,
   lensY: null,
+  infoDividerX: null,
+  infoDividerTop: null,
+  infoDividerBottom: null,
 
   bgScale: 1,
   bgOffsetX: 0,

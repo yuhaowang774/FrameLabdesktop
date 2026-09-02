@@ -13,6 +13,7 @@ import {
   computeClassicLayout,
   computeCardLayout,
   cardThemeColors,
+  cardBadgeColors,
   exifTextStyle,
   lensTextStyle,
   dateTextStyle,
@@ -152,13 +153,14 @@ function drawCardFooter(
     const phone = phoneBrandOf(config.brand)
     if (phone?.badge.text) {
       const b = L.badge
+      const colors = cardBadgeColors(config.cardBadgeBg, config.cardBadgeFg, config.brand)
       ctx.save()
       roundRectPath(ctx, ox + b.x * s, ox + b.y * s, b.w * s, b.h * s, 4 * s)
-      ctx.fillStyle = phone.badge.bg ?? phone.accent
+      ctx.fillStyle = colors.bg
       ctx.fill()
       ctx.restore()
       ctx.save()
-      ctx.fillStyle = phone.badge.fg ?? '#ffffff'
+      ctx.fillStyle = colors.fg
       ctx.font = `600 ${CARD_BADGE_FONT_SIZE * s}px ${config.fontFamily}`
       ctx.textAlign = 'center'
       ctx.textBaseline = 'middle'
@@ -226,7 +228,18 @@ async function drawFooter(
   // duo 下镜头行为独立元素（可单独拖拽）；classic 下它是 EXIF 块内附加行，跟随 EXIF 移动
   let dLensX = config.lensX ?? layout.lens.x
   let dLensY = config.lensY ?? layout.lens.y
+  // duo 分隔竖线：手动拖拽几何优先（infoDividerX/Top/Bottom），null = 默认布局（右栏文字左侧）
   const duoDivider = layout.divider
+    ? (() => {
+        const top = config.infoDividerTop ?? layout.divider.y
+        const bottom = config.infoDividerBottom ?? layout.divider.y + layout.divider.h
+        return {
+          x: config.infoDividerX ?? layout.divider.x,
+          y: top,
+          h: Math.max(0, bottom - top),
+        }
+      })()
+    : null
   const hasLensText = config.showLens && !!config.lensText
 
   // duo 分隔竖线：右栏文字左侧（浅灰，颜色随底色自适应）

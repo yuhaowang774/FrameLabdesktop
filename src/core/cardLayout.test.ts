@@ -1,6 +1,6 @@
-// card 白底水印卡布局计算测试：左右列定位 / 标块矩形 / 自适应卡高
+// card 白底水印卡布局计算测试：左右列定位 / 标块矩形 / 自适应卡高 / 标块配色
 import { describe, it, expect } from 'vitest'
-import { computeCardLayout, CARD_INSET, CARD_PAD_V, CARD_ROW_GAP, CARD_RADIUS } from './infoLayout'
+import { computeCardLayout, cardBadgeColors, CARD_INSET, CARD_PAD_V, CARD_ROW_GAP, CARD_RADIUS } from './infoLayout'
 import { defaultFrameConfig } from './types'
 
 // 基准配置：card 布局 + 小米 + 全部开关
@@ -65,5 +65,24 @@ describe('computeCardLayout', () => {
 
   it('卡片圆角常量', () => {
     expect(CARD_RADIUS).toBeGreaterThan(0)
+  })
+})
+
+describe('cardBadgeColors 标块配色', () => {
+  it('默认跟随品牌：有 badge.bg 用之，无则回退 accent；文字色无设置回退白', () => {
+    // 小米：badge.bg = LEICA 红
+    expect(cardBadgeColors(null, null, 'xiaomi')).toEqual({ bg: '#E20612', fg: '#ffffff' })
+    // 华为：badge 无 bg，回退 accent 红
+    expect(cardBadgeColors(null, null, 'huawei')).toEqual({ bg: '#C7000B', fg: '#ffffff' })
+  })
+
+  it('用户自定义优先于品牌默认（bg/fg 可独立覆盖）', () => {
+    expect(cardBadgeColors('#123456', null, 'xiaomi')).toEqual({ bg: '#123456', fg: '#ffffff' })
+    expect(cardBadgeColors(null, '#FEDCBA', 'xiaomi')).toEqual({ bg: '#E20612', fg: '#FEDCBA' })
+    expect(cardBadgeColors('#123456', '#FEDCBA', 'xiaomi')).toEqual({ bg: '#123456', fg: '#FEDCBA' })
+  })
+
+  it('非手机品牌（无匹配）回退黑底白字', () => {
+    expect(cardBadgeColors(null, null, 'sony')).toEqual({ bg: '#111111', fg: '#ffffff' })
   })
 })
