@@ -126,6 +126,20 @@ async function runClear(kind: string) {
 // 桌面端墓碑数量展示（弹窗每次打开时重新取值）
 const removedCount = ref(isTauri ? removedPathCount() : 0)
 
+// ===== 重启应用（仅桌面端）：退出并拉起新进程，让性能/数据类设置彻底生效 =====
+const restarting = ref(false)
+async function onRestart() {
+  if (restarting.value) return
+  restarting.value = true
+  try {
+    const { invoke } = await import('@tauri-apps/api/core')
+    await invoke('restart_app')
+  } catch {
+    restarting.value = false
+    window.alert('重启失败，请手动关闭应用后重新打开。')
+  }
+}
+
 const APP_VERSION = '0.1.0'
 
 onMounted(() => {
@@ -285,6 +299,15 @@ onMounted(() => {
         <!-- 关于 -->
         <section class="pf-sec">
           <h3 class="pf-sec-title">关于</h3>
+          <div class="pf-row" v-if="isTauri">
+            <div class="pf-text">
+              <span class="pf-label">重启应用</span>
+              <span class="pf-desc">退出并重新启动 FrameLab，用于让性能、数据类设置彻底生效。</span>
+            </div>
+            <button class="pf-btn" :disabled="restarting" @click="onRestart">
+              {{ restarting ? '正在重启…' : '重启' }}
+            </button>
+          </div>
           <div class="pf-about">
             <span class="pf-about-logo">◎ FrameLab</span>
             <span class="pf-about-ver">版本 {{ APP_VERSION }}</span>

@@ -430,6 +430,14 @@ fn reveal_path(path: String) -> Result<(), String> {
     }
 }
 
+/// 重启应用：以相同可执行文件拉起新进程并退出当前进程（首选项「重启应用」按钮）。
+/// 顺序为先拉起新进程再退出：单实例互斥随本进程退出即释放，而新进程初始化到
+/// 检查互斥（插件 setup）需要数十毫秒，晚于本进程退出，不会被误导向旧实例。
+#[tauri::command]
+fn restart_app(app: tauri::AppHandle) {
+    app.restart();
+}
+
 /// 系统显示适配器信息（独显/核显为名称启发式判定）
 #[derive(serde::Serialize)]
 struct GpuInfo {
@@ -604,7 +612,8 @@ pub fn run() {
             open_graphics_settings,
             detect_discrete_gpu,
             list_gpus,
-            reveal_path
+            reveal_path,
+            restart_app
         ])
         .run(tauri::generate_context!())
         .expect("error while running FrameLab");
