@@ -8,6 +8,7 @@
 import { isTauri } from './env'
 import { downloadBlob } from '../core/exporter'
 import type { LibraryItem, LocalImageEntry } from '../composables/useLibrary'
+import { loadCatalog, setCatalogFolder } from './catalog'
 
 // Tauri API 一律惰性动态加载：网页端构建/运行不依赖 @tauri-apps/api 包
 let convertFileSrcFn: ((path: string) => string) | null = null
@@ -158,54 +159,103 @@ export async function writeBlobTo(folder: string, filename: string, blob: Blob):
 
 // ===== 图库接入（桌面端） =====
 
-export const LAST_FOLDER_KEY = 'framelab-last-folder'
+/** 旧版（≤0.1.7）「上次文件夹」键：仅一次性迁移到目录时读取 */
+const LEGACY_LAST_FOLDER_KEY = 'framelab-last-folder'
+/** 旧版墓碑键：仅一次性迁移时读取过滤 */
+const LEGACY_REMOVED_KEY = 'framelab-removed-paths'
 
-/** 桌面端：把扫描到的本地图片加入图库（只记录路径，不拷贝原图） */
+/** 桌面端：把本地图片加入图库（只记录路径，不拷贝原图） */
 export async function addLocalEntries(entries: LocalImageEntry[]): Promise<LibraryItem[]> {
   await ensureAssetApi()
   const { useLibrary } = await import('../composables/useLibrary')
   return useLibrary().addLocalEntries(entries)
 }
 
-/** 桌面端：选择文件夹 → 扫描 → 加入图库，并记住文件夹路径 */
+/** 桌面端：选择文件夹 → 扫描 → 加入图库，并记录目录关联文件夹。
+ *  目录权威（LrC 语义）：文件夹里新增的照片不会自动出现，需再次导入；
+ *  从图库移除的照片也不会因重启而回来。 */
 export async function loadFolderIntoLibrary(
   result: { folder: string; images: LocalImageEntry[] },
 ): Promise<number> {
   const items = await addLocalEntries(result.images)
-  try {
-    localStorage.setItem(LAST_FOLDER_KEY, result.folder)
-  } catch {
-    /* ignore */
-  }
+  setCatalogFolder(result.folder)
   return items.length
 }
 
-/** 桌面端：启动时恢复上次打开的文件夹（目录失效则静默清除）。
- *  被用户从图库移除过的路径（墓碑）不再自动加回，LrC 目录语义；
- *  同时清理残留墓碑：本次扫描未发现的路径（文件已不在磁盘）不再保留 */
-export async function restoreLastFolder(): Promise<void> {
+/**
+ * 桌面端启动恢复：只按目录还原图库，不重扫文件夹（LrC 目录语义）。
+ * - 目录有记录：按父目录分组批量确认存在性（每目录一次扫描，避免逐路径 invoke）；
+ *   文件已不在磁盘的路径跳过加载（记录保留在目录里，文件恢复后自动回来）；
+ *   目录暂不可访问（如移动硬盘未挂载）时按 LrC 容错整组还原，缺失文件显示为
+ *   坏条目，不会因一次扫描失败清空图库。
+ * - 目录为空：一次性迁移旧版数据（上次文件夹扫描 − 旧墓碑 → 导入即写入目录），
+ *   先清旧键再导入（导入中断不会重扫复活），之后启动永远只认目录。
+ */
+export async function restoreLibrary(): Promise<void> {
+  const cat = loadCatalog()
+  if (!cat.paths.length) {
+    await migrateLegacyLibrary()
+    return
+  }
+  // 按父目录分组（捕获含尾分隔符的目录部分；无分隔符的裸路径单独判定）
+  const byDir = new Map<string, string[]>()
+  for (const p of cat.paths) {
+    const m = p.match(/^(.*[/\\])/)
+    const dir = m ? m[1].replace(/[/\\]+$/, '') : ''
+    const list = byDir.get(dir)
+    if (list) list.push(p)
+    else byDir.set(dir, [p])
+  }
+  const entries: LocalImageEntry[] = []
+  for (const [dir, paths] of byDir) {
+    let existing: Set<string> | null = null
+    if (dir) {
+      try {
+        existing = new Set((await listDirImages(dir, false)).map((i) => i.path))
+      } catch {
+        existing = null // 目录暂不可访问：容错，该组全部还原
+      }
+    }
+    for (const p of paths) {
+      if (existing && !existing.has(p)) continue // 文件已不在磁盘：跳过加载
+      if (!dir && !(await pathExists(p).catch(() => false))) continue
+      entries.push({ path: p, name: p.split(/[\\/]/).pop() || p })
+    }
+  }
+  if (entries.length) await addLocalEntries(entries)
+}
+
+/** 旧版「启动重扫上次文件夹 + 墓碑过滤」数据一次性迁移为目录 */
+async function migrateLegacyLibrary(): Promise<void> {
   let last = ''
+  let removed: ReadonlySet<string> | null = null
   try {
-    last = localStorage.getItem(LAST_FOLDER_KEY) || ''
+    last = localStorage.getItem(LEGACY_LAST_FOLDER_KEY) || ''
+    const raw = localStorage.getItem(LEGACY_REMOVED_KEY)
+    if (raw) {
+      const arr = JSON.parse(raw) as unknown
+      if (Array.isArray(arr)) {
+        removed = new Set(arr.filter((p): p is string => typeof p === 'string'))
+      }
+    }
   } catch {
     /* ignore */
   }
   if (!last) return
+  // 先清旧键再导入：迁移中途退出也不会在下次启动重扫复活
+  try {
+    localStorage.removeItem(LEGACY_LAST_FOLDER_KEY)
+    localStorage.removeItem(LEGACY_REMOVED_KEY)
+  } catch {
+    /* ignore */
+  }
   try {
     const images = await listDirImages(last, true)
-    const { getRemovedPaths, pruneRemovedPaths } = await import('../composables/useLibrary')
-    const removed = getRemovedPaths()
-    if (removed.size) {
-      pruneRemovedPaths(last, images.map((i) => i.path))
-      await addLocalEntries(images.filter((i) => !removed.has(i.path)))
-    } else {
-      await addLocalEntries(images)
-    }
+    const fresh =
+      removed && removed.size ? images.filter((i) => !removed.has(i.path)) : images
+    setCatalogFolder(last)
+    if (fresh.length) await addLocalEntries(fresh)
   } catch {
-    try {
-      localStorage.removeItem(LAST_FOLDER_KEY)
-    } catch {
-      /* ignore */
-    }
+    /* 文件夹已不可访问：不迁移，目录保持为空，用户可重新导入 */
   }
 }

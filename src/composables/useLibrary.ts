@@ -7,6 +7,7 @@ import { useFrameConfig, suspendCommit } from './useFrameConfig'
 import { importPhoto, removePhotoHistory } from './useHistory'
 import { parseExif, buildExifText, formatDate, type ExifParseResult } from './useExif'
 import { isTauri } from '../platform/env'
+import { catalogAdd, catalogClear, catalogRemove } from '../platform/catalog'
 
 /** 桌面端本地图片条目（磁盘绝对路径） */
 export interface LocalImageEntry {
@@ -53,76 +54,6 @@ function requestRemoveViaKeyboard(): void {
   removalConfirm.value = { open: true, count }
 }
 
-// ===== 已移除路径墓碑（LrC 目录语义）=====
-// 启动时会自动重扫上次文件夹并把扫到的图加回图库；被用户从图库移除的
-// 磁盘路径记录在此，重扫时跳过，避免「删除后重启又复活」。
-// 手动重新导入同一文件夹时自动解除对应墓碑（用户明确要求加回来）。
-const REMOVED_KEY = 'framelab-removed-paths'
-const REMOVED_MAX = 5000
-const removedPaths = new Set<string>()
-try {
-  const raw = localStorage.getItem(REMOVED_KEY)
-  if (raw) {
-    const arr = JSON.parse(raw) as unknown
-    if (Array.isArray(arr)) arr.forEach((p) => typeof p === 'string' && removedPaths.add(p))
-  }
-} catch {
-  /* ignore */
-}
-function saveRemoved(): void {
-  try {
-    let arr = [...removedPaths]
-    // 上限保护：超出丢弃最早记录
-    if (arr.length > REMOVED_MAX) arr = arr.slice(arr.length - REMOVED_MAX)
-    localStorage.setItem(REMOVED_KEY, JSON.stringify(arr))
-  } catch {
-    /* ignore */
-  }
-}
-function tombstone(path?: string): void {
-  if (!path) return
-  removedPaths.add(path)
-  saveRemoved()
-}
-function untombstone(path?: string): void {
-  if (!path) return
-  if (removedPaths.delete(path)) saveRemoved()
-}
-/** 启动重扫过滤用：被用户移除过的磁盘路径集合 */
-export function getRemovedPaths(): ReadonlySet<string> {
-  return removedPaths
-}
-
-/** 墓碑数量（首选项展示用） */
-export function removedPathCount(): number {
-  return removedPaths.size
-}
-
-/** 清空全部墓碑：之前被移除的照片会在下次启动重扫 / 重新导入文件夹时全部回来 */
-export function clearRemovedPaths(): void {
-  if (!removedPaths.size) return
-  removedPaths.clear()
-  saveRemoved()
-}
-
-/** 清理残留墓碑：dir 下未被本次扫描发现的路径说明文件已不在磁盘，对应墓碑一并删除，
- *  防止无效记录无限累积（指向其他文件夹的墓碑不受影响） */
-export function pruneRemovedPaths(dir: string, found: Iterable<string>): void {
-  if (!removedPaths.size) return
-  const foundSet = found instanceof Set ? found : new Set(found)
-  // 统一分隔符再比对，避免 / 与 \ 混用导致前缀匹配失败
-  const norm = (s: string): string => s.replace(/\//g, '\\')
-  const nd = norm(dir)
-  const prefix = nd.endsWith('\\') ? nd : nd + '\\'
-  let changed = false
-  for (const p of [...removedPaths]) {
-    if (!foundSet.has(p) && norm(p).startsWith(prefix)) {
-      removedPaths.delete(p)
-      changed = true
-    }
-  }
-  if (changed) saveRemoved()
-}
 function confirmRemoval(): void {
   if (items.some((i) => i.selected)) {
     items.filter((i) => i.selected).forEach((i) => remove(i.id))
@@ -136,11 +67,11 @@ function cancelRemoval(): void {
 }
 
 /** 移除单张：仅从软件图库移除引用与历史链，不碰磁盘原文件；
- *  磁盘路径记入墓碑，启动重扫不再自动加回 */
+ *  磁盘路径同步从目录删除，重启后不会自动加回 */
 function remove(id: string): void {
   const idx = items.findIndex((i) => i.id === id)
   if (idx < 0) return
-  tombstone(items[idx].path)
+  catalogRemove(items[idx].path)
   releaseUrl(items[idx].url)
   releaseUrl(items[idx].thumbUrl)
   items.splice(idx, 1)
@@ -170,7 +101,7 @@ watch(activeId, () => {
 })
 
 /** 启动时恢复上次选中照片：ID 直接命中（种子图等稳定 ID）；否则按桌面端磁盘路径匹配
- *  （桌面端启动重扫文件夹后 ID 会重新生成）。找不到则不动作。 */
+ *  （桌面端启动按目录还原图库后 ID 会重新生成）。找不到则不动作。 */
 export function restoreActive(): void {
   let rec: { id?: string | null; path?: string | null } = {}
   try {
@@ -354,15 +285,19 @@ export function useLibrary() {
   }
 
   /**
-   * 桌面端：把扫描到的本地图片加入图库（asset 协议 URL 引用磁盘路径，不拷贝原图）。
+   * 桌面端：把本地图片加入图库（asset 协议 URL 引用磁盘路径，不拷贝原图）。
    * 流程与 addFiles 完全一致：EXIF 自动回填（挂起提交）→ 建立该照片历史链 Import 节点。
+   * 目录权威（LrC 语义）：同一路径已在图库则跳过；成功加入的路径逐条写入目录
+   * （随加随记，导入中断也不丢失已导入部分），是启动还原的唯一依据。
    */
   async function addLocalEntries(entries: LocalImageEntry[]): Promise<LibraryItem[]> {
     if (!isTauri || !entries.length) return []
     const { assetUrl, readLocalBytes } = await import('../platform/fs')
     const added: LibraryItem[] = []
     let firstNewId: string | null = null
+    const known = new Set(items.map((i) => i.path))
     for (const e of entries) {
+      if (known.has(e.path)) continue // 已在图库：跳过，避免重复导入产生重复条目
       const url = assetUrl(e.path)
       const { width, height } = await readSizeFromUrl(url)
       const id = makeId()
@@ -381,8 +316,8 @@ export function useLibrary() {
       }
       items.push(item)
       added.push(item)
-      // 明确（重新）导入的路径解除墓碑：用户手动要求加回，启动重扫不再跳过
-      untombstone(e.path)
+      known.add(e.path)
+      catalogAdd([e.path])
       // 异步生成缩略图（asset URL 若污染 canvas 会失败回退原图）
       void makeThumbUrl(url, width, height).then((t) => {
         if (t) item.thumbUrl = t
@@ -432,13 +367,13 @@ export function useLibrary() {
 
   function clearAll(): void {
     items.forEach((i) => {
-      tombstone(i.path)
       releaseUrl(i.url)
       releaseUrl(i.thumbUrl)
       void removePhotoHistory(i.id)
     })
     items.splice(0, items.length)
     activeId.value = null
+    catalogClear()
   }
 
   function toggleSelect(id: string): void {

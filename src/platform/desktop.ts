@@ -8,7 +8,7 @@ import { applyGpuPreferenceOnStartup } from './gpu'
 import {
   pickImageFiles,
   addLocalEntries,
-  restoreLastFolder,
+  restoreLibrary,
 } from './fs'
 
 export async function setupDesktopShell(): Promise<void> {
@@ -65,8 +65,9 @@ export async function setupDesktopShell(): Promise<void> {
   // 按用户设置重申 Windows GPU 首选项（独显加速，幂等）
   void applyGpuPreferenceOnStartup()
 
-  // 恢复上次会话打开的图片文件夹（桌面端仅保存磁盘路径，不拷贝原图）。
-  // 非阻塞：每张图需读盘解析 EXIF + 写 IndexedDB，大文件夹时避免阻塞首屏渲染，
+  // 按图库目录恢复上次会话的图库（LrC 目录语义：只加载目录记录的路径，
+  // 不重扫文件夹，从图库移除过的照片不会回来）。
+  // 非阻塞：每张图需读盘解析 EXIF + 写 IndexedDB，大图库时避免阻塞首屏渲染，
   // 图库条目会随恢复进度渐进出现。
-  void restoreLastFolder()
+  void restoreLibrary()
 }

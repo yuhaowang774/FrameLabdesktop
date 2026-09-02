@@ -24,7 +24,7 @@ import {
   setStartupTemplatePref,
   type ExportFormatPref,
 } from '../../composables/usePrefs'
-import { useLibrary, clearRemovedPaths, removedPathCount } from '../../composables/useLibrary'
+import { useLibrary } from '../../composables/useLibrary'
 import { useTemplates } from '../../composables/useTemplates'
 import { clearAllHistoryNodes } from '../../composables/useHistoryDB'
 import { listCustomLogos, removeCustomLogo } from '../../composables/useLogoStore'
@@ -116,15 +116,8 @@ async function runClear(kind: string) {
     for (const c of listCustomLogos()) await removeCustomLogo(c.id)
   } else if (kind === 'templates') {
     templates.clearCustom()
-  } else if (kind === 'tombstones') {
-    // 墓碑（已移除照片的路径记录）：清空后这些照片在下次启动重扫/重新导入文件夹时会回来
-    clearRemovedPaths()
-    removedCount.value = 0
   }
 }
-
-// 桌面端墓碑数量展示（弹窗每次打开时重新取值）
-const removedCount = ref(isTauri ? removedPathCount() : 0)
 
 // ===== 重启应用（仅桌面端）：退出并拉起新进程，让性能/数据类设置彻底生效 =====
 const restarting = ref(false)
@@ -261,22 +254,6 @@ onMounted(() => {
               @click="runClear('library')"
             >
               {{ clearing === 'library' ? '确认清除？' : '清除' }}
-            </button>
-          </div>
-          <div class="pf-row" v-if="isTauri">
-            <div class="pf-text">
-              <span class="pf-label">移除记录（{{ removedCount }} 条）</span>
-              <span class="pf-desc">
-                从图库移除过的照片会记住，防止重启后自动加回；清空后这些照片在下次启动时会重新出现。
-              </span>
-            </div>
-            <button
-              class="pf-btn danger"
-              :class="{ armed: clearing === 'tombstones' }"
-              :disabled="!removedCount"
-              @click="runClear('tombstones')"
-            >
-              {{ clearing === 'tombstones' ? '确认清除？' : '清除' }}
             </button>
           </div>
           <div class="pf-row">
