@@ -195,7 +195,7 @@ const importanceClass = (i: UpdateImportance) => `imp-${i}`
   color: var(--accent);
 }
 
-/* 重要程度徽标 */
+/* 重要程度徽标（统一中性色） */
 .imp {
   font-size: 10px;
   line-height: 16px;
@@ -203,14 +203,6 @@ const importanceClass = (i: UpdateImportance) => `imp-${i}`
   border: 1px solid var(--border);
   color: var(--text-dim);
   white-space: nowrap;
-}
-.imp.imp-major {
-  color: #ff8a5c;
-  border-color: #ff8a5c;
-}
-.imp.imp-normal {
-  color: #7fb2ff;
-  border-color: #7fb2ff;
 }
 
 /* 内容分组 */
@@ -226,11 +218,8 @@ const importanceClass = (i: UpdateImportance) => `imp-${i}`
   font-size: 11px;
   line-height: 17px;
   text-align: right;
+  color: var(--text-dim);
 }
-.group-label.gl-added { color: #7fd08a; }
-.group-label.gl-improved { color: #7fb2ff; }
-.group-label.gl-fixed { color: #ffb361; }
-.group-label.gl-known { color: var(--text-dim); }
 .group-list {
   flex: 1;
   min-width: 0;
