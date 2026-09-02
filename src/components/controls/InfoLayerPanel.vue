@@ -223,18 +223,9 @@ async function onDeleteCustom(id: string) {
           :model-value="state.logoColor"
           auto-value="auto"
           :auto-swatch="logoAutoSwatch"
-          :extra-options="brandHex ? [{ value: brandHex, label: '品牌主色' }] : []"
+          :extra-options="brandHex ? [{ value: brandHex, label: '品牌主色', picker: brandHex }] : []"
           @update:model-value="(v: string | null) => patch({ logoColor: v ?? 'auto' })"
-        />
-      </div>
-      <!-- 主色定制：覆盖内置品牌主色（仅收录了品牌色的品牌显示）；改后需在上方重新选一次「品牌主色」生效 -->
-      <div v-if="builtinBrandHex" class="field">
-        <label title="自定义该品牌的「品牌主色」预设值（如尼康黄、佳能红）。修改后在上方 Logo 颜色里重新选择「品牌主色」即可应用；选「内置品牌色」恢复官方配色。">主色定制</label>
-        <ColorField
-          :model-value="state.brandColorCustom"
-          auto-label="内置品牌色"
-          :auto-swatch="builtinBrandHex"
-          @update:model-value="(v: string | null) => patch({ brandColorCustom: v })"
+          @extra-pick="(v: string) => patch({ brandColorCustom: v })"
         />
       </div>
       <!-- 自定义 Logo：上传 + 列表 -->
