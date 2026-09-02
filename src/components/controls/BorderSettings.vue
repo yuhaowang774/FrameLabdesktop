@@ -7,6 +7,7 @@ import { useAppState } from '../../composables/useAppState'
 import { FRAME_RATIOS, frameRatioOf, frameRatioKey, RANGES } from '../../core/constants'
 import RangeSlider from '../common/RangeSlider.vue'
 import ToggleGroup from '../common/ToggleGroup.vue'
+import ControlGroup from '../common/ControlGroup.vue'
 import ColorField from '../common/ColorField.vue'
 
 const { state, patch } = useFrameConfig()
@@ -27,7 +28,7 @@ function onMode(v: string) {
 
 <template>
   <div class="block">
-    <!-- 编辑模式：简易 / 自由拖拽，互斥 -->
+    <!-- 主开关：编辑模式（简易 / 自由拖拽，互斥） -->
     <ToggleGroup
       :model-value="freeDrag ? 'free' : 'simple'"
       :options="MODES"
@@ -35,58 +36,60 @@ function onMode(v: string) {
       @update:model-value="onMode"
     />
 
-    <!-- 边框宽度：两种模式均可调；滑到 0 即无边框 -->
-    <RangeSlider
-      label="边框宽度"
-      :min="r.padding.min"
-      :max="r.padding.max"
-      :step="r.padding.step"
-      :model-value="state.padding"
-      unit="px"
-      @update:model-value="(v: number) => patch({ padding: v })"
-    />
-
-    <!-- 下边宽度：绝对像素，仅在照片下边额外延长留白 -->
-    <RangeSlider
-      label="下边宽度"
-      :min="r.borderRatio.min"
-      :max="r.borderRatio.max"
-      :step="r.borderRatio.step"
-      :model-value="state.borderRatio"
-      unit="px"
-      @update:model-value="(v: number) => patch({ borderRatio: v })"
-    />
-
-    <!-- 边框颜色：与其他颜色项统一的控件形式 -->
-    <div class="color-row">
-      <span class="lbl">边框颜色</span>
-      <ColorField
-        :model-value="state.borderColor"
-        :auto="false"
-        @update:model-value="(v: string | null) => patch({ borderColor: v ?? '#ffffff' })"
+    <!-- 边框样式：宽度 / 下边 / 颜色 / 圆角 -->
+    <ControlGroup title="边框样式">
+      <!-- 边框宽度：两种模式均可调；滑到 0 即无边框 -->
+      <RangeSlider
+        label="边框宽度"
+        :min="r.padding.min"
+        :max="r.padding.max"
+        :step="r.padding.step"
+        :model-value="state.padding"
+        unit="px"
+        @update:model-value="(v: number) => patch({ padding: v })"
       />
-    </div>
 
-    <!-- 边框圆角 -->
-    <RangeSlider
-      label="边框圆角"
-      :min="r.borderRadius.min"
-      :max="r.borderRadius.max"
-      :step="r.borderRadius.step"
-      :model-value="state.borderRadius"
-      unit="px"
-      @update:model-value="(v: number) => patch({ borderRadius: v })"
-    />
+      <!-- 下边宽度：绝对像素，仅在照片下边额外延长留白 -->
+      <RangeSlider
+        label="下边宽度"
+        :min="r.borderRatio.min"
+        :max="r.borderRatio.max"
+        :step="r.borderRatio.step"
+        :model-value="state.borderRatio"
+        unit="px"
+        @update:model-value="(v: number) => patch({ borderRatio: v })"
+      />
+
+      <!-- 边框颜色：与其他颜色项统一的控件形式 -->
+      <div class="color-row">
+        <span class="lbl">边框颜色</span>
+        <ColorField
+          :model-value="state.borderColor"
+          :auto="false"
+          @update:model-value="(v: string | null) => patch({ borderColor: v ?? '#ffffff' })"
+        />
+      </div>
+
+      <!-- 边框圆角 -->
+      <RangeSlider
+        label="边框圆角"
+        :min="r.borderRadius.min"
+        :max="r.borderRadius.max"
+        :step="r.borderRadius.step"
+        :model-value="state.borderRadius"
+        unit="px"
+        @update:model-value="(v: number) => patch({ borderRadius: v })"
+      />
+    </ControlGroup>
 
     <!-- 自由拖拽模式专属：边框比例（画面宽高比） -->
-    <template v-if="freeDrag">
+    <ControlGroup v-if="freeDrag" title="画面比例">
       <ToggleGroup
         :model-value="frameRatioKey(state.frameRatio)"
         :options="FRAME_RATIOS"
-        label="边框比例"
         @update:model-value="(v: string) => patch({ frameRatio: frameRatioOf(v) })"
       />
-    </template>
+    </ControlGroup>
   </div>
 </template>
 
@@ -94,7 +97,7 @@ function onMode(v: string) {
 .block {
   display: flex;
   flex-direction: column;
-  gap: 10px; /* 紧凑密度 */
+  gap: 8px; /* 紧凑密度；分组间距由 ControlGroup 自带 padding-top 拉开 */
 }
 .color-row {
   display: flex;

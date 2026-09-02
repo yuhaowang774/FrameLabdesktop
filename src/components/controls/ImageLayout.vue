@@ -4,6 +4,7 @@ import { useFrameConfig } from '../../composables/useFrameConfig'
 import { editingPhoto } from '../../composables/useUi'
 import { RANGES } from '../../core/constants'
 import RangeSlider from '../common/RangeSlider.vue'
+import ControlGroup from '../common/ControlGroup.vue'
 
 const { state, patch } = useFrameConfig()
 const r = RANGES
@@ -26,31 +27,37 @@ function openEditor() {
 
 <template>
   <div class="block">
-    <div class="row">
-      <span class="lbl">旋转</span>
-      <div class="btns">
-        <button class="mini-btn" @click="rotate">↻ 90°</button>
+    <!-- 变换：旋转 + 裁剪编辑入口 -->
+    <ControlGroup title="变换">
+      <div class="row">
+        <span class="lbl">旋转</span>
+        <div class="btns">
+          <button class="mini-btn" @click="rotate">↻ 90°</button>
+        </div>
       </div>
-    </div>
-    <RangeSlider
-      :model-value="state.shadow"
-      :min="r.shadow.min"
-      :max="r.shadow.max"
-      :step="r.shadow.step"
-      label="立体阴影"
-      @update:model-value="(v: number) => patch({ shadow: v })"
-    />
-    <!-- 照片圆角：现代极简风 -->
-    <RangeSlider
-      :model-value="state.photoRadius"
-      :min="r.photoRadius.min"
-      :max="r.photoRadius.max"
-      :step="r.photoRadius.step"
-      label="照片圆角"
-      unit="px"
-      @update:model-value="(v: number) => patch({ photoRadius: v })"
-    />
-    <button class="edit-photo-btn" @click="openEditor">编辑照片（旋转 / 裁剪）</button>
+      <button class="edit-photo-btn" @click="openEditor">编辑照片（旋转 / 裁剪）</button>
+    </ControlGroup>
+    <!-- 效果：立体阴影 + 照片圆角 -->
+    <ControlGroup title="效果">
+      <RangeSlider
+        :model-value="state.shadow"
+        :min="r.shadow.min"
+        :max="r.shadow.max"
+        :step="r.shadow.step"
+        label="立体阴影"
+        @update:model-value="(v: number) => patch({ shadow: v })"
+      />
+      <!-- 照片圆角：现代极简风 -->
+      <RangeSlider
+        :model-value="state.photoRadius"
+        :min="r.photoRadius.min"
+        :max="r.photoRadius.max"
+        :step="r.photoRadius.step"
+        label="照片圆角"
+        unit="px"
+        @update:model-value="(v: number) => patch({ photoRadius: v })"
+      />
+    </ControlGroup>
   </div>
 </template>
 
@@ -96,7 +103,6 @@ function openEditor() {
   background: var(--pressed);
 }
 .edit-photo-btn {
-  margin-top: 2px;
   height: 24px;
   padding: 0 12px;
   border-radius: 0;

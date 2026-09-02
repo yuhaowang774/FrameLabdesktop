@@ -7,6 +7,7 @@ import { useFrameConfig } from '../../composables/useFrameConfig'
 import { BG_MODES, RANGES } from '../../core/constants'
 import ToggleGroup from '../common/ToggleGroup.vue'
 import RangeSlider from '../common/RangeSlider.vue'
+import ControlGroup from '../common/ControlGroup.vue'
 import ColorField from '../common/ColorField.vue'
 import { isTauri } from '../../platform/env'
 
@@ -72,6 +73,7 @@ function pickCustom() {
 
 <template>
   <section class="control-block">
+    <!-- 主开关：背景模式 -->
     <ToggleGroup
       v-model="state.bgMode"
       :options="BG_MODES"
@@ -79,27 +81,29 @@ function pickCustom() {
     />
 
     <!-- 通用（所有模式）：背景宽度 + 下边比例 -->
-    <RangeSlider
-      :model-value="state.bgExpand"
-      :min="r.bgExpand.min"
-      :max="r.bgExpand.max"
-      :step="r.bgExpand.step"
-      label="背景宽度"
-      unit="px"
-      @update:model-value="(v: number) => patch({ bgExpand: v })"
-    />
-    <RangeSlider
-      :model-value="state.bgBottomRatio"
-      :min="r.bgBottomRatio.min"
-      :max="r.bgBottomRatio.max"
-      :step="r.bgBottomRatio.step"
-      label="下边宽度"
-      unit="px"
-      @update:model-value="(v: number) => patch({ bgBottomRatio: v })"
-    />
+    <ControlGroup title="尺寸">
+      <RangeSlider
+        :model-value="state.bgExpand"
+        :min="r.bgExpand.min"
+        :max="r.bgExpand.max"
+        :step="r.bgExpand.step"
+        label="背景宽度"
+        unit="px"
+        @update:model-value="(v: number) => patch({ bgExpand: v })"
+      />
+      <RangeSlider
+        :model-value="state.bgBottomRatio"
+        :min="r.bgBottomRatio.min"
+        :max="r.bgBottomRatio.max"
+        :step="r.bgBottomRatio.step"
+        label="下边宽度"
+        unit="px"
+        @update:model-value="(v: number) => patch({ bgBottomRatio: v })"
+      />
+    </ControlGroup>
 
     <!-- 背景模糊：原图模糊+变暗 -->
-    <template v-if="state.bgMode === 'blur'">
+    <ControlGroup v-if="state.bgMode === 'blur'" title="模糊">
       <RangeSlider
         :model-value="state.blur"
         :min="r.blur.min"
@@ -109,10 +113,10 @@ function pickCustom() {
         suffix="px"
         @update:model-value="(v: number) => patch({ blur: v })"
       />
-    </template>
+    </ControlGroup>
 
     <!-- 纯色：颜色选择器 -->
-    <template v-else-if="state.bgMode === 'solid'">
+    <ControlGroup v-else-if="state.bgMode === 'solid'" title="颜色">
       <div class="color-row">
         <label>背景颜色</label>
         <ColorField
@@ -121,10 +125,10 @@ function pickCustom() {
           @update:model-value="(v: string | null) => patch({ bgColor: v ?? '#ffffff' })"
         />
       </div>
-    </template>
+    </ControlGroup>
 
     <!-- 照片填充：上传背景图 + 模糊 -->
-    <template v-else-if="state.bgMode === 'photo'">
+    <ControlGroup v-else-if="state.bgMode === 'photo'" title="背景图">
       <button class="sub-btn" @click="pickCustom">选择背景图</button>
       <RangeSlider
         :model-value="state.blur"
@@ -135,7 +139,7 @@ function pickCustom() {
         suffix="px"
         @update:model-value="(v: number) => patch({ blur: v })"
       />
-    </template>
+    </ControlGroup>
 
     <input ref="customInput" type="file" accept="image/*" @change="onCustomBgChange" hidden />
   </section>
@@ -145,7 +149,7 @@ function pickCustom() {
 .control-block {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
 }
 .color-row {
   display: flex;
