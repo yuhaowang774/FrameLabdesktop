@@ -91,7 +91,8 @@ watch(
   { deep: true },
 )
 
-const activeModule = ref<ModuleTab>('develop')
+// 默认进入图库模块：照片管理是工作流起点，用户从图库选片后再进入编辑/导出
+const activeModule = ref<ModuleTab>('library')
 
 // 编辑工作模式：simple（默认）/ free。持久化到 LocalStorage，下次打开沿用上次选择。
 const EDIT_MODE_KEY = 'frame.editMode'

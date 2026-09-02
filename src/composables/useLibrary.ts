@@ -92,6 +92,37 @@ function untombstone(path?: string): void {
 export function getRemovedPaths(): ReadonlySet<string> {
   return removedPaths
 }
+
+/** 墓碑数量（首选项展示用） */
+export function removedPathCount(): number {
+  return removedPaths.size
+}
+
+/** 清空全部墓碑：之前被移除的照片会在下次启动重扫 / 重新导入文件夹时全部回来 */
+export function clearRemovedPaths(): void {
+  if (!removedPaths.size) return
+  removedPaths.clear()
+  saveRemoved()
+}
+
+/** 清理残留墓碑：dir 下未被本次扫描发现的路径说明文件已不在磁盘，对应墓碑一并删除，
+ *  防止无效记录无限累积（指向其他文件夹的墓碑不受影响） */
+export function pruneRemovedPaths(dir: string, found: Iterable<string>): void {
+  if (!removedPaths.size) return
+  const foundSet = found instanceof Set ? found : new Set(found)
+  // 统一分隔符再比对，避免 / 与 \ 混用导致前缀匹配失败
+  const norm = (s: string): string => s.replace(/\//g, '\\')
+  const nd = norm(dir)
+  const prefix = nd.endsWith('\\') ? nd : nd + '\\'
+  let changed = false
+  for (const p of [...removedPaths]) {
+    if (!foundSet.has(p) && norm(p).startsWith(prefix)) {
+      removedPaths.delete(p)
+      changed = true
+    }
+  }
+  if (changed) saveRemoved()
+}
 function confirmRemoval(): void {
   if (items.some((i) => i.selected)) {
     items.filter((i) => i.selected).forEach((i) => remove(i.id))
