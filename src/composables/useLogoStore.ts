@@ -185,10 +185,23 @@ async function renderBrandSvgNormalized(id: string, color?: string): Promise<HTM
   svg.setAttribute('viewBox', `${x} ${y} ${w} ${h}`)
   svg.removeAttribute('width')
   svg.removeAttribute('height')
-  // 指定着色：覆盖根节点与全部子节点的 fill（多色 SVG 单色化）
+  // 指定着色：覆盖 fill 的全部三种来源（优先级：内联 style > CSS 块 > fill 属性）。
+  // Inkscape/AI 导出的 SVG（canon/hasselblad/ricoh）用 style="fill:#xxx"，
+  // 仅 setAttribute('fill') 会被内联样式覆盖导致换色无效，必须同步改写 style。
   if (color) {
     svg.setAttribute('fill', color)
-    svg.querySelectorAll('[fill]').forEach((el) => el.setAttribute('fill', color))
+    svg.querySelectorAll('style').forEach((el) => {
+      if (el.textContent && /fill\s*:/.test(el.textContent)) {
+        el.textContent = el.textContent.replace(/fill\s*:\s*[^;}]+/g, `fill:${color}`)
+      }
+    })
+    svg.querySelectorAll('*').forEach((el) => {
+      if (el.hasAttribute('fill')) el.setAttribute('fill', color)
+      const style = el.getAttribute('style')
+      if (style && /(^|[;\s])fill\s*:/.test(style)) {
+        el.setAttribute('style', style.replace(/fill\s*:\s*[^;]+/g, `fill:${color}`))
+      }
+    })
   }
   const xml = new XMLSerializer().serializeToString(svg)
 
