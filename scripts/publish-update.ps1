@@ -1,4 +1,4 @@
-# FrameLab 一键更新发布脚本：
+﻿# FrameLab 一键更新发布脚本：
 #   1) 读取 package.json 版本号
 #   2) minisign 签名构建（npm run tauri:build，私钥在 %USERPROFILE%\.tauri\framelab.key）
 #   3) 更新 release\FrameLab.exe（本地免安装运行副本）
@@ -29,7 +29,11 @@ if (-not (Test-Path $keyPath)) {
   throw "未找到签名私钥：$keyPath（先运行 npx tauri signer generate -w <路径> --ci）"
 }
 $env:TAURI_SIGNING_PRIVATE_KEY = (Get-Content $keyPath -Raw)
-$env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD = ''
+# 签名密码存放于 %USERPROFILE%\.tauri\framelab.pass（不入仓库）；
+# 注意 Win32 不允许空环境变量（PS 赋空串等于删除），空密码密钥在 Windows 上会触发交互提示，故使用带密码密钥
+$passPath = Join-Path $env:USERPROFILE '.tauri\framelab.pass'
+if (-not (Test-Path $passPath)) { throw "未找到签名密码文件：$passPath" }
+$env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD = (Get-Content $passPath -Raw).Trim()
 
 npm run tauri:build
 if ($LASTEXITCODE -ne 0) { throw '构建失败' }

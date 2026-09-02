@@ -22,7 +22,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEYwQkVERUExQkRBMUM2NDcKUldSSHhxRzlvZDYrOExMdXo5SytkZ3o1cXRFbHA3ejhmVWNHZHZtRGJZVWs1V0ZwcUNrMFM1ZDQK",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDRBQzU0QkFENzBCMDZFQ0IKUldUTGJyQndyVXZGU29ST0VsMVJEWlpEdGg4Rjl0NVNUV3NrRktGS0dWSmJ1d0FSYUVPbHFQUEkK",
       "endpoints": [
         "https://github.com/yuhaowang774/FrameLabdesktop/releases/latest/download/latest.json"
       ],
