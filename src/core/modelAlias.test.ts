@@ -8,6 +8,12 @@ describe('相机型号别名映射', () => {
     expect(modelAlias('ILCE-7RM5')).toBe('α7R V')
     expect(modelAlias('ILCE-7M4')).toBe('α7 IV')
     expect(modelAlias('ILCE-7M3')).toBe('α7 III')
+    // 2024-2026 新机身
+    expect(modelAlias('ILCE-9M3')).toBe('α9 III')
+    expect(modelAlias('ILCE-1M2')).toBe('α1 II')
+    expect(modelAlias('ILCE-7M5')).toBe('α7 V')
+    expect(modelAlias('ILCE-7RM6')).toBe('α7R VI')
+    expect(modelAlias('ILCE-6700')).toBe('α6700')
   })
 
   it('DJI 内部代号转换为营销名', () => {
@@ -40,6 +46,9 @@ describe('相机型号别名映射', () => {
     expect(modelAlias('SM-S9280')).toBe('Galaxy S24 Ultra')
     expect(modelAlias('SM-S9180')).toBe('Galaxy S23 Ultra')
     expect(modelAlias('SM-F9560')).toBe('Galaxy Z Fold6')
+    expect(modelAlias('SM-S9480')).toBe('Galaxy S26 Ultra')
+    expect(modelAlias('SM-F9710')).toBe('Galaxy Z Fold8')
+    expect(modelAlias('SM-S7210')).toBe('Galaxy S24 FE')
     expect(modelAlias('PHZ110')).toBe('OPPO Find X7')
     expect(modelAlias('PKB110')).toBe('OPPO Find X8')
     expect(modelAlias('PHB110')).toBe('OnePlus 11')

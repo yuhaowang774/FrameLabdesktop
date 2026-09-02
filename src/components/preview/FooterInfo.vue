@@ -362,7 +362,8 @@ function cardPos(r: CardRect) {
 }
 
 // duo 双栏分隔竖线：右栏文字左侧浅灰线（与 exporter 一致，几何来自共享布局计算）；
-// x 支持水平拖动（infoDividerX），上/下端手柄调高度（infoDividerTop/Bottom），null = 跟随默认布局
+// x 支持水平拖动（infoDividerX），上/下端手柄调高度（infoDividerTop/Bottom），
+// null = 跟随默认布局（默认高度自动等于下边白框带全高）
 const MIN_DIVIDER_H = 20 // 竖线最小高度（设计 px）
 
 /** 竖线当前几何（内容区坐标）：手动值优先，null 回退默认布局 */
@@ -511,7 +512,7 @@ function absStyle(key: ItemKey) {
       :class="{ snap: guideBand }"
       :style="bottomBandStyle"
     />
-    <!-- duo 双栏分隔竖线：编辑态可水平拖动线体；拖两端手柄调节高度（几何存 infoDivider* 配置） -->
+    <!-- duo 双栏分隔竖线：编辑态可水平拖动线体；悬停显示两端手柄，拖动调节高度 -->
     <div
       v-if="duoDividerStyle"
       class="duo-divider"
@@ -788,7 +789,7 @@ function absStyle(key: ItemKey) {
 .duo-divider.dragging {
   cursor: ew-resize;
 }
-/* 高度调节手柄：竖线上/下端小方块（仅编辑态显示），拖动改写 infoDividerTop/Bottom */
+/* 高度调节手柄：竖线上/下端小方块，仅编辑态悬停竖线（或拖拽中）时显示 */
 .dv-handle {
   position: absolute;
   left: 3px; /* 中心对齐 1px 视觉线（5.5 + 0.5） */
@@ -798,10 +799,14 @@ function absStyle(key: ItemKey) {
   background: var(--slider-thumb);
   border: 1px solid rgba(0, 0, 0, 0.4);
   cursor: ns-resize;
-  pointer-events: auto;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s;
 }
-.footer-layer:not(.editing) .dv-handle {
-  display: none;
+.footer-layer.editing .duo-divider:hover .dv-handle,
+.duo-divider.dragging .dv-handle {
+  opacity: 1;
+  pointer-events: auto;
 }
 .dv-handle.top {
   top: -3px;
@@ -809,4 +814,4 @@ function absStyle(key: ItemKey) {
 .dv-handle.bottom {
   bottom: -3px;
 }
-</style>
+  </style>

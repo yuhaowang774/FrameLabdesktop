@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// FrameLab 滑块：轨道 5px / 手柄 12px / 数字冷灰 / 字重 400
+// FrameLab 滑块：轨道 6px / 手柄 12px / 数字冷灰 / 字重 400
 import { computed } from 'vue'
 
 const props = withDefaults(
@@ -84,18 +84,21 @@ function onInput(e: Event) {
   text-align: right;
   line-height: 16px;
 }
-/* 细长轨道：填充滑块色 / 未填充轨道色，5px 高 */
+/* 细长轨道：input 与手柄等高（12px），轨道以背景渐变绘制为垂直居中的 6px 条。
+   手柄不依赖负 margin 偏移，与轨道条中心天然重合，
+   规避 (5-12)/2=-3.5px 半像素在 DPI 缩放下舍入造成的不居中。 */
 input[type='range'] {
   -webkit-appearance: none;
   appearance: none;
   width: 100%;
-  height: 5px;
+  height: 12px;
   border-radius: 0;
   background: linear-gradient(
-    to right,
-    var(--slider-thumb) var(--fill),
-    var(--slider-track) var(--fill)
-  );
+      to right,
+      var(--slider-thumb) var(--fill),
+      var(--slider-track) var(--fill)
+    )
+    no-repeat center / 100% 6px;
   outline: none;
   cursor: pointer;
   margin: 0;
@@ -110,7 +113,7 @@ input[type='range']::-webkit-slider-thumb {
   background: var(--slider-thumb);
   border: none;
   box-shadow: none;
-  margin-top: -3.5px; /* (5-12)/2，让手柄居中轨道 */
+  margin-top: 0; /* 与等高 track 顶部对齐即居中，无需偏移 */
   transition: background 0.1s;
 }
 input[type='range']:hover::-webkit-slider-thumb,
@@ -123,6 +126,7 @@ input[type='range']:active::-webkit-slider-thumb {
 input[type='range']::-webkit-slider-runnable-track {
   background: transparent;
   border: none;
+  height: 12px;
 }
 input[type='range']::-moz-range-thumb {
   width: 12px;
@@ -136,11 +140,11 @@ input[type='range']:hover::-moz-range-thumb { background: var(--slider-thumb-hov
 input[type='range']:active::-moz-range-thumb { background: var(--pressed); }
 input[type='range']::-moz-range-track {
   background: var(--slider-track);
-  height: 5px;
+  height: 6px;
   border: none;
 }
 input[type='range']::-moz-range-progress {
   background: var(--slider-thumb);
-  height: 5px;
+  height: 6px;
 }
 </style>

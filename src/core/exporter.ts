@@ -228,7 +228,8 @@ async function drawFooter(
   // duo 下镜头行为独立元素（可单独拖拽）；classic 下它是 EXIF 块内附加行，跟随 EXIF 移动
   let dLensX = config.lensX ?? layout.lens.x
   let dLensY = config.lensY ?? layout.lens.y
-  // duo 分隔竖线：手动拖拽几何优先（infoDividerX/Top/Bottom），null = 默认布局（右栏文字左侧）
+  // duo 分隔竖线：手动拖拽几何优先（infoDividerX/Top/Bottom），
+  // null = 默认布局（高度自动等于下边白框带全高）
   const duoDivider = layout.divider
     ? (() => {
         const top = config.infoDividerTop ?? layout.divider.y

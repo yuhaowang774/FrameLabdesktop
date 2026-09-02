@@ -81,7 +81,6 @@ function onConfirmRemove() {
       @drop.prevent="onDrop"
     >
       <div v-if="library.items.length === 0" class="empty">
-        <div class="empty-icon">🖼️</div>
         <h2>图库</h2>
         <p>拖拽照片到此处，或点击导入</p>
         <div class="empty-actions">
@@ -159,9 +158,6 @@ function onConfirmRemove() {
   justify-content: center;
   gap: 10px;
   color: var(--text-dim);
-}
-.empty-icon {
-  font-size: 56px;
 }
 .btn-primary {
   margin-top: 8px;

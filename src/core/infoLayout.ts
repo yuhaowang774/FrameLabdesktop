@@ -33,7 +33,6 @@ const DUO_INSET = 21 // 文字距照片左右缘
 const DUO_ROW_GAP = 8 // 双栏行距（墨迹间隙 14 ≈ 框间隙 8 + 上下墨迹边距）
 const DUO_DIVIDER_GAP = 21 // 竖线与右栏文字间距
 const DUO_LOGO_GAP = 28 // Logo 右缘与竖线间距
-const DUO_DIVIDER_EXTEND = 6 // 竖线超出文字块上下各 6px
 
 // ===== inline（悬浮居中双行）实测常量 =====
 const INLINE_ROW_GAP = 19 // 行1(Logo+机型) 与 行2(参数) 间距（墨迹间隙 21 ≈ 框间隙 19）
@@ -161,7 +160,9 @@ export function computeFooterLayout(cfg: FrameConfig, canvasBottom: number, logo
       logo: { x: logoX, y: logoY },
       divider:
         showExif || showDate
-          ? { x: dividerX, y: blockTop - DUO_DIVIDER_EXTEND, h: blockH + DUO_DIVIDER_EXTEND * 2 }
+          ? // 高度自动跟随下边白框带（padding + borderRatio）全高：
+            // 竖线从白框带顶（照片下缘）延伸到画板底缘，调下边宽度/边框宽度时同步伸缩
+            { x: dividerX, y: canvasBottom - (cfg.padding + cfg.borderRatio), h: cfg.padding + cfg.borderRatio }
           : null,
     }
   }
