@@ -21,6 +21,10 @@ tauri-plugin-updater = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 base64 = "0.22"
+# 绿色版自更新：下载裸 exe（stream 分块）+ minisign 验签（复用 updater 公钥链）
+reqwest = { version = "0.13", default-features = false, features = ["rustls", "stream"] }
+minisign-verify = "0.2"
+futures-util = "0.3"
 
 [profile.release]
 codegen-units = 1

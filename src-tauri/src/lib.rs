@@ -438,6 +438,239 @@ fn restart_app(app: tauri::AppHandle) {
     app.restart();
 }
 
+// ===================== 绿色版自更新（裸 exe 自替换） =====================
+//
+// 绿色单文件版不走 tauri-plugin-updater（那是 NSIS 安装包流程：未签名 setup.exe
+// 会被 SmartScreen 拦截导致静默安装失败，且即使装成功，装的也是"安装版"，
+// 用户运行的绿色 exe 不会变化）。
+//
+// 流程：green_update_check 拉 green-latest.json（GitHub Release latest 资产）
+//   → green_update_download 下载裸 exe 到同目录 FrameLab.exe.new（分块进度经
+//   green-dl-progress 事件上报）并用 minisign 验签（复用 tauri.conf.json 公钥）
+//   → green_update_apply 写隐藏批处理：等本进程退出后 move 覆盖自身、启动新版、
+//   自删；随后本进程直接退出。
+// 安全性：API 下载写入的文件无 Mark-of-the-Web 标记，不触发 SmartScreen；
+// 签名校验失败一律拒绝替换。
+
+const GREEN_MANIFEST_URL: &str =
+    "https://github.com/yuhaowang774/FrameLabdesktop/releases/latest/download/green-latest.json";
+
+/// 清单地址支持环境变量覆盖（仅用于本地联调自更新链路；验签仍然强制，不影响安全性）
+fn green_manifest_url() -> String {
+    std::env::var("GREEN_MANIFEST_URL").unwrap_or_else(|_| GREEN_MANIFEST_URL.to_string())
+}
+
+/// 已检查到的新版本信息（暂存于应用状态，供 download/apply 使用）
+#[derive(Clone, serde::Serialize)]
+struct GreenPending {
+    url: String,
+    signature: String,
+    version: String,
+    notes: String,
+    date: String,
+}
+
+#[derive(Default)]
+struct GreenPendingState(std::sync::Mutex<Option<GreenPending>>);
+
+/// 当前 exe 是否为绿色版（不在 NSIS 安装目录 %LOCALAPPDATA%\FrameLab 内）
+#[tauri::command]
+fn is_portable() -> Result<bool, String> {
+    let exe = std::env::current_exe().map_err(|e| format!("获取应用路径失败: {e}"))?;
+    let dir = exe
+        .parent()
+        .ok_or_else(|| "无法定位应用目录".to_string())?;
+    let installed = installed_dir()?;
+    Ok(dir != installed)
+}
+
+fn installed_dir() -> Result<std::path::PathBuf, String> {
+    let local = std::env::var("LOCALAPPDATA").map_err(|_| "LOCALAPPDATA 未定义".to_string())?;
+    Ok(std::path::Path::new(&local).join("FrameLab"))
+}
+
+/// 与前端 compareVersions 一致的分段数值比较
+fn cmp_versions(a: &str, b: &str) -> std::cmp::Ordering {
+    let pa: Vec<u64> = a.split(['.', '-']).map(|s| s.parse().unwrap_or(0)).collect();
+    let pb: Vec<u64> = b.split(['.', '-']).map(|s| s.parse().unwrap_or(0)).collect();
+    for i in 0..pa.len().max(pb.len()) {
+        let va = pa.get(i).copied().unwrap_or(0);
+        let vb = pb.get(i).copied().unwrap_or(0);
+        if va != vb {
+            return va.cmp(&vb);
+        }
+    }
+    std::cmp::Ordering::Equal
+}
+
+async fn http_get_text(url: &str) -> Result<String, String> {
+    reqwest::get(url)
+        .await
+        .map_err(|e| format!("网络请求失败: {e}"))?
+        .error_for_status()
+        .map_err(|e| format!("下载失败: {e}"))?
+        .text()
+        .await
+        .map_err(|e| format!("读取响应失败: {e}"))
+}
+
+/// minisign 验签：公钥取自 tauri.conf.json plugins.updater.pubkey。
+/// tauri 的公钥与签名都是「外层 base64(minisign 文件全文)」的双层封装，需先解码一次；
+/// minisign-verify 0.2 的 Signature 仅支持从文件构造：解码后的 minisign 全文落临时 .sig 再验。
+fn verify_green_signature(
+    app: &tauri::AppHandle,
+    signature_outer_b64: &str,
+    data: &[u8],
+) -> Result<(), String> {
+    use base64::Engine;
+    let updater = app
+        .config()
+        .plugins
+        .0
+        .get("updater")
+        .ok_or("tauri.conf.json 未配置 updater 插件")?;
+    let pubkey_outer = updater
+        .get("pubkey")
+        .and_then(|v| v.as_str())
+        .ok_or("tauri.conf.json 未配置 updater 公钥")?;
+    let decoded = base64::engine::general_purpose::STANDARD
+        .decode(pubkey_outer.trim())
+        .map_err(|e| format!("公钥解码失败: {e}"))?;
+    let pubkey_text = String::from_utf8(decoded).map_err(|e| format!("公钥编码异常: {e}"))?;
+    let key_line = pubkey_text
+        .lines()
+        .find(|l| !l.starts_with("untrusted") && !l.trim().is_empty())
+        .ok_or("公钥格式异常")?;
+    let pk = minisign_verify::PublicKey::from_base64(key_line.trim())
+        .map_err(|e| format!("公钥解析失败: {e}"))?;
+    let decoded_sig = base64::engine::general_purpose::STANDARD
+        .decode(signature_outer_b64.trim())
+        .map_err(|e| format!("签名解码失败: {e}"))?;
+    let sig_text = String::from_utf8(decoded_sig).map_err(|e| format!("签名编码异常: {e}"))?;
+    let sig_tmp = std::env::temp_dir().join("framelab-green.sig");
+    std::fs::write(&sig_tmp, sig_text).map_err(|e| format!("写入签名临时文件失败: {e}"))?;
+    let result = minisign_verify::Signature::from_file(&sig_tmp)
+        .map_err(|e| format!("签名解析失败: {e}"))
+        .and_then(|sig| {
+            pk.verify(data, &sig, false)
+                .map_err(|e| format!("签名校验失败，更新包可能被篡改: {e}"))
+        });
+    let _ = std::fs::remove_file(&sig_tmp);
+    result
+}
+
+/// 检查绿色版更新：拉取 green-latest.json 并与当前版本比较。
+/// 有更新返回 Some(info) 并暂存下载参数；无更新 / 同版本 / 降级返回 None。
+#[tauri::command]
+async fn green_update_check(app: tauri::AppHandle) -> Result<Option<GreenPending>, String> {
+    let text = http_get_text(&green_manifest_url()).await?;
+    let manifest: serde_json::Value =
+        serde_json::from_str(&text).map_err(|e| format!("更新清单解析失败: {e}"))?;
+    let get_str = |k: &str| {
+        manifest
+            .get(k)
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+            .ok_or_else(|| format!("更新清单缺少字段: {k}"))
+    };
+    let pending = GreenPending {
+        version: get_str("version")?,
+        notes: get_str("notes").unwrap_or_default(),
+        date: get_str("pub_date").unwrap_or_default(),
+        url: get_str("url")?,
+        signature: get_str("signature")?,
+    };
+    let current = app
+        .config()
+        .version
+        .clone()
+        .unwrap_or_else(|| "0.0.0".to_string());
+    if cmp_versions(&pending.version, &current) != std::cmp::Ordering::Greater {
+        return Ok(None); // 无更新 / 同版本 / 降级
+    }
+    app.state::<GreenPendingState>()
+        .0
+        .lock()
+        .map_err(|e| e.to_string())?
+        .replace(pending.clone());
+    Ok(Some(pending))
+}
+
+/// 下载新版裸 exe 到 exe 同目录 FrameLab.exe.new 并验签。
+/// 进度经 `green-dl-progress` 事件（0-100）上报前端。
+#[tauri::command]
+async fn green_update_download(app: tauri::AppHandle) -> Result<(), String> {
+    let pending = {
+        let state = app.state::<GreenPendingState>();
+        let guard = state.0.lock().map_err(|e| e.to_string())?;
+        guard.clone().ok_or("请先检查更新")?
+    };
+    let exe = std::env::current_exe().map_err(|e| format!("获取应用路径失败: {e}"))?;
+    let dir = exe
+        .parent()
+        .ok_or_else(|| "无法定位应用目录".to_string())?
+        .to_path_buf();
+    let tmp = dir.join("FrameLab.exe.new");
+
+    let resp = reqwest::get(&pending.url)
+        .await
+        .map_err(|e| format!("网络请求失败: {e}"))?
+        .error_for_status()
+        .map_err(|e| format!("下载失败: {e}"))?;
+    let total = resp.content_length().unwrap_or(0);
+    use futures_util::StreamExt;
+    let mut stream = resp.bytes_stream();
+    let mut buf: Vec<u8> = Vec::with_capacity(total as usize);
+    let mut received: u64 = 0;
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|e| format!("下载中断: {e}"))?;
+        received += chunk.len() as u64;
+        buf.extend_from_slice(&chunk);
+        if total > 0 {
+            let percent = (received * 100 / total).min(100) as u8;
+            let _ = app.emit("green-dl-progress", percent);
+        }
+    }
+    // 验签（先签后写：数据在内存中校验通过才落盘）
+    verify_green_signature(&app, &pending.signature, &buf)?;
+    std::fs::write(&tmp, &buf).map_err(|e| format!("写入更新文件失败（目录可能只读）: {e}"))?;
+    let _ = app.emit("green-dl-progress", 100u8);
+    Ok(())
+}
+
+/// 应用更新：写隐藏批处理（等本进程退出 → move 覆盖自身 → 启动新版 → 自删），
+/// 启动批处理后立即退出本进程。前端调用后应用会直接关闭。
+#[tauri::command]
+fn green_update_apply() -> Result<(), String> {
+    let exe = std::env::current_exe().map_err(|e| format!("获取应用路径失败: {e}"))?;
+    let dir = exe
+        .parent()
+        .ok_or_else(|| "无法定位应用目录".to_string())?
+        .to_path_buf();
+    let tmp = dir.join("FrameLab.exe.new");
+    if !tmp.is_file() {
+        return Err("未找到已下载的新版本，请重新检查更新".to_string());
+    }
+    let bat = dir.join("framelab-update.bat");
+    std::fs::write(
+        &bat,
+        format!(
+            "@echo off\r\nping 127.0.0.1 -n 2 >nul\r\nmove /y \"{}\" \"{}\"\r\nif exist \"{}\" start \"\" \"{}\"\r\ndel \"%~f0\"\r\n",
+            tmp.display(),
+            exe.display(),
+            exe.display(),
+            exe.display()
+        ),
+    )
+    .map_err(|e| format!("写入更新脚本失败: {e}"))?;
+    hidden_command("cmd")
+        .current_dir(&dir)
+        .args(["/c", "framelab-update.bat"])
+        .spawn()
+        .map_err(|e| format!("启动更新脚本失败: {e}"))?;
+    std::process::exit(0);
+}
+
 /// 系统显示适配器信息（独显/核显为名称启发式判定）
 #[derive(serde::Serialize)]
 struct GpuInfo {
@@ -577,6 +810,8 @@ pub fn run() {
         })
         .setup(|app| {
             build_menu(app.handle())?;
+            // 绿色版自更新的下载参数暂存
+            app.manage(GreenPendingState::default());
             // 窗口改为 Rust 侧创建：开发版需要指定独立 WebView2 数据目录
             // （此前开发/正式版共用 EBWebView 目录，并行启动会因目录被占用而白屏）。
             let mut win = tauri::WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::App("index.html".into()))
@@ -616,7 +851,11 @@ pub fn run() {
             detect_discrete_gpu,
             list_gpus,
             reveal_path,
-            restart_app
+            restart_app,
+            is_portable,
+            green_update_check,
+            green_update_download,
+            green_update_apply
         ])
         .run(tauri::generate_context!())
         .expect("error while running FrameLab");

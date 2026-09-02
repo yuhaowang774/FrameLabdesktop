@@ -221,8 +221,92 @@ if (isTauri) {
 }
 
 onMounted(() => {
-  if (isTauri) void refreshGpuStatus()
+  if (isTauri) {
+    void refreshGpuStatus()
+    // 运行模式判定：exe 在 NSIS 安装目录内 = 安装版（走 tauri updater），否则绿色版（自替换更新）
+    void (async () => {
+      try {
+        const { invoke } = await import('@tauri-apps/api/core')
+        portable.value = await invoke<boolean>('is_portable')
+      } catch {
+        portable.value = false
+      }
+    })()
+  }
 })
+
+// ===== 绿色版自更新：检测 → 下载（进度）→ 验签 → 用户确认重启 → 批处理替换自身 =====
+const portable = ref<boolean | null>(null)
+type GreenState = 'idle' | 'checking' | 'downloading' | 'ready' | 'latest' | 'error'
+const gState = ref<GreenState>('idle')
+const gVersion = ref('')
+const gProgress = ref(0)
+const gError = ref('')
+const greenBusy = computed(() => gState.value === 'checking' || gState.value === 'downloading')
+const greenDesc = computed(() => {
+  switch (gState.value) {
+    case 'checking':
+      return '正在检查更新…'
+    case 'downloading':
+      return `发现新版本 v${gVersion.value}，正在下载 ${gProgress.value}%`
+    case 'ready':
+      return `v${gVersion.value} 已下载并通过签名校验，点击按钮将自动替换并重启。`
+    case 'latest':
+      return '当前已是最新版本。'
+    case 'error':
+      return gError.value
+    default:
+      return '绿色版直接下载替换自身完成更新，无需安装器。'
+  }
+})
+const greenBtnText = computed(() =>
+  gState.value === 'ready' ? '重启并更新' : greenBusy.value ? '更新中…' : '检查更新',
+)
+async function onGreenCheck() {
+  if (greenBusy.value) return
+  gState.value = 'checking'
+  gError.value = ''
+  try {
+    const { invoke } = await import('@tauri-apps/api/core')
+    const info = await invoke<{ version: string; notes: string; date: string } | null>(
+      'green_update_check',
+    )
+    if (!info) {
+      gState.value = 'latest'
+      return
+    }
+    gVersion.value = info.version
+    gState.value = 'downloading'
+    gProgress.value = 0
+    const un = await (await import('@tauri-apps/api/event')).listen<number>(
+      'green-dl-progress',
+      (e) => {
+        gProgress.value = e.payload
+      },
+    )
+    try {
+      await invoke('green_update_download')
+      gState.value = 'ready'
+    } catch (err) {
+      gState.value = 'error'
+      gError.value = `更新失败：${(err as Error)?.message ?? err}（可到 GitHub Releases 页手动下载）`
+    } finally {
+      un()
+    }
+  } catch (err) {
+    gState.value = 'error'
+    gError.value = `检查更新失败：${(err as Error)?.message ?? err}（可到 GitHub Releases 页手动下载）`
+  }
+}
+async function onGreenApply() {
+  // 应用在命令内直接退出（批处理完成替换并重启新版），无需处理返回
+  try {
+    const { invoke } = await import('@tauri-apps/api/core')
+    await invoke('green_update_apply')
+  } catch {
+    /* 进程退出中 */
+  }
+}
 </script>
 
 <template>
@@ -364,10 +448,15 @@ onMounted(() => {
           <div class="pf-row" v-if="isTauri">
             <div class="pf-text">
               <span class="pf-label">软件更新</span>
-              <span class="pf-desc">{{ updDesc }}</span>
+              <span class="pf-desc">{{ portable ? greenDesc : updDesc }}</span>
             </div>
-            <button class="pf-btn" :disabled="updBusy" @click="onCheckUpdate">
-              {{ updState === 'checking' ? '检查中…' : updBusy ? '更新中…' : '检查更新' }}
+            <button
+              class="pf-btn"
+              :class="{ 'pf-btn-accent': portable && gState === 'ready' }"
+              :disabled="portable ? greenBusy : updBusy"
+              @click="portable ? (gState === 'ready' ? onGreenApply() : onGreenCheck()) : onCheckUpdate()"
+            >
+              {{ portable ? greenBtnText : (updState === 'checking' ? '检查中…' : updBusy ? '更新中…' : '检查更新') }}
             </button>
           </div>
           <div class="pf-row" v-if="isTauri">
@@ -627,6 +716,15 @@ onMounted(() => {
   background: var(--danger, #c0392b);
   border-color: var(--danger, #c0392b);
   color: #fff;
+}
+/* 强调按钮（绿色版「重启并更新」就绪态） */
+.pf-btn-accent {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.pf-btn-accent:hover {
+  background: var(--accent);
+  filter: brightness(1.1);
 }
 /* 关于 */
 .pf-about {
