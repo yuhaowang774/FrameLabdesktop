@@ -57,7 +57,7 @@ $greenName = "FrameLab_${version}_x64-green.exe"
 $greenPath = Join-Path $nsisDir $greenName
 $greenSig = "$greenPath.sig"
 Copy-Item (Join-Path $root 'src-tauri\target\release\framelab.exe') $greenPath -Force
-npx tauri signer sign -k $keyPath --password $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD "$greenPath" 2>$null
+npx tauri signer sign -k $env:TAURI_SIGNING_PRIVATE_KEY --password $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD "$greenPath" 2>$null
 if (-not (Test-Path $greenSig)) { throw '绿色版签名失败：未生成 .sig' }
 $greenLatest = [ordered]@{
   version   = $version
