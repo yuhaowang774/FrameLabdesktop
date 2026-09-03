@@ -1,4 +1,4 @@
-﻿# FrameLab 一键更新发布脚本：
+# FrameLab 一键更新发布脚本：
 #   1) 读取 package.json 版本号
 #   2) minisign 签名构建（npm run tauri:build，私钥在 %USERPROFILE%\.tauri\framelab.key）
 #   3) 更新 release\FrameLab.exe（本地免安装运行副本）
@@ -87,8 +87,11 @@ $latestPath = Join-Path $nsisDir 'latest.json'
 [System.IO.File]::WriteAllText($latestPath, ($latest | ConvertTo-Json -Depth 5), (New-Object System.Text.UTF8Encoding($false)))
 Write-Host "已生成 latest.json（$version）"
 
-# ===== 5) GitHub 凭据（复用 git 凭据管理器已存 token；经 cmd 管道喂入，-File 环境可用）=====
-$credOut = cmd /c "(echo protocol=https& echo host=github.com& echo.) | git credential fill" 2>$null
+# ===== 5) GitHub 凭据（复用 git 凭据管理器已存 token；经临时文件重定向喂入，无管道编码坑）=====
+$credIn = Join-Path $env:TEMP 'git-cred-in.txt'
+[System.IO.File]::WriteAllText($credIn, "protocol=https`nhost=github.com`n`n")
+$credOut = cmd /c "git credential fill < `"$credIn`"" 2>$null
+Remove-Item $credIn -Force -ErrorAction SilentlyContinue
 if ($LASTEXITCODE -ne 0 -or -not $credOut) { throw 'git credential fill 失败，请先手动 git push 一次以写入凭据' }
 $token = ([regex]::Match(($credOut -join "`n"), 'password=(.+)')).Groups[1].Value.Trim()
 if (-not $token) { throw '未能从 git 凭据管理器获取 GitHub token，请先手动 git push 一次以写入凭据' }
