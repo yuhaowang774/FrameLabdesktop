@@ -8,9 +8,10 @@
 import type { FrameConfig } from './types'
 import { defaultFrameConfig } from './types'
 import { DESIGN_CONTAINER } from './constants'
-import { computeFooterLayout, measureTextWidth } from './infoLayout'
+import { computeFooterLayout, computeMagazineLayout, magazineTitleFontSize, measureTextWidth, MAG_SUB_SIZE, MAG_SWATCH_COUNT, MAG_SWATCH_W, MAG_SWATCH_H, CLASSIC_SIDE_INSET, CLASSIC_ROW_GAP, LENS_LINE_GAP } from './infoLayout'
 import { footerTextColor, logoAutoColor } from './colorUtils'
 import { exportFrame } from './exporter'
+import { FALLBACK_PALETTE } from './photoPalette'
 
 /** 示意文本：让 INFO 按真实字宽排版（模板本身不保存 EXIF 文本） */
 const DEMO = {
@@ -127,20 +128,56 @@ export function templateThumbSvg(config: Partial<FrameConfig>, opts: ThumbOption
     if (layout.divider) {
       info += `<rect x="${r2(layout.divider.x)}" y="${r2(layout.divider.y)}" width="${r2(Math.max(1, c.fontSize * 0.06))}" height="${r2(layout.divider.h)}" fill="${text}" opacity="0.28"/>`
     }
+  } else if (c.infoLayout === 'magazine') {
+    // magazine：顶部标题区 + 底部左取色色卡 / 右机型+参数+日期（与 computeMagazineLayout 同源）
+    const layout = computeMagazineLayout(
+      { ...c, exifText: DEMO.exif, dateText: DEMO.date, cameraModel: DEMO.model, lensText: DEMO.lens },
+      canvasH - pad - bgExpand,
+    )
+    const titleText = c.infoTitle || ''
+    const subText = c.showDate ? `PHOTOGRAPHED IN : ${DEMO.date}` : ''
+    const titleSize = magazineTitleFontSize(c)
+    const titleW = titleText ? textWidth(titleText, `700 ${titleSize}px ${c.fontFamily}`, titleSize) : 0
+    const subW = subText ? textWidth(subText, `500 ${MAG_SUB_SIZE}px ${c.fontFamily}`, MAG_SUB_SIZE) : 0
+    if (titleText) info += bar(layout.title.x, layout.title.y, titleSize, titleW, 0.95, text)
+    if (subText) info += bar(layout.subtitle.x, layout.subtitle.y, MAG_SUB_SIZE, subW, 0.55, text)
+    if (c.showPalette) {
+      for (let i = 0; i < MAG_SWATCH_COUNT; i++) {
+        info += `<rect x="${r2(layout.palette.x + i * MAG_SWATCH_W)}" y="${r2(layout.palette.y)}" width="${r2(MAG_SWATCH_W)}" height="${r2(MAG_SWATCH_H)}" fill="${FALLBACK_PALETTE[i % FALLBACK_PALETTE.length]}"/>`
+      }
+    }
+    if (c.showCameraModel) info += bar(layout.model.x - modelW, layout.model.y, c.cameraModelSize, modelW, c.cameraModelOpacity, text)
+    if (c.showExif) info += bar(layout.exif.x - exifW, layout.exif.y, c.fontSize, exifW, c.textOpacity * 0.6, text)
   } else {
-    // classic：自底向上堆叠（参数 → 日期/镜头 → 型号 → Logo），按 overlayAlign 对齐
-    const bottom = canvasH - pad - bgExpand - c.overlayBottom
+    // classic：与 computeClassicLayout 完全同构——自底向上 日期 → EXIF 块(含镜头行) → 型号 → Logo，
+    // 只为显示行占位，行距 CLASSIC_ROW_GAP，镜头行以 LENS_LINE_GAP 附在参数行下；水平对齐跟随 overlayAlign
+    // （center=行中心，left/right=缘内缩锚点，Logo 由渲染端按自身宽度平移，示意条直接按宽定位）。
+    // 底锚（画布坐标）：canvasBottom(调用方传 H - pad - bgExpand，本函数再 + pad 还原画布系) - overlayBottom
+    //  → 画布 bottom = canvasH - bgExpand - overlayBottom（与测试/预览/导出三方对齐，勿多减 pad）
+    const bottom = canvasH - bgExpand - c.overlayBottom
+    const exifSize = c.exifFontSize ?? c.fontSize
+    const lensSize = c.lensFontSize ?? c.fontSize
+    const dateSize = c.dateFontSize ?? c.fontSize
+    const exifBlockH = c.showLens && c.lensText ? exifSize + LENS_LINE_GAP + lensSize : exifSize
     const alignX = (w: number) => {
       const x0 = pad + bgExpand
-      if (c.overlayAlign === 'left') return x0 + c.overlayBottom * 1.2
-      if (c.overlayAlign === 'right') return x0 + DESIGN_CONTAINER - w - c.overlayBottom * 1.2
+      if (c.overlayAlign === 'left') return x0 + CLASSIC_SIDE_INSET
+      if (c.overlayAlign === 'right') return x0 + DESIGN_CONTAINER - w - CLASSIC_SIDE_INSET
       return x0 + (DESIGN_CONTAINER - w) / 2
     }
     type Row = { h: number; draw: (top: number) => string }
     const rows: Row[] = []
-    if (c.showExif) rows.push({ h: c.fontSize, draw: (y) => bar(alignX(exifW), y, c.fontSize, exifW, c.textOpacity, text) })
-    if (c.showDate) rows.push({ h: c.cameraModelSize, draw: (y) => bar(alignX(dateW), y, c.cameraModelSize, dateW, c.cameraModelOpacity, text) })
-    if (c.showLens) rows.push({ h: c.fontSize, draw: (y) => bar(alignX(lensW), y, c.fontSize, lensW, c.textOpacity, text) })
+    if (c.showDate) rows.push({ h: dateSize, draw: (y) => bar(alignX(dateW), y, dateSize, dateW, c.dateTextOpacity ?? c.textOpacity, text) })
+    if (c.showExif) {
+      rows.push({
+        h: exifBlockH,
+        draw: (y) => {
+          let s = bar(alignX(exifW), y, exifSize, exifW, c.textOpacity, text)
+          if (c.showLens) s += bar(alignX(lensW), y + exifSize + LENS_LINE_GAP, lensSize, lensW, c.textOpacity, text)
+          return s
+        },
+      })
+    }
     if (c.showCameraModel) rows.push({ h: c.cameraModelSize, draw: (y) => bar(alignX(modelW), y, c.cameraModelSize, modelW, c.cameraModelOpacity, text) })
     if (c.showLogo) {
       rows.push({
@@ -151,8 +188,8 @@ export function templateThumbSvg(config: Partial<FrameConfig>, opts: ThumbOption
     }
     let y = bottom
     for (let i = 0; i < rows.length; i++) {
-      rows[i].draw(y - rows[i].h)
-      y -= rows[i].h + Math.max(0, c.distLogoText)
+      info += rows[i].draw(y - rows[i].h)
+      y -= rows[i].h + CLASSIC_ROW_GAP
     }
   }
 

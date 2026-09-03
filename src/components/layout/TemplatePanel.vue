@@ -111,12 +111,14 @@ function onRemove(e: Event, id: string) {
 </template>
 
 <style scoped>
+/* 双列网格：模板数量增多后单列大卡片滚动成本过高；统一缩略图高度便于横向对比挑选 */
 .tpl-list {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
 }
 .hint {
+  grid-column: 1 / -1;
   color: var(--text-dim);
   font-size: 12px;
 }
@@ -136,29 +138,27 @@ function onRemove(e: Event, id: string) {
   color: var(--text-normal);
 }
 .tpl-card:active { background: var(--pressed); }
-/* 缩略图区：底色略深，衬托白框类模板。
-   图片宽度占满卡片、高度按模板画幅比例自适应 —— 左栏越宽缩略图越大；
-   max-height 兜住竖版等超长比例模板，避免卡片被撑得过高。 */
+/* 缩略图区：底色略深，衬托白框类模板。统一高度裁切（object-fit: contain），
+   无论横竖版卡片高度一致，网格整齐、点击目标稳定 */
 .thumb {
   display: flex;
   align-items: center;
   justify-content: center;
+  height: 110px;
   background: var(--panel-3);
-  padding: 6px;
+  padding: 4px;
   overflow: hidden;
 }
 .thumb img {
   display: block;
-  width: 100%;
-  height: auto;
-  max-height: 260px;
-  object-fit: contain;
+  max-width: 100%;
+  max-height: 100%;
   pointer-events: none;
 }
 .meta {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
   height: 24px;
   padding: 0 6px;
   border-top: 1px solid var(--border);

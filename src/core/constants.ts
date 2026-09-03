@@ -64,6 +64,10 @@ export const EXIF_MAKE_TO_BRAND: Record<string, string> = {
   honor: 'honor',
   realme: 'realme',
   meizu: 'meizu',
+  // 机身/型号代号兜底（Make 缺失时用 Model 匹配；置于表尾避免抢占 Make 精确匹配）
+  ilce: 'sony',
+  ilme: 'sony',
+  eos: 'canon',
 }
 
 /**
@@ -222,8 +226,8 @@ export const RANGES = {
   blur: { min: 0, max: 100, step: 1 },
   padding: { min: 0, max: 200, step: 1 },
   borderRatio: { min: 0, max: 400, step: 1 },
-  borderRadius: { min: 0, max: 50, step: 1 },
-  photoRadius: { min: 0, max: 50, step: 1 },
+  borderRadius: { min: 0, max: 200, step: 1 },
+  photoRadius: { min: 0, max: 200, step: 1 },
   bgExpand: { min: 0, max: 400, step: 5 },
   bgBottomRatio: { min: 0, max: 400, step: 1 },
   scale: { min: 50, max: 300, step: 1 },

@@ -26,7 +26,9 @@ import type { FrameConfig } from '../core/types'
 import { MAX_HISTORY, HISTORY_DEBOUNCE_MS } from '../core/constants'
 import { getHistoryLimitPref } from './usePrefs'
 import { useFrameConfig, registerCommit } from './useFrameConfig'
-import { buildExifText, formatDate, cleanLens } from './useExif'
+import { backfillInfoFromRaw, isInfoMissing, INFO_PLACEHOLDER, parseDisplayDate, formatDate } from './useExif'
+import { recalcCanvasHAfterTemplate } from './useTemplates'
+import { hexLuminance } from '../core/colorUtils'
 import {
   loadPhotoNodes,
   putHistoryNode,
@@ -321,11 +323,12 @@ export async function applyTemplateToPhotos(
     'photoSrc', 'photoX', 'photoY', 'photoRotation', 'photoCrop',
     'bgScale', 'bgOffsetX', 'bgOffsetY', 'canvasH',
     'exifText', 'exifRaw', 'dateText', 'cameraModel', 'brand', 'lensText',
-    // 保留各 INFO 文本（EXIF/镜头/日期）的独立样式覆盖，模板只覆盖装饰、不抹掉单独设置
+    'eqFocal', 'cropFactor',
+    // 保留各 INFO 文本（EXIF/镜头/日期）的独立字体/字号/粗细/透明度覆盖；
+    // 颜色不保留——随模板背景自适应（模板显式定义优先，见下方赋值）
     'exifFontFamily', 'exifFontSize', 'exifTextWeight', 'exifTextOpacity',
     'lensFontFamily', 'lensFontSize', 'lensTextWeight', 'lensTextOpacity',
     'dateFontFamily', 'dateFontSize', 'dateTextWeight', 'dateTextOpacity',
-    'exifTextColor', 'lensTextColor', 'dateTextColor', 'cameraModelColor',
   ])
   let anyMissing = false
   for (const id of photoIds) {
@@ -336,32 +339,60 @@ export async function applyTemplateToPhotos(
     for (const [k, v] of Object.entries(config)) {
       if (!keep.has(k)) Object.assign(next, { [k]: v })
     }
-    // 兜底重建被「复位 INFO」清空的 INFO 文本（保留照片 EXIF 语义；型号为手动输入不重建）
-    const raw = next.exifRaw
-    if (!next.exifText && raw) next.exifText = buildExifText(raw, { eqFocal: next.eqFocal, cropFactor: next.cropFactor })
-    if (!next.dateText && raw?.dateTimeOriginal) next.dateText = formatDate(raw.dateTimeOriginal, next.dateFormat)
-    if (!next.lensText) next.lensText = cleanLens(raw?.lensMake, raw?.lensModel) ?? ''
+    // 颜色随模板背景自适应：模板显式定义优先；未定义时文字回「自动」（null → 渲染端按底色黑白），
+    // Logo 按模板底色明暗取黑/白（白框模板自动得到深色 Logo，用户无需手动调节）
+    const lightSolid = (config.bgMode ?? next.bgMode) === 'solid' && hexLuminance(config.bgColor ?? next.bgColor) > 0.6
+    next.exifTextColor = config.exifTextColor ?? null
+    next.lensTextColor = config.lensTextColor ?? null
+    next.dateTextColor = config.dateTextColor ?? null
+    next.cameraModelColor = config.cameraModelColor ?? null
+    next.logoColor = config.logoColor ?? (lightSolid ? '#1a1a1a' : '#ffffff')
+    // 模板自带布局（infoLayout/overlayAlign/overlayBottom 等）：重置 INFO 物化坐标回默认布局，
+    // 让布局引擎按模板参数重新定位——否则照片旧拖拽坐标残留会导致 INFO 错位（与单张
+    // applyTemplateToState 走 loadConfig 的坐标重置语义对齐）
+    next.logoX = null
+    next.logoY = null
+    next.modelX = null
+    next.modelY = null
+    next.exifX = null
+    next.exifY = null
+    next.dateX = null
+    next.dateY = null
+    next.lensX = null
+    next.lensY = null
+    next.infoDividerX = null
+    next.cameraModelOffsetX = 0
+    next.cameraModelOffsetY = 0
+    // 画布总高按模板新边框参数重算（内容高不变）——大 padding 模板不重算会压缩内容区、INFO 错位
+    recalcCanvasHAfterTemplate(base, next)
+    // 模板自带 dateFormat：dateText 为旧格式文本时反解日期按模板格式重拼（同单张 applyTemplateToState）
+    if (config.dateFormat && config.dateFormat !== base.dateFormat) {
+      const rawDate = next.exifRaw?.dateTimeOriginal ?? parseDisplayDate(next.dateText)
+      if (rawDate) next.dateText = formatDate(rawDate, next.dateFormat)
+    }
+    // 兜底回填缺失（空/「自定义」占位）的 INFO 文本：从照片 exifRaw 恢复（含型号/品牌占位）
+    backfillInfoFromRaw(next)
     // 模板开启显示但内容仍缺失的字段：用「自定义」占位并汇总提示。
     // 无 EXIF 的照片：品牌/型号也视为未识别（brand 残留的只是全局默认值，如 sony）
     let missing = false
-    if (next.showExif && !next.exifText) {
-      next.exifText = '自定义'
+    if (next.showExif && isInfoMissing(next.exifText)) {
+      next.exifText = INFO_PLACEHOLDER
       missing = true
     }
-    if (next.showLens && !next.lensText) {
-      next.lensText = '自定义'
+    if (next.showLens && isInfoMissing(next.lensText)) {
+      next.lensText = INFO_PLACEHOLDER
       missing = true
     }
-    if (next.showDate && !next.dateText) {
-      next.dateText = '自定义'
+    if (next.showDate && isInfoMissing(next.dateText)) {
+      next.dateText = INFO_PLACEHOLDER
       missing = true
     }
-    if (next.showCameraModel && !next.cameraModel) {
-      next.cameraModel = '自定义'
+    if (next.showCameraModel && isInfoMissing(next.cameraModel)) {
+      next.cameraModel = INFO_PLACEHOLDER
       missing = true
     }
     if (next.showLogo && !next.exifRaw) {
-      next.brand = '自定义'
+      next.brand = INFO_PLACEHOLDER
       missing = true
     }
     if (missing) anyMissing = true

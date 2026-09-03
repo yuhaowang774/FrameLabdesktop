@@ -5,7 +5,7 @@
 import { computed, ref } from 'vue'
 import { useFrameConfig } from '../../composables/useFrameConfig'
 import { BRANDS, PHONE_BRANDS, RANGES, MAX_CUSTOM_LOGOS, CROP_FACTORS, BRAND_LOGO_COLORS, phoneBrandOf } from '../../core/constants'
-import { buildExifText, formatDate, type DateFormat } from '../../composables/useExif'
+import { buildExifText, formatDate, parseDisplayDate, parseExif, cleanLens, type DateFormat } from '../../composables/useExif'
 import { footerTextColor } from '../../core/colorUtils'
 import { cardBadgeColors } from '../../core/infoLayout'
 import ColorField from '../common/ColorField.vue'
@@ -69,14 +69,54 @@ const DATE_FORMATS: { value: DateFormat; label: string }[] = [
   { value: 'datetime', label: '2026/08/27 10:30' },
   { value: 'dash', label: '2026-08-27 10:30' },
   { value: 'zh', label: '2026年8月27日' },
+  { value: 'en', label: 'JUN 10th, 2025' },
 ]
 function onDateFormatChange(v: string) {
   const fmt = v as DateFormat
   const next: Record<string, unknown> = { dateFormat: fmt }
-  if (state.exifRaw?.dateTimeOriginal) {
-    next.dateText = formatDate(state.exifRaw.dateTimeOriginal, fmt)
-  }
+  // 优先用 EXIF 原始日期重拼；无原始日期（手填或已格式化文本）则反解当前显示文本再重排，
+  // 保证切换格式总能生效；完全无法解析的自由文本保持原样。
+  const src = state.exifRaw?.dateTimeOriginal ?? parseDisplayDate(state.dateText)
+  const dateText = formatDate(src, fmt)
+  if (dateText) next.dateText = dateText
   patch(next)
+}
+
+// ===== 自动填充真实信息 =====
+// 一键用照片真实 EXIF **覆盖全部** INFO 内容（用户手改过的也会被真实值取代）：
+// 参数行 / 镜头 / 拍摄日期（按当前格式）/ 相机型号（营销名）/ 品牌——自定义过的
+// 品牌 Logo 也会被换回照片真实品牌。与导入照片时的自动识别回填同一套语义。
+// 旧版本导入的照片 exifRaw 未存型号/品牌：先用当前照片重新解析一次补全。
+const filling = ref(false)
+async function autoFillInfo() {
+  if (!state.photoSrc || filling.value) return
+  filling.value = true
+  try {
+    let raw = state.exifRaw
+    if (!raw?.model || !raw?.brandId) {
+      try {
+        raw = (await parseExif(state.photoSrc)).raw
+      } catch {
+        /* 照片无 EXIF / 解析失败：用已有 raw 回填 */
+      }
+    }
+    if (!raw) {
+      failMsg.value = '未识别到照片 EXIF 信息，无法自动填充'
+      failOpen.value = true
+      return
+    }
+    const data: Partial<FrameConfig> = {
+      exifRaw: raw,
+      exifText: buildExifText(raw, { eqFocal: state.eqFocal, cropFactor: state.cropFactor }),
+      dateText: formatDate(raw.dateTimeOriginal, state.dateFormat),
+      lensText: cleanLens(raw.lensMake, raw.lensModel) ?? '',
+    }
+    if (raw.model) data.cameraModel = raw.model
+    if (raw.brandId) data.brand = raw.brandId
+    patch(data)
+  } finally {
+    filling.value = false
+  }
 }
 
 // ===== 三个板块的展开/收起状态（与「是否显示」开关解耦） =====
@@ -132,7 +172,8 @@ async function onDeleteCustom(id: string) {
   <div class="info-panel">
     <!-- 信息布局预设：classic=纵向堆叠；duo=杂志双栏（左镜头/机型 / 中Logo / 右参数+日期）；
          inline=悬浮双行（Logo+机型内联居中，参数居中其下）；
-         card=手机白底水印卡（左机型+日期 / 右参数+镜头 / 右端联名标块） -->
+         card=手机白底水印卡（左机型+日期 / 右参数+镜头 / 右端联名标块）；
+         magazine=杂志编辑（顶部标题区 + 底部左取色色卡 / 右机型+参数+日期） -->
     <div class="field layout-field">
       <label>信息布局</label>
       <select v-model="state.infoLayout" class="select">
@@ -140,7 +181,39 @@ async function onDeleteCustom(id: string) {
         <option value="duo">杂志双栏</option>
         <option value="inline">悬浮双行</option>
         <option value="card">手机白底卡</option>
+        <option value="magazine">杂志编辑</option>
       </select>
+    </div>
+    <!-- magazine 模式专属：顶部标题文本 / 取色色卡开关（提示调大上边留白以容纳标题区） -->
+    <template v-if="state.infoLayout === 'magazine'">
+      <div class="field">
+        <label>顶部标题</label>
+        <input
+          class="text-input"
+          type="text"
+          v-model="state.infoTitle"
+          placeholder="Nature's poetry"
+          maxlength="40"
+        />
+      </div>
+      <div class="field checkbox-field">
+        <label>取色色卡</label>
+        <input type="checkbox" v-model="state.showPalette" />
+      </div>
+      <p class="mag-hint">杂志布局需要较大上边留白（建议 ≥120）容纳标题区，下边留白容纳色卡与信息。</p>
+    </template>
+    <!-- 一键恢复照片真实 EXIF 信息（全量覆盖：含型号与品牌/Logo，手改内容会被真实值取代） -->
+    <div class="field autofill-field">
+      <button
+        class="mini-btn autofill-btn"
+        :disabled="!state.photoSrc || filling"
+        :title="state.photoSrc
+          ? '用照片真实 EXIF 覆盖全部 INFO 信息：参数 / 镜头 / 拍摄日期 / 型号 / 品牌（手动修改与自定义 Logo 都会被真实值取代）'
+          : '当前无照片，无法自动填充'"
+        @click="autoFillInfo"
+      >
+        {{ filling ? '填充中…' : '自动填充真实信息' }}
+      </button>
     </div>
     <!-- card 模式专属：卡片底色 / 日期行开关 -->
     <div v-if="state.infoLayout === 'card'" class="field">
@@ -429,6 +502,12 @@ async function onDeleteCustom(id: string) {
 <style scoped>
 .info-panel { display: flex; flex-direction: column; }
 .layout-field { margin-bottom: 2px; }
+/* 自动填充按钮：与信息布局同宽，常态低调、可点时高亮边框 */
+.autofill-field { margin: 4px 0 6px; }
+.autofill-btn {
+  flex: 1;
+  align-self: stretch;
+}
 /* 嵌套子折叠面板：第一个不显示顶部边框（外层面板 body 已带分割线） */
 .info-panel :deep(.panel:first-child) {
   border-top: none;
@@ -525,6 +604,17 @@ async function onDeleteCustom(id: string) {
 }
 .eq-switch input {
   margin: 0;
+}
+/* magazine 专属：色卡开关与提示文字 */
+.checkbox-field input {
+  margin: 0;
+  accent-color: var(--slider-thumb);
+}
+.mag-hint {
+  margin: 2px 0 6px;
+  font-size: 11px;
+  line-height: 14px;
+  color: var(--text-dim);
 }
 .field > label {
   flex: none;

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // 底部信息预览：品牌 Logo / 相机型号 / EXIF 三个独立模块，各自可在画布上鼠标拖动
-import { computed, ref, onMounted, onBeforeUnmount } from 'vue'
+import { computed, ref, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import { useFrameConfig } from '../../composables/useFrameConfig'
 import { useAppState } from '../../composables/useAppState'
 import { useViewer } from '../../composables/useViewer'
@@ -10,15 +10,22 @@ import {
   computeFooterLayout,
   computeClassicLayout,
   computeCardLayout,
+  computeMagazineLayout,
   cardThemeColors,
   cardBadgeColors,
   CARD_RADIUS,
   LENS_LINE_GAP,
+  MAG_SUB_SIZE,
+  MAG_SUB_LETTER_SPACING,
+  MAG_SWATCH_COUNT,
+  MAG_SWATCH_W,
+  MAG_SWATCH_H,
   type FooterLayout,
   type CardRect,
 } from '../../core/infoLayout'
-import { logoAutoColor } from '../../core/colorUtils'
+import { logoAutoColor, footerTextColor } from '../../core/colorUtils'
 import { modelAlias } from '../../core/modelAlias'
+import { paletteFor, paletteVersion } from '../../core/photoPalette'
 
 type ItemKey = 'logo' | 'model' | 'exif' | 'date' | 'lens'
 
@@ -38,13 +45,17 @@ const brandName = computed(() => state.brand)
 // 这里统一翻译成营销名（α6000 / DJI Mini 3）。映射幂等，已是营销名的值不会被二次改写。
 const modelText = computed(() => modelAlias(state.cameraModel))
 
-// 型号偏移：仅 classic 布局叠加 -50% 实现水平居中（x 是内容区中点）；
-// duo/inline 的 x 已由共享布局按左缘/行内位置精确计算，再叠 -50% 会把型号推出画板左缘。
-const modelTransform = computed(() =>
-  state.infoLayout === 'classic'
-    ? 'translate(calc(-50% + var(--camera-model-offset-x)), var(--camera-model-offset-y))'
-    : 'translate(var(--camera-model-offset-x), var(--camera-model-offset-y))',
-)
+// 型号偏移：classic 居中对齐时叠加 -50% 实现水平居中（x 是行中心锚点）；
+// classic 右对齐时 x 是右缘锚点，叠加 -100%；左对齐与 duo/inline 的 x 已是左缘精确锚点。
+const modelTransform = computed(() => {
+  if (state.infoLayout === 'classic') {
+    if (state.overlayAlign === 'center')
+      return 'translate(calc(-50% + var(--camera-model-offset-x)), var(--camera-model-offset-y))'
+    if (state.overlayAlign === 'right')
+      return 'translate(calc(-100% + var(--camera-model-offset-x)), var(--camera-model-offset-y))'
+  }
+  return 'translate(var(--camera-model-offset-x), var(--camera-model-offset-y))'
+})
 
 // Logo 由 useLogoStore 渲染内置品牌官方 SVG / 自定义 Logo
 const logoSrc = computed(() =>
@@ -307,16 +318,29 @@ const frameContainerH = ref(0)
 // 通过 ResizeObserver 同步画板设计高
 const frameEl = computed<HTMLElement | null>(() => document.querySelector('.frame-container'))
 let _ro: ResizeObserver | null = null
+function syncFrameContainerH(): void {
+  // 回调/重测时重新查询元素：防 HMR 或元素替换后观察到旧节点
+  const el = document.querySelector('.frame-container')
+  if (el) frameContainerH.value = (el as HTMLElement).offsetHeight
+}
 onMounted(() => {
+  syncFrameContainerH()
+  if (typeof ResizeObserver === 'undefined') return
+  _ro = new ResizeObserver(syncFrameContainerH)
   const el = frameEl.value
-  if (!el || typeof ResizeObserver === 'undefined') return
-  _ro = new ResizeObserver(() => {
-    frameContainerH.value = el.offsetHeight
-  })
-  _ro.observe(el)
-  frameContainerH.value = el.offsetHeight
+  if (el) _ro.observe(el)
 })
 onBeforeUnmount(() => { _ro?.disconnect(); _ro = null })
+
+// 画布结构参数（padding/borderRatio/bgExpand/bgBottomRatio/canvasH/照片）变化后，
+// 画板 DOM 高度在渲染完成后才更新，ResizeObserver 存在时序缺口——主动 nextTick 重测，
+// 消除模板切换瞬间用旧画布高度计算 INFO 位置的竞态（复古 CCD 日期戳出画布的根因）。
+watch(
+  () => [state.canvasH, state.padding, state.borderRatio, state.bgExpand, state.bgBottomRatio, state.photoSrc],
+  () => {
+    nextTick(syncFrameContainerH)
+  },
+)
 
 // 每项默认位置：全部由共享布局模块计算（与 exporter.ts 同源）。
 // 行高与文本宽度均取各组「生效样式」（独立 ?? 整体），单独修改某组字体/字号后排版自动跟随，
@@ -351,6 +375,33 @@ const cardBadge = computed(() => {
   const c = cardBadgeColors(state.cardBadgeBg, state.cardBadgeFg, state.brand)
   return { text: phone.badge.text, bg: c.bg, fg: c.fg }
 })
+
+// ===== magazine 杂志编辑布局：与 exporter drawMagazineFooter 同源（computeMagazineLayout）=====
+const magazineLayout = computed(() => {
+  if (state.infoLayout !== 'magazine') return null
+  const canvasBottom = frameContainerH.value > 0
+    ? frameContainerH.value - pad.value - bgExpand.value
+    : contentH.value
+  return computeMagazineLayout(state, canvasBottom)
+})
+// 取色色卡：从当前照片提取主色（photoPalette 内部缓存，paletteVersion 触发刷新）
+const magazinePalette = computed(() => {
+  if (state.infoLayout !== 'magazine' || !state.showPalette) return []
+  void paletteVersion.value
+  return paletteFor(state.photoSrc)
+})
+const magazinePrimary = computed(() => footerTextColor(state.bgMode, state.bgColor, 0.95))
+const magazineSecondary = computed(() => footerTextColor(state.bgMode, state.bgColor, 0.55))
+const magazineSubtitle = computed(() =>
+  state.showDate && state.dateText ? `PHOTOGRAPHED IN : ${state.dateText}` : '',
+)
+/** 杂志元素定位：内容区坐标 + padding + bgExpand → 画板坐标（静态渲染，不支持拖拽） */
+function magazinePos(r: { x: number; y: number }) {
+  return {
+    left: pad.value + bgExpand.value + r.x + 'px',
+    top: pad.value + bgExpand.value + r.y + 'px',
+  }
+}
 /** 卡内子项定位：内容区坐标 + padding + bgExpand → 画板坐标 */
 function cardPos(r: CardRect) {
   return {
@@ -487,15 +538,21 @@ function absStyle(key: ItemKey) {
     x = d.x
     y = d.y
   }
-  // classic 布局的文本元素（型号 / EXIF / 日期）默认 x 是内容区中点，
-  // 需要向左平移 50% 才能真正居中；duo/inline 的 x 已由共享布局按左/右缘或中点算好，
-  // 这里不能再做 -50% 偏移。
-  const textKeysInClassic = new Set<ItemKey>(['model', 'exif', 'date', 'lens'])
-  const centerShiftX = state.infoLayout === 'classic' && textKeysInClassic.has(key)
+  // classic 布局元素的水平锚点语义：center = 行中心（-50% 平移）、right = 右缘（-100% 平移）、
+  // left 与 duo/inline 的 x 均为左缘精确锚点（不平移）。Logo 与文本行同规则（导出端 logoShift 等价）。
+  const textKeysInClassic = new Set<ItemKey>(['model', 'exif', 'date', 'lens', 'logo'])
+  const classicShift =
+    state.infoLayout === 'classic' && textKeysInClassic.has(key)
+      ? state.overlayAlign === 'center'
+        ? 'translate(-50%, 0)'
+        : state.overlayAlign === 'right'
+          ? 'translate(-100%, 0)'
+          : 'none'
+      : 'none'
   return {
     left: pad.value + bgExpand.value + x + 'px',
     top: pad.value + bgExpand.value + y + 'px',
-    transform: centerShiftX ? 'translate(-50%, 0)' : 'none',
+    transform: classicShift,
   }
 }
 </script>
@@ -563,8 +620,47 @@ function absStyle(key: ItemKey) {
         >{{ cardBadge.text }}</span
       >
     </template>
+    <!-- magazine 杂志编辑（顶部标题区 + 取色色卡 + 右侧信息块）：与导出 drawMagazineFooter 同源，静态渲染不支持拖拽 -->
+    <template v-if="magazineLayout">
+      <span
+        v-if="state.infoTitle"
+        class="mag-line"
+        :style="[magazinePos(magazineLayout.title), { color: magazinePrimary, font: `700 ${magazineLayout.titleSize}px/1.15 ${state.fontFamily}` }]"
+        >{{ state.infoTitle }}</span
+      >
+      <span
+        v-if="magazineSubtitle"
+        class="mag-line"
+        :style="[magazinePos(magazineLayout.subtitle), { color: magazineSecondary, font: `500 ${MAG_SUB_SIZE}px/1 ${state.fontFamily}`, letterSpacing: MAG_SUB_LETTER_SPACING + 'px' }]"
+        >{{ magazineSubtitle }}</span
+      >
+      <div
+        v-if="state.showPalette"
+        class="mag-palette"
+        :style="magazinePos(magazineLayout.palette)"
+      >
+        <span
+          v-for="(c, i) in magazinePalette.slice(0, MAG_SWATCH_COUNT)"
+          :key="i"
+          class="mag-swatch"
+          :style="{ background: c, width: MAG_SWATCH_W + 'px', height: MAG_SWATCH_H + 'px' }"
+        />
+      </div>
+      <span
+        v-if="state.showCameraModel && state.cameraModel"
+        class="mag-line"
+        :style="[magazinePos(magazineLayout.model), { color: magazinePrimary, font: `${state.cameraModelItalic ? 'italic ' : ''}${state.cameraModelWeight} ${state.cameraModelSize}px/1 ${state.cameraModelFont}`, transform: 'translateX(-100%)' }]"
+        >{{ modelText }}</span
+      >
+      <span
+        v-if="state.showExif && state.exifText"
+        class="mag-line"
+        :style="[magazinePos(magazineLayout.exif), { color: magazineSecondary, font: `${state.exifTextWeight ?? state.textWeight} ${state.exifFontSize ?? state.fontSize}px/1 ${state.exifFontFamily ?? state.fontFamily}`, transform: 'translateX(-100%)' }]"
+        >{{ state.exifText }}</span
+      >
+    </template>
     <img
-      v-if="state.showLogo && logoSrc && state.infoLayout !== 'card'"
+      v-if="state.showLogo && logoSrc && state.infoLayout !== 'card' && state.infoLayout !== 'magazine' && !(state.infoLayout === 'inline' && phoneBrandOf(state.brand))"
       class="brand-logo drag-item"
       data-item="logo"
       :class="{ dragging: dragging === 'logo' }"
@@ -577,7 +673,7 @@ function absStyle(key: ItemKey) {
     <span
       class="camera-model drag-item"
       data-item="model"
-      v-if="state.showCameraModel && state.infoLayout !== 'card'"
+      v-if="state.showCameraModel && state.infoLayout !== 'card' && state.infoLayout !== 'magazine'"
       :class="{ dragging: dragging === 'model' }"
       :style="[
         absStyle('model'),
@@ -596,7 +692,7 @@ function absStyle(key: ItemKey) {
     <div
       class="exif-text drag-item"
       data-item="exif"
-      v-if="state.showExif && state.infoLayout !== 'card'"
+      v-if="state.showExif && state.infoLayout !== 'card' && state.infoLayout !== 'magazine'"
       :class="{ dragging: dragging === 'exif' }"
       :style="[
         absStyle('exif'),
@@ -647,7 +743,7 @@ function absStyle(key: ItemKey) {
     <div
       class="date-text drag-item"
       data-item="date"
-      v-if="state.showDate && state.infoLayout !== 'card'"
+      v-if="state.showDate && state.infoLayout !== 'card' && state.infoLayout !== 'magazine'"
       :class="{ dragging: dragging === 'date' }"
       :style="[
         absStyle('date'),
@@ -678,6 +774,18 @@ function absStyle(key: ItemKey) {
 /* card 白底水印卡（手机品牌）：静态渲染，与导出 drawCardFooter 视觉一致 */
 .phone-card {
   position: absolute;
+}
+/* magazine 杂志编辑：静态渲染，与导出 drawMagazineFooter 视觉一致 */
+.mag-line {
+  position: absolute;
+  white-space: nowrap;
+}
+.mag-palette {
+  position: absolute;
+  display: flex;
+}
+.mag-swatch {
+  display: block;
 }
 .pc-line {
   position: absolute;

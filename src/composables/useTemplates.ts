@@ -1,11 +1,17 @@
 // 模板系统：内置预设 + 用户自定义模板（可导出/导入 JSON）。
 // 模板仅保存 FrameConfig 装饰参数（不含 photoSrc、照片变换与位置，避免污染用户主图）。
-// 背景模板库已取消；内置模板为两张用户样例的像素级复刻（白框参数卡 / 圆角悬浮·模糊延展）。
+// 背景模板库已取消；内置模板前两张为用户样例的像素级复刻（白框参数卡 / 圆角悬浮·模糊延展），
+// 其余复刻自「水印审美」样张归纳的风格（Desktop/水印审美，2026-09-03）：
+// 极简装裱 / 居中机型参数 / 全幅铭牌条 / 工程测绘 / 胶片暗房 / 轻量悬浮 / 复古 CCD / 杂志编辑。
+// 画廊签名款（手写签名 + 数字/单位双行四栏参数）暂未收录：签名属用户自定义图形，四栏双行
+// 单元格超出 INFO 布局引擎能力。
 // 列表缩略图由 core/templateThumb.ts 按 config 程序化生成，与成片几何一致。
 import { reactive } from 'vue'
 import type { FrameConfig } from '../core/types'
+import { defaultFrameConfig } from '../core/types'
+import { hexLuminance } from '../core/colorUtils'
 import { useFrameConfig } from './useFrameConfig'
-import { buildExifText, formatDate, cleanLens } from './useExif'
+import { backfillInfoFromRaw, isInfoMissing, INFO_PLACEHOLDER, parseDisplayDate, formatDate } from './useExif'
 
 const STORAGE_KEY = 'frame-templates'
 
@@ -101,6 +107,290 @@ const BUILTIN: FrameTemplate[] = [
       textOpacity: 1,
     },
   },
+  {
+    id: 'm_matte_serif',
+    name: '白卡装裱·衬线字标',
+    category: 'frame',
+    builtin: true,
+    // 样张「HASSELBLAD」：大幅白卡纸装裱（四边留白 22 / 底部 152），仅底部一行斜体衬线字，
+    // 克制、高级。机型行用 Didot 斜体呈现"字标感"（随照片 EXIF 型号）；classic 布局
+    // 只为显示行分配位置，overlayBottom 60 让单行机型落在底部留白的视觉中点。
+    config: {
+      bgMode: 'solid',
+      bgColor: '#ffffff',
+      borderColor: '#ffffff',
+      padding: 22,
+      borderRatio: 130,
+      photoRadius: 0,
+      borderRadius: 0,
+      scale: 100,
+      shadow: 0,
+      frameRatio: null,
+      infoLayout: 'classic',
+      overlayAlign: 'center',
+      overlayBottom: 60,
+      showLogo: false,
+      showCameraModel: true,
+      cameraModelFont: "Didot, 'Bodoni MT', 'Times New Roman', serif",
+      cameraModelSize: 26,
+      cameraModelWeight: 600,
+      cameraModelItalic: true,
+      showExif: false,
+      showLens: false,
+      showDate: false,
+      fontFamily: "'Helvetica Neue', Arial, sans-serif",
+      fontSize: 15,
+      textWeight: 400,
+      textOpacity: 0.6,
+    },
+  },
+  {
+    id: 'm_center_params',
+    name: '白底居中·机型参数',
+    category: 'frame',
+    builtin: true,
+    // 样张「XIAOMI 15 | LEICA」/「OPPO Find X8 Ultra」：白底加宽下边带，居中两行——
+    // 上行机型（黑、粗）、下行参数（灰、细），无 Logo 不抢戏，官方水印的通用形制。
+    config: {
+      bgMode: 'solid',
+      bgColor: '#ffffff',
+      borderColor: '#ffffff',
+      padding: 27,
+      borderRatio: 159,
+      photoRadius: 0,
+      borderRadius: 0,
+      scale: 100,
+      shadow: 0,
+      frameRatio: null,
+      infoLayout: 'classic',
+      overlayAlign: 'center',
+      overlayBottom: 85,
+      showLogo: false,
+      showCameraModel: true,
+      cameraModelSize: 24,
+      cameraModelWeight: 700,
+      showExif: true,
+      showLens: false,
+      showDate: false,
+      fontSize: 18,
+      textWeight: 400,
+      textOpacity: 0.7,
+    },
+  },
+  {
+    id: 'm_strip_plate',
+    name: '全幅白条·铭牌',
+    category: 'frame',
+    builtin: true,
+    // 样张「iPhone 16 Pro」：照片全幅铺满，仅在底部压一条窄白带（118），
+    // 左机型 / 中 Logo / 右日期三段式，像机身铭牌。duo 布局右缘自动对齐照片右缘。
+    config: {
+      bgMode: 'solid',
+      bgColor: '#ffffff',
+      borderColor: '#ffffff',
+      padding: 0,
+      borderRatio: 118,
+      photoRadius: 0,
+      borderRadius: 0,
+      scale: 100,
+      shadow: 0,
+      frameRatio: null,
+      infoLayout: 'duo',
+      overlayAlign: 'center',
+      overlayBottom: 44,
+      showLogo: true,
+      logoSize: 22,
+      logoOpacity: 1,
+      logoColor: '#1a1a1a',
+      showCameraModel: true,
+      cameraModelSize: 26,
+      cameraModelWeight: 500,
+      showExif: false,
+      showLens: false,
+      showDate: true,
+      dateFormat: 'date',
+      fontSize: 18,
+      textWeight: 400,
+      textOpacity: 1,
+    },
+  },
+  {
+    id: 'm_tech_silver',
+    name: '银灰测绘·等宽参数',
+    category: 'frame',
+    builtin: true,
+    // 样张「XIAOMI 14 | LEICA」：银灰底色 + 等宽字体的数据美学；信息分居下边两角——
+    // 左镜头+机型、右参数+日期（原样张右下为 GPS 坐标，引擎暂无 GPS 字段，以日期替代；
+    // 左上角品牌标同样超出布局引擎能力，未复刻）。
+    config: {
+      bgMode: 'solid',
+      bgColor: '#C9C5CD',
+      borderColor: '#C9C5CD',
+      padding: 77,
+      borderRatio: 143,
+      photoRadius: 0,
+      borderRadius: 0,
+      scale: 100,
+      shadow: 0,
+      frameRatio: null,
+      infoLayout: 'duo',
+      overlayAlign: 'center',
+      overlayBottom: 118,
+      showLogo: false,
+      showCameraModel: true,
+      cameraModelFont: "'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace",
+      cameraModelSize: 22,
+      cameraModelWeight: 600,
+      showExif: true,
+      showLens: true,
+      showDate: true,
+      dateFormat: 'dash',
+      fontFamily: "'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace",
+      fontSize: 20,
+      textWeight: 400,
+      textOpacity: 0.8,
+    },
+  },
+  {
+    id: 'm_film_noir',
+    name: '胶片暗房·黑框',
+    category: 'frame',
+    builtin: true,
+    // 样张「XIAOMI 13 PRO | LEICA」：纯黑边框营造暗房出片感，左下白色机型、右下浅灰参数；
+    // 原样张照片四周的胶片毛边（不规则白边）超出照片层渲染能力，以直边照片近似。
+    config: {
+      bgMode: 'solid',
+      bgColor: '#000000',
+      borderColor: '#000000',
+      padding: 60,
+      borderRatio: 126,
+      photoRadius: 0,
+      borderRadius: 0,
+      scale: 100,
+      shadow: 0,
+      frameRatio: null,
+      infoLayout: 'duo',
+      overlayAlign: 'center',
+      overlayBottom: 66,
+      showLogo: false,
+      showCameraModel: true,
+      cameraModelSize: 24,
+      cameraModelWeight: 700,
+      showExif: true,
+      showLens: false,
+      showDate: false,
+      fontSize: 20,
+      textWeight: 400,
+      textOpacity: 0.75,
+    },
+  },
+  {
+    id: 'm_float_badge',
+    name: '轻量悬浮·型号水印',
+    category: 'frame',
+    builtin: true,
+    // 样张「DJI OSMO POCKET 4P」：不做画框，照片全幅，底部中央一行 Logo+型号半透明白字，
+    // 不干扰画面。bgMode 用 blur(0) 使悬浮文字获得与 inline 悬浮款一致的可读性投影。
+    config: {
+      bgMode: 'blur',
+      blur: 0,
+      padding: 0,
+      borderRatio: 0,
+      photoRadius: 0,
+      borderRadius: 0,
+      scale: 100,
+      shadow: 0,
+      frameRatio: null,
+      infoLayout: 'inline',
+      overlayAlign: 'center',
+      overlayBottom: 22,
+      showLogo: true,
+      logoSize: 22,
+      logoOpacity: 0.92,
+      logoColor: '#ffffff',
+      showCameraModel: true,
+      cameraModelSize: 22,
+      cameraModelWeight: 500,
+      cameraModelOpacity: 0.92,
+      showExif: false,
+      showLens: false,
+      showDate: false,
+      fontSize: 18,
+      textWeight: 400,
+      textOpacity: 1,
+    },
+  },
+  {
+    id: 'm_ccd_stamp',
+    name: '复古CCD·日期戳',
+    category: 'frame',
+    builtin: true,
+    // 样张「2008/10/04」：无边框全幅照片，右下角一枚等宽粗体橙色数字日期，模拟 2000 年代
+    // CCD 相机的机内日期打印。等宽字体由全局字体下发；右下角 = classic 布局右对齐
+    // （overlayAlign right，行宽由引擎实测，换日期格式也不会出界）；橙色为 CCD 日期戳标志性配色。
+    config: {
+      bgMode: 'blur',
+      blur: 0,
+      padding: 0,
+      borderRatio: 0,
+      photoRadius: 0,
+      borderRadius: 0,
+      scale: 100,
+      shadow: 0,
+      frameRatio: null,
+      infoLayout: 'classic',
+      overlayAlign: 'right',
+      overlayBottom: 46,
+      showLogo: false,
+      showCameraModel: false,
+      showExif: false,
+      showLens: false,
+      showDate: true,
+      dateFormat: 'date',
+      fontFamily: "'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace",
+      fontSize: 30,
+      textWeight: 700,
+      textOpacity: 1,
+      dateTextColor: '#FFB43B',
+    },
+  },
+  {
+    id: 'm_magazine_edit',
+    name: '杂志编辑·标题色卡',
+    category: 'frame',
+    builtin: true,
+    // 样张「Nature's poetry」：白框非对称杂志排版——顶部大标题 + "PHOTOGRAPHED IN : 日期"
+    // 副标题，底部左侧从照片取色的五格色卡、右侧大号机型 + 灰色参数。对称大留白 padding 120
+    // 容纳标题区，下边加宽 71 放色卡与信息块。标题文本可自定义（INFO 面板），色卡随照片换色。
+    config: {
+      bgMode: 'solid',
+      bgColor: '#ffffff',
+      borderColor: '#ffffff',
+      padding: 120,
+      borderRatio: 71,
+      photoRadius: 0,
+      borderRadius: 0,
+      scale: 100,
+      shadow: 0,
+      frameRatio: null,
+      infoLayout: 'magazine',
+      overlayAlign: 'center',
+      overlayBottom: 40,
+      infoTitle: "Nature's poetry",
+      showPalette: true,
+      showLogo: false,
+      showCameraModel: true,
+      cameraModelSize: 30,
+      cameraModelWeight: 600,
+      showExif: true,
+      showLens: false,
+      showDate: true,
+      dateFormat: 'en',
+      fontSize: 17,
+      textWeight: 500,
+      textOpacity: 1,
+    },
+  },
 ]
 
 const templates = reactive<FrameTemplate[]>([])
@@ -174,53 +464,26 @@ function toTemplateConfig(cfg: FrameConfig): Partial<FrameConfig> {
 
 /**
  * 应用模板到「当前编辑状态」（与模板面板点击行为一致，供首选项「启动默认模板」复用）：
- * 模板只覆盖装饰/布局参数；当前照片的 EXIF 文本/型号/品牌/位置/变换与用户对
- * INFO 文本的独立样式（字体/字号/粗细/透明度/颜色）一律保留。
+ * - 模板只覆盖装饰/布局参数；照片内容/变换/位置与 EXIF 语义参数（eqFocal/cropFactor）保留当前照片的；
+ * - INFO 文本缺失（空或「自定义」占位）时从照片 exifRaw 自动回填（含型号/品牌占位恢复），
+ *   模板开启显示仍无数据的字段才落「自定义」占位并汇总返回；
+ * - INFO 文本字体/字号/粗细/透明度的用户独立设置保留；颜色随模板背景自适应：
+ *   模板显式定义优先，未定义时文字回「自动」（null → 渲染端按底色黑白），Logo 按底色明暗取黑/白，
+ *   白框模板自动得到深色 Logo，用户无需手动调节。
  *
  * @returns 缺失的 INFO 字段中文名列表（模板开启了显示但无内容，已用「自定义」占位）；
  *          空数组 = 信息齐全。调用方可据此弹框提示。
  */
 export function applyTemplateToState(config: Partial<FrameConfig>): string[] {
   const { state, loadConfig } = useFrameConfig()
-  // INFO 文本被「复位 INFO」清空时，从 exifRaw 兜底重建，避免应用模板后参数行无内容
-  const raw = state.exifRaw
-  let exifText = state.exifText || (raw ? buildExifText(raw, { eqFocal: state.eqFocal, cropFactor: state.cropFactor }) : '')
-  let dateText = state.dateText || (raw?.dateTimeOriginal ? formatDate(raw.dateTimeOriginal, state.dateFormat) : '')
-  let lensText = state.lensText || (raw ? cleanLens(raw.lensMake, raw.lensModel) ?? '' : '')
-  // 模板开启显示但内容缺失的字段：用「自定义」占位并汇总，供调用方弹框提示
-  const missing: string[] = []
-  const showExif = config.showExif ?? state.showExif
-  const showLens = config.showLens ?? state.showLens
-  const showDate = config.showDate ?? state.showDate
-  const showModel = config.showCameraModel ?? state.showCameraModel
-  const showLogo = config.showLogo ?? state.showLogo
-  // 无 EXIF 的照片：品牌/型号视为未识别（brand 残留的只是全局默认值，如 sony）
-  const noExif = !raw
-  let cameraModel = state.cameraModel
-  let brand = state.brand
-  if (showExif && !exifText) {
-    exifText = '自定义'
-    missing.push('EXIF 参数')
-  }
-  if (showLens && !lensText) {
-    lensText = '自定义'
-    missing.push('镜头信息')
-  }
-  if (showDate && !dateText) {
-    dateText = '自定义'
-    missing.push('拍摄日期')
-  }
-  if (showModel && !cameraModel) {
-    cameraModel = '自定义'
-    missing.push('相机型号')
-  }
-  if (showLogo && noExif) {
-    brand = '自定义'
-    missing.push('品牌信息')
-  }
-  loadConfig({
+  // 模板背景明暗（模板未指定背景时沿用当前背景）：浅色纯色底 → 深色 Logo
+  const bgMode = config.bgMode ?? state.bgMode
+  const bgColor = config.bgColor ?? state.bgColor
+  const lightSolid = bgMode === 'solid' && hexLuminance(bgColor) > 0.6
+  const next: FrameConfig = {
+    ...defaultFrameConfig,
     ...config,
-    // ===== 以下为照片自身内容 / 用户设置，覆盖模板中可能残留的同名字段 =====
+    // ===== 照片自身内容 / 变换 / 位置：永远保留当前照片的 =====
     photoSrc: state.photoSrc,
     photoX: state.photoX,
     photoY: state.photoY,
@@ -230,12 +493,10 @@ export function applyTemplateToState(config: Partial<FrameConfig>): string[] {
     bgOffsetX: state.bgOffsetX,
     bgOffsetY: state.bgOffsetY,
     canvasH: state.canvasH,
-    exifText,
-    exifRaw: raw,
-    dateText,
-    cameraModel,
-    brand,
-    lensText,
+    exifRaw: state.exifRaw,
+    eqFocal: state.eqFocal,
+    cropFactor: state.cropFactor,
+    // ===== INFO 文本独立样式：字体/字号/粗细/透明度保留用户设置；颜色随模板背景自适应 =====
     exifFontFamily: state.exifFontFamily,
     exifFontSize: state.exifFontSize,
     exifTextWeight: state.exifTextWeight,
@@ -248,12 +509,63 @@ export function applyTemplateToState(config: Partial<FrameConfig>): string[] {
     dateFontSize: state.dateFontSize,
     dateTextWeight: state.dateTextWeight,
     dateTextOpacity: state.dateTextOpacity,
-    exifTextColor: state.exifTextColor,
-    lensTextColor: state.lensTextColor,
-    dateTextColor: state.dateTextColor,
-    cameraModelColor: state.cameraModelColor,
-  })
+    exifTextColor: config.exifTextColor ?? null,
+    lensTextColor: config.lensTextColor ?? null,
+    dateTextColor: config.dateTextColor ?? null,
+    cameraModelColor: config.cameraModelColor ?? null,
+    logoColor: config.logoColor ?? (lightSolid ? '#1a1a1a' : '#ffffff'),
+    // ===== INFO 文本：先保留现值，缺失的从 exifRaw 回填 =====
+    exifText: state.exifText,
+    dateText: state.dateText,
+    lensText: state.lensText,
+    cameraModel: state.cameraModel,
+    brand: state.brand,
+    dateFormat: config.dateFormat ?? state.dateFormat,
+  }
+  backfillInfoFromRaw(next)
+  // 模板开启显示但内容仍缺失的字段：用「自定义」占位并汇总，供调用方弹框提示。
+  // 无 EXIF 的照片：品牌/型号也视为未识别（brand 残留的只是全局默认值，如 sony）
+  const missing: string[] = []
+  if ((config.showExif ?? state.showExif) && isInfoMissing(next.exifText)) {
+    next.exifText = INFO_PLACEHOLDER
+    missing.push('EXIF 参数')
+  }
+  if ((config.showLens ?? state.showLens) && isInfoMissing(next.lensText)) {
+    next.lensText = INFO_PLACEHOLDER
+    missing.push('镜头信息')
+  }
+  if ((config.showDate ?? state.showDate) && isInfoMissing(next.dateText)) {
+    next.dateText = INFO_PLACEHOLDER
+    missing.push('拍摄日期')
+  }
+  if ((config.showCameraModel ?? state.showCameraModel) && isInfoMissing(next.cameraModel)) {
+    next.cameraModel = INFO_PLACEHOLDER
+    missing.push('相机型号')
+  }
+  if ((config.showLogo ?? state.showLogo) && !next.exifRaw) {
+    next.brand = INFO_PLACEHOLDER
+    missing.push('品牌信息')
+  }
+  recalcCanvasHAfterTemplate(state, next)
+  // 模板自带 dateFormat：dateText 若为旧格式文本，反解日期后按模板格式重拼
+  // （无 EXIF 原始日期的照片用 parseDisplayDate 从展示文本反解；解析失败保留原文本）
+  if (config.dateFormat && config.dateFormat !== state.dateFormat) {
+    const rawDate = next.exifRaw?.dateTimeOriginal ?? parseDisplayDate(next.dateText)
+    if (rawDate) next.dateText = formatDate(rawDate, next.dateFormat)
+  }
+  loadConfig(next)
   return missing
+}
+
+/**
+ * 模板应用后按新边框参数重算画布总高：内容区高不变（照片不随模板缩放），
+ * 画布 = 内容高 + 上下 padding×2 + 底边 borderRatio。旧 canvasH 为 0（未初始化）时跳过。
+ * 不重算会导致大 padding 模板（银灰测绘/杂志编辑等）把内容区错误压缩、INFO 锚点整体错位。
+ */
+export function recalcCanvasHAfterTemplate(old: FrameConfig, next: FrameConfig): void {
+  if (!old.canvasH) return
+  const contentH = old.canvasH - old.padding - (old.padding + old.borderRatio)
+  next.canvasH = Math.max(0, contentH + next.padding * 2 + next.borderRatio)
 }
 
 export function useTemplates() {

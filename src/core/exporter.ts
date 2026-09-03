@@ -6,23 +6,31 @@ import { drawBlurredBackground, drawVignette, drawGrain, drawWatermark, type Img
 import { resolveLogo, preloadBrandLogo } from '../composables/useLogoStore'
 import { drawInfoLayer, preloadInfoLogos } from './infoRenderer'
 import { buildSrgbICC, embedJpegICC } from './icc'
-import { hexLuminance, hexToRgba, logoAutoColor } from './colorUtils'
+import { hexLuminance, hexToRgba, logoAutoColor, footerTextColor } from './colorUtils'
 import { DESIGN_CONTAINER, phoneBrandOf } from './constants'
 import {
   computeFooterLayout,
   computeClassicLayout,
   computeCardLayout,
+  computeMagazineLayout,
   cardThemeColors,
   cardBadgeColors,
   exifTextStyle,
   lensTextStyle,
   dateTextStyle,
+  modelTextStyle,
   CARD_RADIUS,
   CARD_BADGE_FONT_SIZE,
   LENS_LINE_GAP,
+  MAG_SUB_SIZE,
+  MAG_SUB_LETTER_SPACING,
+  MAG_SWATCH_COUNT,
+  MAG_SWATCH_W,
+  MAG_SWATCH_H,
   type FooterLayout,
   type CardRect,
 } from './infoLayout'
+import { extractPalette, FALLBACK_PALETTE } from './photoPalette'
 import { modelAlias } from './modelAlias'
 import { rotatedSize, drawRotatedCropped } from './photoEdit'
 
@@ -170,6 +178,77 @@ function drawCardFooter(
   }
 }
 
+/** magazine 杂志编辑布局绘制（infoLayout='magazine'）：顶部标题区 + 底部左取色色卡 / 右机型+参数+日期 */
+function drawMagazineFooter(
+  ctx: CanvasRenderingContext2D,
+  config: FrameConfig,
+  unitScale: number,
+  contentOX: number,
+  canvasHpx: number,
+  palette: string[],
+): void {
+  const ox = contentOX * unitScale
+  const s = unitScale
+  const canvasBottomY = canvasHpx / unitScale - config.padding - config.bgExpand
+  const L = computeMagazineLayout(config, canvasBottomY)
+  const primary = footerTextColor(config.bgMode, config.bgColor, 0.95)
+  const secondary = footerTextColor(config.bgMode, config.bgColor, 0.55)
+  const canvasCtx = ctx as CanvasRenderingContext2D & { letterSpacing?: string }
+
+  const drawText = (
+    x: number,
+    y: number,
+    text: string,
+    size: number,
+    color: string,
+    weight: number,
+    font: string,
+    letterSpacing = 0,
+    align: CanvasTextAlign = 'left',
+  ): void => {
+    if (!text) return
+    ctx.save()
+    ctx.fillStyle = color
+    ctx.font = fontStr(weight, size * s, font)
+    ctx.textAlign = align
+    ctx.textBaseline = 'top'
+    if (letterSpacing > 0) canvasCtx.letterSpacing = `${letterSpacing * s}px`
+    ctx.fillText(text, ox + x * s, ox + y * s)
+    ctx.restore()
+  }
+
+  // 顶部标题区（上边留白内）：大标题（长标题自适应缩小）+ "PHOTOGRAPHED IN : 日期" 副标题
+  drawText(L.title.x, L.title.y, config.infoTitle, L.titleSize, primary, 700, config.fontFamily)
+  if (config.showDate && config.dateText) {
+    drawText(L.subtitle.x, L.subtitle.y, `PHOTOGRAPHED IN : ${config.dateText}`, MAG_SUB_SIZE, secondary, 500, config.fontFamily, MAG_SUB_LETTER_SPACING)
+  }
+
+  // 底部左侧取色色卡（showPalette 关闭时不绘制，与预览一致）
+  if (config.showPalette) {
+    for (let i = 0; i < MAG_SWATCH_COUNT; i++) {
+      ctx.save()
+      ctx.fillStyle = palette[i % palette.length]
+      ctx.fillRect(
+        ox + (L.palette.x + i * MAG_SWATCH_W) * s,
+        ox + L.palette.y * s,
+        MAG_SWATCH_W * s,
+        MAG_SWATCH_H * s,
+      )
+      ctx.restore()
+    }
+  }
+
+  // 底部右侧信息块（右缘锚点 + 右对齐，不依赖测宽）：机型（大）/ 参数（日期已在副标题，不重复）
+  const modelS = modelTextStyle(config)
+  const exifS = exifTextStyle(config)
+  if (config.showCameraModel && config.cameraModel) {
+    drawText(L.model.x, L.model.y, modelAlias(config.cameraModel), modelS.size, primary, modelS.weight, modelS.font, 0, 'right')
+  }
+  if (config.showExif && config.exifText) {
+    drawText(L.exif.x, L.exif.y, config.exifText, exifS.size, secondary, exifS.weight, exifS.font, 0, 'right')
+  }
+}
+
 async function drawFooter(
   ctx: CanvasRenderingContext2D,
   config: FrameConfig,
@@ -177,10 +256,16 @@ async function drawFooter(
   logo: ImgSource | undefined,
   contentOX: number,
   canvasHpx: number,
+  magazinePalette: string[] = FALLBACK_PALETTE,
 ): Promise<void> {
   // card 白底水印卡：独立绘制路径（左右列 + 标块，配色随 infoCardTheme）
   if (config.infoLayout === 'card') {
     drawCardFooter(ctx, config, unitScale, contentOX, canvasHpx)
+    return
+  }
+  // magazine 杂志编辑：顶部标题区 + 取色色卡 + 右侧信息块
+  if (config.infoLayout === 'magazine') {
+    drawMagazineFooter(ctx, config, unitScale, contentOX, canvasHpx, magazinePalette)
     return
   }
   const themeColor = config.bgMode === 'solid' && hexLuminance(config.bgColor) > 0.6 ? 0 : 255
@@ -212,10 +297,16 @@ async function drawFooter(
   // ===== 默认排版：与预览共用同一套共享布局计算 =====
   // classic = 经典纵向堆叠（日期 / EXIF+镜头 / 型号 / Logo）；duo = 杂志双栏；inline = 悬浮双行。
   // 行高与宽度测量均取各组生效样式，单独修改某组字体/字号后导出与预览保持一致。
+  const logoRatioForLayout = logo ? sourceSize(logo).w / sourceSize(logo).h : 2.6
   const layout: FooterLayout =
     config.infoLayout === 'duo' || config.infoLayout === 'inline'
-      ? computeFooterLayout(config, canvasBottomY, logo ? sourceSize(logo).w / sourceSize(logo).h : 2.6)
+      ? computeFooterLayout(config, canvasBottomY, logoRatioForLayout)
       : computeClassicLayout(config, canvasBottomY)
+  // classic 文本水平对齐：center = 行中心锚点（textAlign:center，与预览 -50% 平移等价）；
+  // right = 右缘锚点（textAlign:right，与预览 -100% 平移等价）；left 与 duo/inline 均为左锚点。
+  const classicTextAlign: CanvasTextAlign | null =
+    config.infoLayout === 'classic' ? (config.overlayAlign === 'center' ? 'center' : config.overlayAlign === 'right' ? 'right' : 'left') : null
+  const rowTextAlign: CanvasTextAlign = classicTextAlign ?? 'left'
   // 手动拖拽坐标优先（与预览 absStyle 一致）：未拖拽过（null）时才用默认排版
   let dExifX = config.exifX ?? layout.exif.x
   let dExifY = config.exifY ?? layout.exif.y
@@ -267,12 +358,17 @@ async function drawFooter(
   const paint = (custom: string | null, opacity: number): string =>
     hexToRgba(custom, opacity) ?? `rgba(${themeColor},${themeColor},${themeColor},${opacity})`
 
-  if (config.showLogo && logo) {
+  // inline 布局：手机品牌 Logo 为文字标记，与机型文本（多含品牌名）并排重复，跳过绘制
+  const showLogoDraw = config.showLogo && logo && !(config.infoLayout === 'inline' && phoneBrandOf(config.brand))
+  if (showLogoDraw) {
     const lw = logoH * (sourceSize(logo).w / sourceSize(logo).h)
+    // classic 水平锚点语义与文本行一致：center = 行中心（Logo 左移半宽）、right = 右缘（左移全宽）、
+    // left 与 duo/inline 的 x 为左缘锚点。预览端由 absStyle 的 translate 等价实现。
+    const logoShift = config.infoLayout === 'classic' ? (config.overlayAlign === 'center' ? -lw / 2 : config.overlayAlign === 'right' ? -lw : 0) : 0
     ctx.save()
     ctx.globalAlpha = config.logoOpacity
     applyTextShadow()
-    ctx.drawImage(logo, ox + dLogoX * unitScale, ox + dLogoY * unitScale, lw, logoH)
+    ctx.drawImage(logo, ox + dLogoX * unitScale + logoShift, ox + dLogoY * unitScale, lw, logoH)
     ctx.restore()
   }
   // 与预览一致：存储值可能是旧版本写入的机身代号，导出前统一翻译成营销名（映射幂等）
@@ -281,7 +377,7 @@ async function drawFooter(
     ctx.save()
     ctx.fillStyle = paint(config.cameraModelColor, config.cameraModelOpacity)
     ctx.font = fontStr(config.cameraModelWeight, modelH, config.cameraModelFont, config.cameraModelItalic)
-    ctx.textAlign = 'left'
+    ctx.textAlign = rowTextAlign
     ctx.textBaseline = 'top'
     applyTextShadow()
     ctx.fillText(
@@ -306,7 +402,7 @@ async function drawFooter(
     ctx.save()
     ctx.fillStyle = paint(config.exifTextColor, exifOpacity)
     ctx.font = fontStr(exifWeight, exifH, exifFont)
-    ctx.textAlign = 'left'
+    ctx.textAlign = rowTextAlign
     ctx.textBaseline = 'top'
     applyTextShadow()
     ctx.fillText(config.exifText, ox + dExifX * unitScale, ox + dExifY * unitScale)
@@ -317,7 +413,7 @@ async function drawFooter(
     ctx.save()
     ctx.fillStyle = paint(config.lensTextColor, lensOpacity)
     ctx.font = fontStr(lensWeight, lensH, lensFont)
-    ctx.textAlign = 'left'
+    ctx.textAlign = rowTextAlign
     ctx.textBaseline = 'top'
     applyTextShadow()
     // 行距与 EXIF 生效字号：与预览 .exif-text 块内 .lens-line 的 margin-top 完全一致
@@ -345,7 +441,7 @@ async function drawFooter(
     ctx.save()
     ctx.fillStyle = paint(usesModelDateStyle ? config.cameraModelColor : config.dateTextColor, finalOpacity)
     ctx.font = fontStr(finalWeight, finalSize * unitScale, finalFont, finalItalic)
-    ctx.textAlign = 'left'
+    ctx.textAlign = rowTextAlign
     ctx.textBaseline = 'top'
     applyTextShadow()
     ctx.fillText(config.dateText, ox + dDateX * unitScale, ox + dDateY * unitScale)
@@ -562,6 +658,8 @@ export async function exportFrame(
 
   // 2) 主照片图层（受 layerVisible.photo 控制）
   const photoVisible = config.layerVisible.photo !== false
+  // magazine 取色色卡：从合成后的照片像素提取主色（照片隐藏时回退兜底色）
+  let magazinePalette = FALLBACK_PALETTE
   // 加 effectivePad + bgExpand 得画布坐标（内容区原点在画布 padding + 背景扩展内侧）；
   // photoContentX/Y 已在上面按「null 时水平居中/垂直贴顶」计算，此处复用。
   const px = (effectivePad + bgExpand + photoContentX) * unitScale
@@ -578,6 +676,9 @@ export async function exportFrame(
     pctx.clip()
     // 旋转+裁剪：把源图对应区域旋转为正向后绘制到 photoW×photoH
     drawRotatedCropped(pctx, source, sw, sh, config.photoRotation, config.photoCrop, photoW, photoH)
+    if (config.infoLayout === 'magazine' && config.showPalette) {
+      magazinePalette = extractPalette(photoCanvas, photoW, photoH) ?? FALLBACK_PALETTE
+    }
 
     ctx.save()
     if (config.shadow > 0) {
@@ -597,7 +698,7 @@ export async function exportFrame(
   if (infoVisible) {
     // 若调用方未显式传入 logo（如自定义 Logo），则使用内置品牌 Logo（暗白双版）
     const footerLogo = options.logo ?? (config.showLogo ? resolveLogo(config.brand, logoColor) : undefined)
-    await drawFooter(ctx, config, unitScale, footerLogo, effectivePad + bgExpand, canvas.height)
+    await drawFooter(ctx, config, unitScale, footerLogo, effectivePad + bgExpand, canvas.height, magazinePalette)
   }
 
   // 3.5) 顶层 INFO 多元素容器层（自由拖拽排版）：与预览 InfoLayerDisplay 一致

@@ -29,10 +29,14 @@ export interface ExifRaw {
   lensMake?: string
   /** 镜头型号（EXIF LensModel 原始值），如 "FE 55mm F1.8 ZA" */
   lensModel?: string
+  /** 清洗 + 营销名映射后的机型（如 "α7R V"、"DJI Mini 3"），供「自动填充」恢复型号 */
+  model?: string
+  /** 根据 Make 自动匹配的内置品牌 id，供「自动填充」恢复品牌 */
+  brandId?: string
 }
 
-/** 日期显示格式 */
-export type DateFormat = 'date' | 'datetime' | 'zh' | 'dash'
+/** 日期显示格式（en = 英文杂志式 "JUN 10th, 2025"，供 magazine 副标题） */
+export type DateFormat = 'date' | 'datetime' | 'zh' | 'dash' | 'en'
 
 function formatShutter(t: number): string {
   // t 为秒；<1s 显示为 1/n，>=1s 显示为 n"s"
@@ -75,13 +79,17 @@ function cleanModel(model: string, make?: string): string {
 }
 
 /**
- * 从 EXIF Make 自动匹配内置品牌 id。
+ * 从 EXIF Make / Model 自动匹配内置品牌 id。
+ * 部分照片（修图导出、截图等）Make 缺失但 Model 含品牌字样（"Canon EOS R6"），
+ * 因此 Make 匹配失败时用 Model 兜底；机身代号（ILCE 等）靠品牌表尾部的代号关键词。
  */
-function matchBrand(make?: string): string | undefined {
-  if (!make) return undefined
-  const lower = make.toLowerCase()
-  for (const [kw, brandId] of Object.entries(EXIF_MAKE_TO_BRAND)) {
-    if (lower.includes(kw)) return brandId
+function matchBrand(make?: string, model?: string): string | undefined {
+  for (const src of [make, model]) {
+    if (!src) continue
+    const lower = src.toLowerCase()
+    for (const [kw, brandId] of Object.entries(EXIF_MAKE_TO_BRAND)) {
+      if (lower.includes(kw)) return brandId
+    }
   }
   return undefined
 }
@@ -147,7 +155,112 @@ export function formatDate(src: string | undefined, style: DateFormat): string {
   if (style === 'zh') return `${y}年${Number(mo)}月${Number(d)}日`
   if (style === 'dash') return `${y}-${mo}-${d}${h ? ` ${h}:${mi}` : ''}`
   if (style === 'datetime') return `${y}/${mo}/${d}${h ? ` ${h}:${mi}` : ''}`
+  if (style === 'en') {
+    const moN = Number(mo)
+    // 非法月份（损坏的 EXIF）回退默认斜杠格式，不产出 "13月" 之类的串
+    if (moN < 1 || moN > 12) return `${y}/${mo}/${d}`
+    const MONTHS = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC']
+    const day = Number(d)
+    // 英文序数词后缀：11-13 特例均为 th，其余按个位 1/2/3 取 st/nd/rd
+    const suffix = day % 100 >= 11 && day % 100 <= 13 ? 'th' : ['th', 'st', 'nd', 'rd'][day % 10 > 3 ? 0 : day % 10]
+    return `${MONTHS[moN - 1]} ${day}${suffix}, ${y}`
+  }
   return `${y}/${mo}/${d}`
+}
+
+/**
+ * 从显示文本反解日期为 EXIF 原始风格串（"YYYY:MM:DD HH:mm"），供切换日期格式时
+ * 对无 EXIF 原始日期的照片（手填或已格式化文本）重新格式化。
+ * 支持 EXIF 原始格式与四种展示格式（2026/08/27、带时间、横线、中文）；无法解析返回 undefined。
+ */
+export function parseDisplayDate(text: string | undefined): string | undefined {
+  if (!text) return undefined
+  const t = text.trim()
+  let m = t.match(/^(\d{4})[:/-](\d{1,2})[:/-](\d{1,2})(?:\s+(\d{1,2}):(\d{2}))?/)
+  if (!m) m = t.match(/^(\d{4})年(\d{1,2})月(\d{1,2})日/)
+  if (!m) {
+    // en 英文杂志式（formatDate 'en' 的输出）："JUN 10th, 2025"（逗号可省略）
+    m = t.match(/^([A-Za-z]{3})\s+(\d{1,2})(?:st|nd|rd|th),?\s+(\d{4})$/)
+    if (m) {
+      const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec']
+      const mo = MONTHS.indexOf(m[1].toLowerCase()) + 1
+      if (mo > 0) return `${m[3]}:${String(mo).padStart(2, '0')}:${m[2].padStart(2, '0')}`
+      return undefined
+    }
+  }
+  if (!m) return undefined
+  const p = (n: string) => n.padStart(2, '0')
+  const time = m[4] ? ` ${p(m[4])}:${m[5]}` : ''
+  return `${m[1]}:${p(m[2])}:${p(m[3])}${time}`
+}
+
+/** INFO 字段缺失占位文本（模板应用时对无数据字段填入） */
+export const INFO_PLACEHOLDER = '自定义'
+
+/** INFO 字段是否缺失：空串或「自定义」占位均视为缺失，可被真实信息回填 */
+export function isInfoMissing(v: string | null | undefined): boolean {
+  return !v || v.trim() === INFO_PLACEHOLDER
+}
+
+/** 可被 backfillInfoFromRaw 回填的最小字段集（FrameConfig 结构兼容） */
+export interface InfoBackfillTarget {
+  exifText: string
+  dateText: string
+  lensText: string
+  cameraModel: string
+  brand: string
+  dateFormat: DateFormat
+  eqFocal: boolean
+  cropFactor: number
+  exifRaw?: ExifRaw | null
+}
+
+/**
+ * 从照片 exifRaw 回填「缺失」（空或「自定义」占位）的 INFO 字段；已填写的自定义内容保持不变。
+ * 供模板应用使用（模板只补缺失、不覆盖用户内容；「自动填充」按钮的全量覆盖语义在
+ * InfoLayerPanel.autoFillInfo 内单独实现）。
+ * 覆盖：EXIF 参数（按 eqFocal/cropFactor 拼接）/ 拍摄日期（按 dateFormat）/ 镜头 /
+ * 相机型号（raw.model，旧版导入的照片未存时回填不了）；
+ * 品牌占位 → raw.brandId 仅在 opts.brand !== false 时恢复（默认开启，可关闭）。
+ * 就地修改传入对象，返回是否有改动。
+ */
+export function backfillInfoFromRaw(
+  cfg: InfoBackfillTarget,
+  opts: { brand?: boolean } = {},
+): boolean {
+  const raw = cfg.exifRaw
+  if (!raw) return false
+  let changed = false
+  if (isInfoMissing(cfg.exifText)) {
+    const v = buildExifText(raw, { eqFocal: cfg.eqFocal, cropFactor: cfg.cropFactor })
+    if (v) {
+      cfg.exifText = v
+      changed = true
+    }
+  }
+  if (isInfoMissing(cfg.dateText) && raw.dateTimeOriginal) {
+    const v = formatDate(raw.dateTimeOriginal, cfg.dateFormat)
+    if (v) {
+      cfg.dateText = v
+      changed = true
+    }
+  }
+  if (isInfoMissing(cfg.lensText)) {
+    const v = cleanLens(raw.lensMake, raw.lensModel)
+    if (v) {
+      cfg.lensText = v
+      changed = true
+    }
+  }
+  if (isInfoMissing(cfg.cameraModel) && raw.model) {
+    cfg.cameraModel = raw.model
+    changed = true
+  }
+  if (opts.brand !== false && cfg.brand === INFO_PLACEHOLDER && raw.brandId) {
+    cfg.brand = raw.brandId
+    changed = true
+  }
+  return changed
 }
 
 /**
@@ -184,13 +297,13 @@ export async function parseExif(source: File | Blob | ArrayBuffer | string): Pro
   // cleanModel 去掉重复的 Make 前缀（"SONY ILCE-7RM5" → "ILCE-7RM5"），
   // modelAlias 再把机身代号翻译成营销名（ILCE-7RM5 → α7R V、FC3682 → DJI Mini 3）
   const model = rawModel ? modelAlias(cleanModel(rawModel, make)) : undefined
-  const brandId = matchBrand(make)
+  const brandId = matchBrand(make, rawModel)
   const dateTimeOriginal = dateToExifString(data.DateTimeOriginal)
   const lensMake = typeof data.LensMake === 'string' ? data.LensMake : undefined
   const lensModel = typeof data.LensModel === 'string' ? data.LensModel : undefined
   const lens = cleanLens(lensMake, lensModel)
 
-  const raw: ExifRaw = { focalLength, focalLength35, fNumber, exposureTime, iso, dateTimeOriginal, lensMake, lensModel }
+  const raw: ExifRaw = { focalLength, focalLength35, fNumber, exposureTime, iso, dateTimeOriginal, lensMake, lensModel, model, brandId }
   const text = buildExifText(raw)
 
   if (!text && !model && !brandId && !lens) {

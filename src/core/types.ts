@@ -46,9 +46,9 @@ export interface FrameConfig {
   borderRatio: number
   /** 边框留白区颜色（纯色相框底色），支持取色器与预设（纯白/纯黑/复古米白） */
   borderColor: string
-  /** 边框（画板）外圆角半径（设计 px，0~50），现代极简风 */
+  /** 边框（画板）外圆角半径（设计 px，0~200），现代极简风 */
   borderRadius: number
-  /** 照片圆角半径（设计 px，0~50） */
+  /** 照片圆角半径（设计 px，0~200） */
   photoRadius: number
   /** 画面（边框）比例：内容区宽高比（宽/高）。null = 自由（跟随照片）；如 16/9、4/3、1/1 */
   frameRatio: number | null
@@ -98,12 +98,17 @@ export interface FrameConfig {
   showDate: boolean
   /** 拍摄日期显示文本（由导入解析按 dateFormat 格式化，可手改） */
   dateText: string
-  /** 日期格式：date=YYYY/MM/DD，datetime=含时分，zh=中文年月日 */
-  dateFormat: 'date' | 'datetime' | 'zh' | 'dash'
+  /** 日期格式：date=YYYY/MM/DD，datetime=含时分，zh=中文年月日，dash=横线，en=英文杂志式（JUN 10th, 2025） */
+  dateFormat: 'date' | 'datetime' | 'zh' | 'dash' | 'en'
   /** INFO 布局预设：classic=纵向堆叠（默认）；duo=杂志双栏（左：镜头/机型块 / 中：Logo / 右：参数+日期，竖线分隔）；
    *  inline=悬浮居中双行（行1：Logo+机型内联居中；行2：参数居中）；
-   *  card=手机白底水印卡（左：机型+日期 / 右：参数+镜头 / 右端联名标块，配色随 infoCardTheme） */
-  infoLayout: 'classic' | 'duo' | 'inline' | 'card'
+   *  card=手机白底水印卡（左：机型+日期 / 右：参数+镜头 / 右端联名标块，配色随 infoCardTheme）；
+   *  magazine=杂志编辑（顶部标题区 + 底部左取色色卡 / 右机型+参数+日期） */
+  infoLayout: 'classic' | 'duo' | 'inline' | 'card' | 'magazine'
+  /** magazine 布局顶部大标题文本（如 "Nature's poetry"，用户可改；空 = 不显示标题区文字） */
+  infoTitle: string
+  /** magazine 布局是否显示取色色卡（从照片自动提取 5 色） */
+  showPalette: boolean
   /** card 模式卡片底色：white=白底深字（默认），black=黑底浅字 */
   infoCardTheme: 'white' | 'black'
   /** card 模式是否显示日期行（左列下行） */
@@ -195,8 +200,8 @@ export interface FrameConfig {
   watermarkAlign: OverlayAlign
   watermarkBottom: number
 
-  /** 原始 EXIF 字段（已由上传流程解析写入，供 EXIF 元素模板渲染） */
-  exifRaw: { focalLength?: number; focalLength35?: number; fNumber?: number; exposureTime?: number; iso?: number; dateTimeOriginal?: string; lensModel?: string; lensMake?: string } | null
+  /** 原始 EXIF 字段（已由上传流程解析写入，供 EXIF 元素模板渲染；model/brandId 供「自动填充」恢复真实信息） */
+  exifRaw: { focalLength?: number; focalLength35?: number; fNumber?: number; exposureTime?: number; iso?: number; dateTimeOriginal?: string; lensModel?: string; lensMake?: string; model?: string; brandId?: string } | null
 
   /** 顶层 INFO 多元素容器层（自由拖拽排版） */
   infoLayer: InfoLayerConfig
@@ -246,6 +251,8 @@ export const defaultFrameConfig: FrameConfig = {
   dateText: '',
   dateFormat: 'date',
   infoLayout: 'classic',
+  infoTitle: '',
+  showPalette: true,
   infoCardTheme: 'white',
   cardShowDate: true,
   cardBadgeBg: null,

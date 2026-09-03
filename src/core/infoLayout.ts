@@ -52,6 +52,7 @@ export function measureTextWidth(text: string, font: string): number {
 // ===== 经典纵向堆叠（classic）共享常量（预览与导出同源，避免两端公式漂移）=====
 export const CLASSIC_ROW_GAP = 16 // 元素垂直间距（设计 px）
 export const LENS_LINE_GAP = 6 // classic 下镜头行与 EXIF 参数行的行距（设计 px）
+export const CLASSIC_SIDE_INSET = 40 // overlayAlign 左/右对齐时距内容区左右缘的内缩（设计 px）
 
 // ===== 各组「生效样式」解析 =====
 // EXIF / 镜头 / 日期 独立字段优先，缺省（null）跟随整体 INFO 样式；
@@ -169,16 +170,24 @@ export function computeFooterLayout(cfg: FrameConfig, canvasBottom: number, logo
 
   // ===== 悬浮居中双行（inline）：行1 = Logo + 机型 内联居中；行2 = 参数 居中 =====
   const exifY = bottom - exifH
-  const row1H = Math.max(cfg.logoSize, modelH)
-  const row1Y = exifY - INLINE_ROW_GAP - row1H
   const modelW = measureTextWidth(cfg.cameraModel, toCanvasFont(modelS, cfg.cameraModelItalic))
   const showModel = cfg.showCameraModel && !!cfg.cameraModel
-  const groupW = showModel ? logoW + INLINE_LOGO_GAP + modelW : logoW
+  // 手机品牌的 Logo 是文字标记（HUAWEI/XIAOMI…），与机型文本（通常含品牌名）并排显示会重复，
+  // 行1 仅保留机型居中；相机品牌的图形 Logo 正常内联。
+  const showLogoInline = cfg.showLogo && !phoneBrandOf(cfg.brand)
+  const row1H = Math.max(showLogoInline ? cfg.logoSize : 0, showModel ? modelH : 0)
+  const row1Y = exifY - INLINE_ROW_GAP - row1H
+  const groupW = showLogoInline
+    ? (showModel ? logoW + INLINE_LOGO_GAP + modelW : logoW)
+    : modelW
   const logoX = center - groupW / 2
   return {
     exif: { x: center - measureTextWidth(cfg.exifText, toCanvasFont(exifS)) / 2, y: exifY },
     date: { x: center, y: exifY },
-    model: { x: logoX + logoW + INLINE_LOGO_GAP, y: row1Y + (row1H - modelH) / 2 },
+    model: {
+      x: showLogoInline ? logoX + logoW + INLINE_LOGO_GAP : center - modelW / 2,
+      y: row1Y + (row1H - modelH) / 2,
+    },
     lens: { x: center, y: row1Y },
     logo: { x: logoX, y: row1Y },
     divider: null,
@@ -187,6 +196,11 @@ export function computeFooterLayout(cfg: FrameConfig, canvasBottom: number, logo
 
 /**
  * 计算经典纵向堆叠（classic）的默认排版：从下往上 = 日期 / EXIF(含镜头行) / 相机型号 / Logo。
+ * 只为「开启且内容非空」的行分配位置（隐藏行不再占位），自底向上依次堆叠。
+ * 水平锚点跟随 overlayAlign（渲染端按锚点语义对齐，布局不做测宽，任何字体下都精确）：
+ * - center：x = 行中心（预览 -50% 平移 / 导出 textAlign:center）
+ * - left：x = 左缘内缩锚点（渲染端左对齐）
+ * - right：x = 右缘内缩锚点（渲染端右对齐：导出 textAlign:right / 预览 -100% 平移）
  * 与 computeFooterLayout 同源，预览（FooterInfo）与导出（exporter）共用，避免两端公式漂移。
  * 各行高度取各组生效字号（独立 ?? 整体），单独调大某组字号时整块自动上移，不会与相邻行重叠。
  * @param cfg 相框配置
@@ -200,20 +214,29 @@ export function computeClassicLayout(cfg: FrameConfig, canvasBottom: number): Fo
   const modelS = modelTextStyle(cfg)
   const showDate = cfg.showDate && !!cfg.dateText
   const hasLens = cfg.showLens && !!cfg.lensText
+  const showExif = cfg.showExif && !!cfg.exifText
+  const showModel = cfg.showCameraModel && !!cfg.cameraModel
+  // 水平锚点（语义见函数注释）：不依赖文本宽度测量
+  const rowX = () =>
+    cfg.overlayAlign === 'left' ? CLASSIC_SIDE_INSET : cfg.overlayAlign === 'right' ? DESIGN_CONTAINER - CLASSIC_SIDE_INSET : center
   // EXIF 块高 = EXIF 行 +（镜头行 + 固定行距）；镜头行是块内附加行，不参与独立拖拽
   const exifBlockH = hasLens ? exifS.size + LENS_LINE_GAP + lensS.size : exifS.size
   const bottomEdge = canvasBottom - cfg.overlayBottom
-  const dateY = Math.max(0, bottomEdge - dateS.size)
-  const exifBottom = showDate ? dateY - CLASSIC_ROW_GAP : bottomEdge
-  const exifY = Math.max(0, exifBottom - exifBlockH)
-  const modelY = Math.max(0, exifY - CLASSIC_ROW_GAP - modelS.size)
-  const logoY = Math.max(0, modelY - CLASSIC_ROW_GAP - cfg.logoSize)
+  // 自底向上：日期 → EXIF → 型号 → Logo，未开启/无内容的行不占位
+  let cursor = bottomEdge
+  const date = { x: rowX(), y: cursor - dateS.size }
+  if (showDate) cursor -= dateS.size + CLASSIC_ROW_GAP
+  const exif = { x: rowX(), y: cursor - exifBlockH }
+  if (showExif) cursor -= exifBlockH + CLASSIC_ROW_GAP
+  const model = { x: rowX(), y: cursor - modelS.size }
+  if (showModel) cursor -= modelS.size + CLASSIC_ROW_GAP
+  const logo = { x: rowX(), y: cursor - cfg.logoSize }
   return {
-    exif: { x: center, y: exifY },
-    date: { x: center, y: dateY },
-    model: { x: center, y: modelY },
-    lens: { x: center, y: exifY + exifS.size + LENS_LINE_GAP },
-    logo: { x: center, y: logoY },
+    exif: exif,
+    date: date,
+    model: model,
+    lens: { x: exif.x, y: exif.y + exifS.size + LENS_LINE_GAP },
+    logo: logo,
     divider: null,
   }
 }
@@ -338,4 +361,86 @@ export function computeCardLayout(cfg: FrameConfig, canvasBottom: number): CardL
     badge.y = card.y + (cardH - CARD_BADGE_H) / 2
   }
   return { card, model, date, exif, lens, badge }
+}
+
+// ===== magazine（杂志编辑）：顶部标题区 + 底部左取色色卡 / 右机型+参数+日期 =====
+// 标题区位于上边留白内（模板把 padding 调大以容纳标题），底部信息右对齐照片右缘。
+export const MAG_TITLE_INSET = 34 // 标题/副标题距内容区左缘
+export const MAG_TITLE_TOP = 24 // 标题顶距画板顶缘（上边留白内）
+export const MAG_TITLE_SIZE = 44 // 标题字号（设计 px）
+export const MAG_SUB_SIZE = 16 // 副标题字号（"PHOTOGRAPHED IN : 日期"）
+export const MAG_SUB_GAP = 16 // 副标题与标题行距
+export const MAG_SUB_LETTER_SPACING = 3 // 副标题字距
+export const MAG_BOTTOM_INSET = 26 // 色卡距内容区左缘/下缘基准
+export const MAG_SWATCH_W = 88 // 单个色块宽
+export const MAG_SWATCH_H = 30 // 色块高
+export const MAG_SWATCH_COUNT = 5 // 色块数
+export const MAG_RIGHT_INSET = 26 // 右侧文字块距内容区右缘
+export const MAG_ROW_GAP = 12 // 右侧文字块行距
+
+export interface MagazineLayout {
+  /** 顶部大标题（上边留白内，左对齐） */
+  title: { x: number; y: number }
+  /** 标题实际字号（长标题自适应缩小后，渲染端据此绘制） */
+  titleSize: number
+  /** 副标题（PHOTOGRAPHED IN : 日期，左对齐）——日期只在副标题出现，不进右侧信息块 */
+  subtitle: { x: number; y: number }
+  /** 取色色卡条（底部左侧） */
+  palette: { x: number; y: number; w: number; h: number }
+  /** 右侧信息块：x 为右缘锚点（渲染端右对齐：导出 textAlign:right / 预览 -100% 平移） */
+  model: { x: number; y: number }
+  exif: { x: number; y: number }
+}
+
+/**
+ * magazine 标题字号：超长标题按可用宽度自适应缩小（下限 22px），避免溢出右缘被裁断。
+ * 测宽失败（jsdom）时返回基准字号，由渲染端兜底。
+ */
+export function magazineTitleFontSize(cfg: FrameConfig): number {
+  if (!cfg.infoTitle) return MAG_TITLE_SIZE
+  const w = measureTextWidth(cfg.infoTitle, `700 ${MAG_TITLE_SIZE}px ${cfg.fontFamily}`)
+  const maxW = DESIGN_CONTAINER - MAG_TITLE_INSET - MAG_RIGHT_INSET
+  if (w <= 0 || w <= maxW) return MAG_TITLE_SIZE
+  return Math.max(22, Math.floor(MAG_TITLE_SIZE * (maxW / w)))
+}
+
+/**
+ * 计算 magazine 布局的默认排版（内容区坐标，预览与导出同源）。
+ * 标题区 y 以画板顶缘为基准换算到内容坐标系（负值 = 上边留白内）。
+ * 右侧信息块只给右缘锚点、不做文本测宽（渲染端右对齐，任何字体/字号下都精确贴齐）。
+ * @param cfg 相框配置
+ * @param canvasBottom 画布底缘（内容区坐标系 y 值）
+ */
+export function computeMagazineLayout(cfg: FrameConfig, canvasBottom: number): MagazineLayout {
+  const exifS = exifTextStyle(cfg)
+  const modelS = modelTextStyle(cfg)
+  const showExif = cfg.showExif && !!cfg.exifText
+
+  // ===== 顶部标题区（上边留白内）：长标题自适应缩小，副标题随实际字号下移 =====
+  const titleSize = magazineTitleFontSize(cfg)
+  const titleY = -(cfg.padding + cfg.bgExpand) + MAG_TITLE_TOP
+  const subtitleY = titleY + titleSize + MAG_SUB_GAP
+
+  // ===== 底部右侧信息块：自底向上 参数 → 机型，右缘锚点 =====
+  let cursor = canvasBottom - cfg.overlayBottom
+  const exif = { x: DESIGN_CONTAINER - MAG_RIGHT_INSET, y: cursor - exifS.size }
+  if (showExif) cursor -= exifS.size + MAG_ROW_GAP
+  const model = { x: DESIGN_CONTAINER - MAG_RIGHT_INSET, y: cursor - modelS.size }
+
+  // ===== 底部左侧取色色卡：与机型行垂直居中对齐 =====
+  const palette = {
+    x: MAG_BOTTOM_INSET,
+    y: model.y + (modelS.size - MAG_SWATCH_H) / 2,
+    w: MAG_SWATCH_COUNT * MAG_SWATCH_W,
+    h: MAG_SWATCH_H,
+  }
+
+  return {
+    title: { x: MAG_TITLE_INSET, y: titleY },
+    titleSize,
+    subtitle: { x: MAG_TITLE_INSET, y: subtitleY },
+    palette,
+    model,
+    exif,
+  }
 }
