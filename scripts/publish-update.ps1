@@ -1,4 +1,4 @@
-# FrameLab 一键更新发布脚本：
+﻿# FrameLab 一键更新发布脚本：
 #   1) 读取 package.json 版本号
 #   2) minisign 签名构建（npm run tauri:build，私钥在 %USERPROFILE%\.tauri\framelab.key）
 #   3) 更新 release\FrameLab.exe（本地免安装运行副本）
@@ -130,12 +130,19 @@ if (-not $rel) {
   Write-Host "Release $tag 已存在，复用"
 }
 
-# ===== 7) 上传资产（同名已存在则跳过）=====
+# ===== 7) 上传资产（同名资产先删后覆盖，确保重发时资产带最新内容）=====
 $existing = @()
 if ($rel.assets) { $existing = @($rel.assets | ForEach-Object { $_.name }) }
 foreach ($f in @($setup, $sig, $latestPath, $greenPath, $greenSig, $greenManifest)) {
   $name = Split-Path $f -Leaf
-  if ($existing -contains $name) { Write-Host "已存在，跳过：$name"; continue }
+  if ($existing -contains $name) {
+    # 同名资产已存在：先删除再覆盖（上次发布漏更新日志时重发）
+    $aid = $rel.assets | Where-Object { $_.name -eq $name } | Select-Object -First 1
+    if ($aid) {
+      Invoke-RestMethod -Headers $headers -Method Delete -Uri "$api/releases/assets/$($aid.id)" -TimeoutSec 60 | Out-Null
+      Write-Host "已删除旧资产（覆盖）：$name"
+    }
+  }
   $up = "$uploadBase/$($rel.id)/assets?name=$name"
   Invoke-RestMethod -Headers $headers -Method Post -Uri $up -InFile $f -ContentType 'application/octet-stream' -TimeoutSec 900 | Out-Null
   Write-Host "已上传：$name"
