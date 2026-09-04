@@ -161,6 +161,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
                   <img class="tp-card-thumb" :src="thumbs[t.id]" :alt="t.name" draggable="false" />
                   <div class="tp-card-meta">
                     <span class="tp-card-name">{{ t.name }}</span>
+                    <span class="tp-card-desc" v-if="t.desc">{{ t.desc }}</span>
                     <span class="tp-card-batch" title="批量应用到选中照片（无选中=全部）" @click.stop="applyBatch(t)">⇉</span>
                   </div>
                 </div>
@@ -177,6 +178,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
                   <img class="tp-card-thumb" :src="thumbs[t.id]" :alt="t.name" draggable="false" />
                   <div class="tp-card-meta">
                     <span class="tp-card-name">{{ t.name }}</span>
+                    <span class="tp-card-desc tp-card-desc-custom">自定义模板</span>
                     <span class="tp-card-del" title="删除该模板" @click.stop="removeCustom(t)">✕</span>
                   </div>
                 </div>
@@ -246,22 +248,26 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
   margin: 4px 0 8px; font-size: 12px; font-weight: 400;
   color: var(--text-dim); letter-spacing: 0;
 }
-.tp-grid { display: grid; grid-template-columns: repeat(1, minmax(0, 1fr)); gap: 8px; margin-bottom: 14px; }
+.tp-grid { display: grid; grid-template-columns: repeat(1, minmax(0, 1fr)); gap: 10px; margin-bottom: 14px; }
 .tp-card {
-  display: flex;
+  position: relative;
   border: 1px solid var(--border); background: var(--panel-2);
   cursor: pointer; overflow: hidden;
 }
 .tp-card:hover { background: var(--hover); }
 .tp-card.active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
-.tp-card-thumb { display: block; width: 92px; height: 92px; flex: none; object-fit: contain; background: var(--panel-3); }
-.tp-card-meta {
-  flex: 1; display: flex; align-items: center; gap: 4px;
-  padding: 0 10px; border-left: 1px solid var(--border);
+.tp-card-thumb { display: block; width: 100%; height: 150px; object-fit: contain; background: var(--panel-3); }
+.tp-card-meta { padding: 6px 8px 8px; }
+.tp-card-name { display: block; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tp-card-desc { display: block; margin-top: 2px; font-size: 11px; color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tp-card-batch, .tp-card-del {
+  position: absolute; top: 6px; right: 6px;
+  width: 22px; height: 22px; line-height: 20px; text-align: center;
+  cursor: pointer; color: var(--text-dim); font-size: 13px;
+  background: rgba(0, 0, 0, 0.35); border: 1px solid transparent;
 }
-.tp-card-name { flex: 1; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tp-card-batch, .tp-card-del { cursor: pointer; color: var(--text-dim); padding: 0 4px; font-size: 13px; }
-.tp-card-batch:hover, .tp-card-del:hover { color: var(--text); background: var(--hover); }
+.tp-card-batch:hover, .tp-card-del:hover { color: var(--text); background: rgba(0, 0, 0, 0.6); border-color: var(--border); }
+.tp-card-del { right: 30px; }
 .tp-empty { color: var(--text-dim); font-size: 12px; }
 .tp-preview-col { display: flex; flex-direction: column; align-items: stretch; gap: 10px; }
 .tp-preview-box {
