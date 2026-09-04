@@ -9,7 +9,7 @@ import type { FrameConfig } from './types'
 import { defaultFrameConfig } from './types'
 import { DESIGN_CONTAINER } from './constants'
 import { computeFooterLayout, computeMagazineLayout, magazineTitleFontSize, measureTextWidth, MAG_SUB_SIZE, MAG_SWATCH_COUNT, MAG_SWATCH_W, MAG_SWATCH_H, CLASSIC_SIDE_INSET, CLASSIC_ROW_GAP, LENS_LINE_GAP } from './infoLayout'
-import { footerTextColor, logoAutoColor } from './colorUtils'
+import { footerTextColor, logoAutoColor, hexLuminance } from './colorUtils'
 import { exportFrame } from './exporter'
 import { resolveLogo, preloadBrandLogo } from '../composables/useLogoStore'
 import { FALLBACK_PALETTE } from './photoPalette'
@@ -317,6 +317,12 @@ export async function renderTemplateThumbDataUrl(
       ? downscaleImage(img, maxLongEdge)
       : img
     const full = buildDemoConfig(config, info)
+    // 复刻 applyTemplateToState 的 Logo 自适应：模板未显式定义 logoColor 时，
+    // 浅色纯色底用近黑、其余用白（否则白 Logo 画在白色底上不可见——大预览/缩略图的缺失根因）
+    if (config.logoColor == null) {
+      const lightSolid = full.bgMode === 'solid' && hexLuminance(full.bgColor) > 0.6
+      full.logoColor = lightSolid ? '#1a1a1a' : '#ffffff'
+    }
     // 品牌 Logo 与预览/导出同源：按模板明暗自适应取色，预加载真实 SVG 后传入合成器。
     // （exportFrame 未提供 logo 时跳过 Logo 绘制——此前真实缩略图/大预览缺失品牌 Logo 的根因）
     let logo: HTMLCanvasElement | undefined
