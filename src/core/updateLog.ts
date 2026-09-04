@@ -44,6 +44,27 @@ export const IMPORTANCE_LABELS: Record<UpdateImportance, string> = {
 // ===== 更新日志（新版本追加在最上方）=====
 export const UPDATE_LOG: UpdateEntry[] = [
   {
+    version: '0.1.15',
+    date: '2026-09-04',
+    importance: 'major',
+    groups: {
+      added: [
+        '右栏「背景 / 边框 / INFO信息设置」三栏新增显示开关：可独立隐藏背景层、边框层（照片铺满）、INFO 信息，开关自动联动折叠面板',
+        '切换开关即打开或收起对应参数面板，开关状态与应用模板互不干扰',
+      ],
+      improved: [
+        '模板库：左侧模板缩略图改用当前选中照片合成，所见即所得',
+        '模板库：右栏大预览显示当前照片真实 EXIF 与品牌 Logo（Logo 颜色随模板背景自动适配）',
+        '模板库：白框参数卡分隔竖线覆盖信息文字块高度，不再贯穿底部留白',
+      ],
+      fixed: [
+        '复古CCD 日期戳拖拽可超出照片范围的问题',
+        '模板缩略图缺少品牌 Logo、白底上 Logo 不可见的问题',
+        '显示开关悬浮时出现多余方形边框/背景的问题',
+      ],
+    },
+  },
+  {
     version: '0.1.14',
     date: '2026-09-03',
     importance: 'major',

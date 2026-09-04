@@ -1,5 +1,7 @@
 // 更新记录测试：版本比较 / 数据完整性 / 升级检测（含首次安装、降级、相同版本）
 import { describe, it, expect, beforeEach } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { UPDATE_LOG, compareVersions, findUpdateEntry, IMPORTANCE_LABELS } from './updateLog'
 import { detectUpdate, getLastVersion } from '../composables/useUpdateLog'
 
@@ -26,6 +28,11 @@ describe('UPDATE_LOG 数据完整性', () => {
     for (let i = 0; i < UPDATE_LOG.length - 1; i++) {
       expect(compareVersions(UPDATE_LOG[i].version, UPDATE_LOG[i + 1].version)).toBe(1)
     }
+  })
+
+  it('首条记录为当前发布版本（与 package.json 一致，防止发版漏写更新日志）', () => {
+    const pkg = JSON.parse(readFileSync(join(process.cwd(), 'package.json'), 'utf-8'))
+    expect(UPDATE_LOG[0].version).toBe(pkg.version)
   })
 
   it('每条记录字段齐全（版本 / 日期 / 重要程度 / 至少一个内容分组）', () => {

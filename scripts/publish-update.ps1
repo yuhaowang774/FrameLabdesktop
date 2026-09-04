@@ -23,7 +23,12 @@ $version = (Get-Content (Join-Path $root 'package.json') -Raw | ConvertFrom-Json
 $tag = "v$version"
 Write-Host "== FrameLab $tag 更新发布 =="
 
-# ===== 2) 签名密钥 + 构建 =====
+# ===== 2) 更新日志校验 + 签名密钥 + 构建 =====
+# 防漏：当前版本必须在 src/core/updateLog.ts 有条目（否则更新后弹窗/更新记录缺失）
+$logPath = Join-Path $root 'src\core\updateLog.ts'
+if (-not (Select-String -Path $logPath -SimpleMatch "version: '$version'")) {
+  throw "更新日志缺少 $version 条目：请先在 src/core/updateLog.ts 顶部追加 UpdateEntry（否则升级后不弹更新说明、更新记录无此版本）"
+}
 $keyPath = Join-Path $env:USERPROFILE '.tauri\framelab.key'
 if (-not (Test-Path $keyPath)) {
   throw "未找到签名私钥：$keyPath（先运行 npx tauri signer generate -w <路径> --ci）"
