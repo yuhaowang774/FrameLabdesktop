@@ -8,7 +8,7 @@ import { applyTemplateToPhotos } from '../../composables/useHistory'
 import { useAppState } from '../../composables/useAppState'
 import { useLibrary } from '../../composables/useLibrary'
 import { useFrameConfig } from '../../composables/useFrameConfig'
-import { templateThumbDataUrl, renderTemplateThumbDataUrl } from '../../core/templateThumb'
+import { templateThumbDataUrl, renderTemplateThumbDataUrl, type ThumbInfoOverride } from '../../core/templateThumb'
 import GlassModal from '../common/GlassModal.vue'
 
 const props = withDefaults(defineProps<{ modelValue: boolean; category?: 'frame' | 'all' }>(), {
@@ -57,21 +57,35 @@ watch(
   { immediate: true },
 )
 
-// 右栏大预览：选中模板 + 当前编辑照片合成（photoSrc 缺省时走内置示例图）
+// 右栏大预览：选中模板 + 当前编辑照片合成（photoSrc 缺省时走内置示例图）。
+// INFO 用当前照片的真实内容（exifText/dateText/cameraModel/lensText/brand，可留空），
+// 点击卡片应用后 state 回填真实信息 → watch 依赖 info 实时重渲，预览即「应用后效果」。
 const previewId = ref<string | null>(null)
 const previewUrl = ref('')
+const previewInfo = computed<ThumbInfoOverride | undefined>(() => {
+  const has = state.exifText || state.dateText || state.cameraModel || state.lensText
+  return has
+    ? {
+        exifText: state.exifText || undefined,
+        dateText: state.dateText || undefined,
+        cameraModel: state.cameraModel || undefined,
+        lensText: state.lensText || undefined,
+        brand: state.brand || undefined,
+      }
+    : undefined
+})
 watch(
-  () => selected.value?.id,
-  (id, old) => {
-    if (!id || !selected.value) return
-    if (id === old && previewUrl.value) return
-    previewId.value = id
-    previewUrl.value = templateThumbDataUrl(selected.value.config)
+  () => [selected.value?.id, previewInfo.value] as const,
+  () => {
+    const t = selected.value
+    if (!t) return
+    previewId.value = t.id
+    previewUrl.value = templateThumbDataUrl(t.config)
     void (async () => {
       try {
         const photoSrc = state.photoSrc || undefined
-        const url = await renderTemplateThumbDataUrl(selected.value?.config ?? {}, photoSrc, 960)
-        if (previewId.value === id) previewUrl.value = url
+        const url = await renderTemplateThumbDataUrl(t.config, photoSrc, 960, previewInfo.value)
+        if (previewId.value === t.id) previewUrl.value = url
       } catch {
         /* 回退 SVG */
       }

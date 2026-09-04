@@ -1,6 +1,6 @@
 // 模板缩略图测试：验证画布几何与 exporter 同源、背景/布局分支正确、内置模板清单。
 import { describe, it, expect, beforeAll } from 'vitest'
-import { templateThumbSvg, templateThumbDataUrl } from './templateThumb'
+import { templateThumbSvg, templateThumbDataUrl, buildDemoConfig } from './templateThumb'
 import { useTemplates } from '../composables/useTemplates'
 import { computeClassicLayout, CLASSIC_ROW_GAP, LENS_LINE_GAP } from './infoLayout'
 import { defaultFrameConfig } from './types'
@@ -102,6 +102,32 @@ describe('内置模板清单', () => {
       '复古CCD·日期戳',
       '杂志编辑·标题色卡',
     ])
+  })
+})
+
+describe('buildDemoConfig INFO 覆盖（大预览真实照片信息）', () => {
+  it('传入 info 时覆盖示意文本与品牌', () => {
+    const c = buildDemoConfig(
+      { bgMode: 'solid', bgColor: '#ffffff' },
+      { exifText: '55mm f/4.5 1/200s ISO100', cameraModel: 'α6000', lensText: 'E 55-210mm F4.5-6.3 OSS', dateText: '2025/01/11', brand: 'canon' },
+    )
+    expect(c.exifText).toBe('55mm f/4.5 1/200s ISO100')
+    expect(c.cameraModel).toBe('α6000')
+    expect(c.lensText).toBe('E 55-210mm F4.5-6.3 OSS')
+    expect(c.dateText).toBe('2025/01/11')
+    expect(c.brand).toBe('canon')
+    // 模板自身配置不受影响
+    expect(c.bgColor).toBe('#ffffff')
+  })
+
+  it('未传 info 或字段缺失时回退示意文本与 sony', () => {
+    const c = buildDemoConfig({ bgMode: 'blur' })
+    expect(c.brand).toBe('sony')
+    expect(c.exifText).toBe('50mm f/1.8 1/200s ISO400')
+
+    const partial = buildDemoConfig({}, { exifText: '自定义' })
+    expect(partial.exifText).toBe('自定义')
+    expect(partial.cameraModel).toBe('ILCE-7RM5') // 未覆盖字段仍为示意
   })
 })
 

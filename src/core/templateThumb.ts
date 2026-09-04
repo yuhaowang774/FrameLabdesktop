@@ -268,15 +268,24 @@ function downscaleImage(img: HTMLImageElement, maxLongEdge: number): HTMLCanvasE
   return c
 }
 
-function buildDemoConfig(config: Partial<FrameConfig>): FrameConfig {
+/** 大预览 INFO 覆盖：传入当前照片真实信息，替换示意文本（缺省走 DEMO 示意） */
+export interface ThumbInfoOverride {
+  exifText?: string
+  dateText?: string
+  cameraModel?: string
+  lensText?: string
+  brand?: string
+}
+
+export function buildDemoConfig(config: Partial<FrameConfig>, info?: ThumbInfoOverride): FrameConfig {
   return {
     ...defaultFrameConfig,
     ...config,
-    exifText: DEMO.exif,
-    dateText: DEMO.date,
-    cameraModel: DEMO.model,
-    lensText: DEMO.lens,
-    brand: 'sony',
+    exifText: info?.exifText ?? DEMO.exif,
+    dateText: info?.dateText ?? DEMO.date,
+    cameraModel: info?.cameraModel ?? DEMO.model,
+    lensText: info?.lensText ?? DEMO.lens,
+    brand: info?.brand ?? 'sony',
   }
 }
 
@@ -292,19 +301,21 @@ function blobToDataUrl(blob: Blob): Promise<string> {
 /**
  * 用真实照片渲染模板缩略图。
  * 流程：加载内置示例照片 → 必要时降采样 → 用 exporter 完整合成 → 返回 JPG dataURL。
- * 若渲染失败（资源缺失、内存超限等）则降级为程序化 SVG，避免模板列表空白。
+ * info：大预览时传入当前照片的真实 INFO（exifText/dateText/cameraModel/lensText/brand），
+ * 缺省时使用示意文本（网格小卡保持稳定统一）。渲染失败则降级为程序化 SVG。
  */
 export async function renderTemplateThumbDataUrl(
   config: Partial<FrameConfig>,
   imageUrl: string = DEMO_IMAGE_URL,
   maxLongEdge: number = DEMO_MAX_LONG_EDGE,
+  info?: ThumbInfoOverride,
 ): Promise<string> {
   try {
     const img = await loadImageElement(imageUrl)
     const source = img.naturalWidth > maxLongEdge || img.naturalHeight > maxLongEdge
       ? downscaleImage(img, maxLongEdge)
       : img
-    const full = buildDemoConfig(config)
+    const full = buildDemoConfig(config, info)
     const result = await exportFrame(source, full, { format: 'jpg', jpgQuality: DEMO_JPG_QUALITY })
     return await blobToDataUrl(result.blob)
   } catch (e) {
