@@ -348,7 +348,9 @@ function onThumbClick(item: { id: string }, e: MouseEvent) {
   } else if (e.shiftKey) {
     library.rangeSelect(item.id)
   } else {
-    library.select(item.id)
+    // 普通点击：切换「当前照片」（预览/编辑），不清空勾选集合——
+    // 勾选由右上角圆圈独立控制，避免预览时已勾选导出的照片全部丢失。
+    library.activeId.value = item.id
   }
 }
 </script>
@@ -453,7 +455,7 @@ function onThumbClick(item: { id: string }, e: MouseEvent) {
       <div class="row tools">
         <button class="btn" :disabled="!library.items.length" @click="library.selectAll()">全选</button>
         <button class="btn" :disabled="!selectedCount" @click="library.selectNone()">取消全选</button>
-        <span class="hint-inline">点击选择 · Ctrl/⌘+点击切换 · Shift+点击范围多选</span>
+        <span class="hint-inline">点击预览该照片 · 右上角圆圈勾选导出 · Shift+点击范围多选</span>
       </div>
       <div v-if="library.items.length === 0" class="hint">图库暂无照片，请先在图库模块导入。</div>
       <div v-else class="thumb-grid">
@@ -467,7 +469,12 @@ function onThumbClick(item: { id: string }, e: MouseEvent) {
         >
           <img :src="item.thumbUrl || item.url" :alt="item.name" loading="lazy" />
           <span class="thumb-name">{{ item.name }}</span>
-          <span v-if="item.selected" class="thumb-check">✓</span>
+          <span
+            class="select-dot"
+            :class="{ on: item.selected }"
+            :title="item.selected ? '取消选择该照片' : '选择该照片'"
+            @click.stop="library.toggleSelect(item.id)"
+          ></span>
         </div>
       </div>
     </section>
@@ -741,18 +748,37 @@ function onThumbClick(item: { id: string }, e: MouseEvent) {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.thumb-check {
+.select-dot {
   position: absolute;
-  top: 2px;
-  right: 2px;
-  width: 16px;
-  height: 16px;
+  top: 6px;
+  right: 6px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(255, 255, 255, 0.95);
+  background: rgba(0, 0, 0, 0.38);
+  box-sizing: border-box;
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+.select-dot:hover {
+  background: rgba(0, 0, 0, 0.58);
+}
+.select-dot.on {
   background: var(--accent);
+  border-color: var(--accent);
+}
+.select-dot.on::after {
+  content: '✓';
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   color: #fff;
-  font-size: 11px;
+  font-size: 12px;
+  line-height: 1;
   font-weight: 400;
-  line-height: 16px;
-  text-align: center;
 }
 .btn {
   background: var(--btn-bg);

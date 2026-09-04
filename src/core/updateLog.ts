@@ -44,6 +44,21 @@ export const IMPORTANCE_LABELS: Record<UpdateImportance, string> = {
 // ===== 更新日志（新版本追加在最上方）=====
 export const UPDATE_LOG: UpdateEntry[] = [
   {
+    version: '0.1.19',
+    date: '2026-09-04',
+    importance: 'normal',
+    groups: {
+      improved: [
+        '放大/平移后画布外空白区域也可直接拖动平移，抓手光标更清晰',
+        '导出选照片：缩略图右上角新增圆圈勾选按钮，直接勾选/取消该照片',
+      ],
+      fixed: [
+        '缩放超过 800% 或低于 10% 后画面发生偏移的问题（达到上下限后画面保持不动）',
+        '导出面板点击缩略图预览时不再清空已勾选的照片集合',
+      ],
+    },
+  },
+  {
     version: '0.1.18',
     date: '2026-09-04',
     importance: 'normal',

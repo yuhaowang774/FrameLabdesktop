@@ -177,7 +177,7 @@ function onDblClick(e: MouseEvent) {
   viewer.setPan(-(factor - 1) * dx, -(factor - 1) * dy)
 }
 
-// ===== 拖拽平移 =====
+// ===== 拖拽平移（绑定在 stage：画布内图片或画布外空白区域均可拖动）=====
 function onPointerDown(e: PointerEvent) {
   // INFO 面板展开时：点击 INFO 元素由 FooterInfo 处理元素拖拽（已 stopPropagation），
   // 点击元素外区域则正常平移画布（移除原先的 infoEditing 整体禁用）。
@@ -200,16 +200,23 @@ function onPointerUp(e: PointerEvent) {
 
 // 总缩放 = fit * 用户 zoom
 const totalScale = computed(() => fitScale.value * viewer.zoom.value)
+// 可拖拽（放大或有平移时）：舞台空白区域也显示抓手光标
+const grabbing = computed(
+  () => dragging.value || viewer.zoom.value > 1 || viewer.panX.value !== 0 || viewer.panY.value !== 0,
+)
 </script>
 
 <template>
   <section class="workspace">
     <div
       class="stage"
-      :class="{ grab: dragging }"
+      :class="{ grab: grabbing }"
       ref="stage"
       @wheel="onWheel"
       @dblclick="onDblClick"
+      @pointerdown="onPointerDown"
+      @pointermove="onPointerMove"
+      @pointerup="onPointerUp"
     >
       <div
         class="fit-wrap"
@@ -219,11 +226,7 @@ const totalScale = computed(() => fitScale.value * viewer.zoom.value)
           height: wrapH + 'px',
           transform: `translate(${viewer.panX.value}px, ${viewer.panY.value}px) scale(${totalScale})`,
           transformOrigin: 'top left',
-          cursor: dragging ? 'grabbing' : 'default',
         }"
-        @pointerdown="onPointerDown"
-        @pointermove="onPointerMove"
-        @pointerup="onPointerUp"
       >
         <FrameContainer
           ref="frameRef"
@@ -255,10 +258,15 @@ const totalScale = computed(() => fitScale.value * viewer.zoom.value)
   justify-content: center;
   align-items: center;
   padding: 16px;
+  cursor: default;
   /* 预览画布：无照片时中性灰；载入图片时由 frame-container 底色 #000000 显示 */
   background: var(--canvas-empty);
+  touch-action: none;
 }
 .stage.grab {
+  cursor: grab;
+}
+.stage.grab:active {
   cursor: grabbing;
 }
 .zoom-indicator {
