@@ -5,6 +5,7 @@
 import { useAppState } from '../../composables/useAppState'
 import { useLibrary } from '../../composables/useLibrary'
 import { useFrameConfig } from '../../composables/useFrameConfig'
+import type { FrameConfig } from '../../core/types'
 import CollapsiblePanel from '../common/CollapsiblePanel.vue'
 import Switch from '../common/Switch.vue'
 import Icon from '../common/Icon.vue'
@@ -20,6 +21,18 @@ const P = app.state.rightPanels
 
 function isOpen(id: 'photo' | 'background' | 'border' | 'info'): boolean {
   return P[id]
+}
+
+/** 三栏显示开关联动：切层显隐 + 折叠面板跟随；切「开」时额外确保整个右栏可见，
+ *  避免「面板已展开但右栏整体被收起（rightOpen=false）」时看不到展开的例外。 */
+function onShowToggle(
+  key: 'showBackground' | 'showBorder' | 'showInfo',
+  panel: 'background' | 'border' | 'info',
+  v: boolean,
+) {
+  patch({ [key]: v } as Partial<FrameConfig>)
+  app.setPanel('right', panel, v)
+  if (v) app.state.rightOpen = true
 }
 
 /** 顶部工具栏：全部折叠 / 全部展开 */
@@ -195,7 +208,7 @@ function onResizeUp() {
       >
         <template #icon><Icon name="background" /></template>
         <template #actions>
-          <Switch :model-value="state.showBackground" title="显示/隐藏背景层" @update:model-value="(v: boolean) => { patch({ showBackground: v }); app.setPanel('right', 'background', v) }" />
+          <Switch :model-value="state.showBackground" title="显示/隐藏背景层" @update:model-value="(v: boolean) => onShowToggle('showBackground', 'background', v)" />
           <button title="复位背景参数" @click="resetBackground()">复位</button>
         </template>
         <BackgroundMode />
@@ -209,7 +222,7 @@ function onResizeUp() {
       >
         <template #icon><Icon name="border" /></template>
         <template #actions>
-          <Switch :model-value="state.showBorder" title="显示/隐藏边框层" @update:model-value="(v: boolean) => { patch({ showBorder: v }); app.setPanel('right', 'border', v) }" />
+          <Switch :model-value="state.showBorder" title="显示/隐藏边框层" @update:model-value="(v: boolean) => onShowToggle('showBorder', 'border', v)" />
           <button title="复位边框参数" @click="resetBorder()">复位</button>
         </template>
         <BorderSettings />
@@ -223,7 +236,7 @@ function onResizeUp() {
       >
         <template #icon><Icon name="info" /></template>
         <template #actions>
-          <Switch :model-value="state.showInfo" title="显示/隐藏 INFO 信息" @update:model-value="(v: boolean) => { patch({ showInfo: v }); app.setPanel('right', 'info', v) }" />
+          <Switch :model-value="state.showInfo" title="显示/隐藏 INFO 信息" @update:model-value="(v: boolean) => onShowToggle('showInfo', 'info', v)" />
           <button title="复位 INFO 参数" @click="resetInfo()">复位</button>
         </template>
         <InfoLayerPanel />
