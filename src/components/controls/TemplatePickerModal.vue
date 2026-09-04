@@ -220,7 +220,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
   display: flex; align-items: center; justify-content: center;
 }
 .tp-modal {
-  width: min(960px, 92vw); height: min(640px, 92vh);
+  width: min(1120px, 94vw); height: min(720px, 94vh);
   display: flex; flex-direction: column;
   background: var(--panel); border: 1px solid var(--border);
   box-shadow: 0 12px 48px rgba(0, 0, 0, 0.45);
@@ -246,17 +246,18 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
   margin: 4px 0 8px; font-size: 12px; font-weight: 400;
   color: var(--text-dim); letter-spacing: 0;
 }
-.tp-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-bottom: 14px; }
+.tp-grid { display: grid; grid-template-columns: repeat(1, minmax(0, 1fr)); gap: 8px; margin-bottom: 14px; }
 .tp-card {
+  display: flex;
   border: 1px solid var(--border); background: var(--panel-2);
   cursor: pointer; overflow: hidden;
 }
 .tp-card:hover { background: var(--hover); }
 .tp-card.active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
-.tp-card-thumb { display: block; width: 100%; height: 96px; object-fit: contain; background: var(--panel-3); }
+.tp-card-thumb { display: block; width: 92px; height: 92px; flex: none; object-fit: contain; background: var(--panel-3); }
 .tp-card-meta {
-  display: flex; align-items: center; gap: 4px;
-  height: 26px; padding: 0 6px; border-top: 1px solid var(--border);
+  flex: 1; display: flex; align-items: center; gap: 4px;
+  padding: 0 10px; border-left: 1px solid var(--border);
 }
 .tp-card-name { flex: 1; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tp-card-batch, .tp-card-del { cursor: pointer; color: var(--text-dim); padding: 0 4px; font-size: 13px; }
