@@ -256,10 +256,10 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 }
 .tp-card:hover { background: var(--hover); }
 .tp-card.active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
-.tp-card-thumb { display: block; width: 100%; height: 150px; object-fit: contain; background: var(--panel-3); }
-.tp-card-meta { padding: 6px 8px 8px; }
-.tp-card-name { display: block; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tp-card-desc { display: block; margin-top: 2px; font-size: 11px; color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tp-card-thumb { display: block; width: 100%; height: 190px; object-fit: contain; background: var(--panel-3); }
+.tp-card-meta { display: flex; align-items: baseline; gap: 6px; padding: 5px 8px 6px; }
+.tp-card-name { flex: none; font-size: 12px; max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tp-card-desc { flex: 1; min-width: 0; font-size: 11px; color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tp-card-batch, .tp-card-del {
   position: absolute; top: 6px; right: 6px;
   width: 22px; height: 22px; line-height: 20px; text-align: center;
