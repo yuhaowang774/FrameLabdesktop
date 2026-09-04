@@ -11,6 +11,7 @@ import { useLayers } from '../../composables/useLayers'
 import { DESIGN_CONTAINER } from '../../core/constants'
 import { mapPhotoRectToConfig, mapBgRectToConfig, bgRectFromConfig } from '../../core/dragMap'
 import { rotatedSize } from '../../core/photoEdit'
+import { applyShowToggles } from '../../core/showToggles'
 
 const props = defineProps<{
   /** 主照片 src（dataURL 或 objectURL） */
@@ -81,10 +82,13 @@ const photoDisplayAspect = computed(() => {
 const BASE_CONTENT = DESIGN_CONTAINER
 const availW = computed(() => BASE_CONTENT)
 
-// 实际 CSS padding：上/左/右 = state.padding（现已支持 min=0）。
-const cssPadding = computed(() => state.padding)
-// 下边宽度：边框留白下边 = padding + borderRatio（borderRatio 为照片下边额外延长量，px）
-const cssPadBottom = computed(() => state.padding + state.borderRatio)
+// 有效配置：显示开关（隐藏边框/背景 → 布局几何归零）。预览与导出同源。
+const effConfig = computed(() => applyShowToggles(state))
+
+// 实际 CSS padding：上/左/右 = eff padding（边框隐藏时归零，照片铺满）。
+const cssPadding = computed(() => effConfig.value.padding)
+// 下边宽度：边框留白下边 = padding + borderRatio（eff）
+const cssPadBottom = computed(() => effConfig.value.padding + effConfig.value.borderRatio)
 
 // 画面（边框）比例：内容区宽高比（16:9 / 4:3 / 1:1 ...）。null = 自由（跟随照片）。
 const frameRatio = computed(() => state.frameRatio)
@@ -122,7 +126,7 @@ const photoRectAbs = computed(() => ({
 // 内容区设计高度（照片/INFO 坐标系，边框内侧固定区域）：
 // 比例模式固定高（1200/ratio）；自由模式 = 照片高。canvasH 存在时由用户手动指定覆盖。
 const contentHDesign = computed(() => {
-  if (state.canvasH) return Math.max(0, state.canvasH - state.padding - cssPadBottom.value)
+  if (state.canvasH) return Math.max(0, state.canvasH - effConfig.value.padding - cssPadBottom.value)
   if (frameRatio.value) return availW.value / frameRatio.value
   return Math.max(0, photoRect.value.top + photoRect.value.height)
 })
@@ -130,16 +134,16 @@ const contentHDesign = computed(() => {
 // ===== 背景区域（独立于内容区，单位 px，与边框宽度一致） =====
 // bgExpand=0：背景=内容区；>0：上/左/右各扩 bgExpand，下边扩 bgExpand + bgBottomRatio，边框/画布同步跟随。
 // 背景区域始终以内容区为锚点：内容区左/上距背景区域边缘 = bgExpand，下距 = bgExpand + bgBottomRatio。
-const bgExpand = computed(() => state.bgExpand)
-const bgBottomExpand = computed(() => state.bgExpand + state.bgBottomRatio)
+const bgExpand = computed(() => effConfig.value.bgExpand)
+const bgBottomExpand = computed(() => effConfig.value.bgExpand + effConfig.value.bgBottomRatio)
 const bgAreaW = computed(() => availW.value + 2 * bgExpand.value)
 const bgAreaH = computed(() => contentHDesign.value + bgExpand.value + bgBottomExpand.value)
 
 // 容器设计尺寸（box-sizing: border-box）：边框层始终包裹「背景区域」。
 // 背景扩宽时边框（padding 区）与画布同步跟随扩大，照片保持在内容区不动。
-const containerWDesign = computed(() => bgAreaW.value + state.padding * 2)
+const containerWDesign = computed(() => bgAreaW.value + effConfig.value.padding * 2)
 const containerHDesign = computed(() =>
-  Math.max(0, contentHDesign.value + bgExpand.value + bgBottomExpand.value + state.padding + cssPadBottom.value),
+  Math.max(0, contentHDesign.value + bgExpand.value + bgBottomExpand.value + effConfig.value.padding + cssPadBottom.value),
 )
 
 function onPhotoRect(r: { left: number; top: number; width: number; height: number }) {
@@ -260,13 +264,14 @@ defineExpose({
   <!-- 画板（由内向外第 4 层，最外承载一切）：同心嵌套结构由内向外为「照片 → 背景 → 边框 → 画板」 -->
   <div
     class="frame-container"
+    :class="{ 'no-border': !effConfig.showBorder }"
     ref="root"
     :style="{ width: containerWDesign + 'px', height: containerHDesign + 'px' }"
     @pointerdown.self="selectedLayer = 'artboard'"
   >
     <!-- 背景层（由内向外第 2 层）：覆盖范围独立于内容区（bgExpand 四等宽扩展）。
          背景 = 画板 content box（padding 内侧），边框层随画板尺寸同步包裹背景。 -->
-    <div class="bg-clip" v-show="isVisible('bg')">
+    <div class="bg-clip" v-if="state.showBackground && isVisible('bg')">
       <BgCanvas :image="bgImage" :blur="bgBlur" :container-w="bgAreaW" :container-h="bgAreaH" class="bg-layer" />
     </div>
 
@@ -320,7 +325,7 @@ defineExpose({
 
     <!-- 信息图层（顶层：Logo + 相机型号 + EXIF）：未导入照片时不显示 -->
     <div
-      v-show="photoSrc && isVisible('info')"
+      v-show="photoSrc && state.showInfo && isVisible('info')"
       class="info-layer"
       :class="{ selected: selectedLayer === 'info' }"
       @pointerdown="interactive && (selectedLayer = 'info')"
@@ -348,6 +353,10 @@ defineExpose({
   /* 边框底色兜底（正常使用时背景层/边框层会覆盖它；隐藏背景层时可见） */
   background: var(--frame-color);
   box-sizing: border-box;
+}
+.frame-container.no-border {
+  /* 边框隐藏：画板底色改透明，避免照片边缘露出边框色 */
+  background: transparent;
 }
 .bg-clip {
   position: absolute;

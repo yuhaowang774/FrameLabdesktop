@@ -2,6 +2,7 @@
 import { ref, watch, type WatchSource } from 'vue'
 import type { FrameConfig } from '../core/types'
 import { footerTextColor } from '../core/colorUtils'
+import { applyShowToggles } from '../core/showToggles'
 
 /**
  * INFO 字体「悬停预览」临时覆盖：在字体下拉中鼠标经过某选项时暂存其字体栈，
@@ -98,8 +99,10 @@ const VAR_MAP: CssVarMap = {
 const lastVars = new Map<string, string>()
 
 function applyVars(config: FrameConfig, root: HTMLElement): void {
+  // 显示开关 → 生效配置：隐藏边框时 padding/borderRadius 等归零，预览布局随之铺满
+  const eff = applyShowToggles(config)
   for (const [name, fn] of Object.entries(VAR_MAP)) {
-    const v = fn(config)
+    const v = fn(eff)
     if (lastVars.get(name) !== v) {
       root.style.setProperty(name, v)
       lastVars.set(name, v)

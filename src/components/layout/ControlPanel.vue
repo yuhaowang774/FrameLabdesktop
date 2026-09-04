@@ -14,7 +14,7 @@ import InfoLayerPanel from '../controls/InfoLayerPanel.vue'
 
 const app = useAppState()
 const library = useLibrary()
-const { reset, patch } = useFrameConfig()
+const { state, reset, patch } = useFrameConfig()
 const P = app.state.rightPanels
 
 function isOpen(id: 'photo' | 'background' | 'border' | 'info'): boolean {
@@ -194,6 +194,7 @@ function onResizeUp() {
       >
         <template #icon><Icon name="background" /></template>
         <template #actions>
+          <button class="vis-toggle" :class="{ on: state.showBackground }" :title="`${state.showBackground ? '隐藏' : '显示'}背景层`" @click="patch({ showBackground: !state.showBackground })">{{ state.showBackground ? '显示' : '隐藏' }}</button>
           <button title="复位背景参数" @click="resetBackground()">复位</button>
         </template>
         <BackgroundMode />
@@ -207,6 +208,7 @@ function onResizeUp() {
       >
         <template #icon><Icon name="border" /></template>
         <template #actions>
+          <button class="vis-toggle" :class="{ on: state.showBorder }" :title="`${state.showBorder ? '隐藏' : '显示'}边框层`" @click="patch({ showBorder: !state.showBorder })">{{ state.showBorder ? '显示' : '隐藏' }}</button>
           <button title="复位边框参数" @click="resetBorder()">复位</button>
         </template>
         <BorderSettings />
@@ -220,6 +222,7 @@ function onResizeUp() {
       >
         <template #icon><Icon name="info" /></template>
         <template #actions>
+          <button class="vis-toggle" :class="{ on: state.showInfo }" :title="`${state.showInfo ? '隐藏' : '显示'}INFO 信息`" @click="patch({ showInfo: !state.showInfo })">{{ state.showInfo ? '显示' : '隐藏' }}</button>
           <button title="复位 INFO 参数" @click="resetInfo()">复位</button>
         </template>
         <InfoLayerPanel />
@@ -351,5 +354,10 @@ function onResizeUp() {
 }
 .foot-btn:active {
   background: var(--pressed);
+}
+/* 栏显示开关：开启=主色描边+主色字；隐藏态用默认弱化色 */
+.vis-toggle.on {
+  color: var(--accent);
+  border-color: var(--accent);
 }
 </style>

@@ -33,6 +33,12 @@ export interface PhotoCrop {
 
 export interface FrameConfig {
   bgMode: BgMode
+  /** 显示开关：是否显示背景层（false → 不绘制背景，照片铺满） */
+  showBackground: boolean
+  /** 显示开关：是否显示边框层（false → 边框/背景扩展归零，照片铺满） */
+  showBorder: boolean
+  /** 显示开关：是否显示底部 INFO 信息（Logo/机型/EXIF/日期） */
+  showInfo: boolean
   /** 自定义背景图（dataURL / objectURL），bgMode==='photo' 时使用 */
   customBgImage: string | null
   /** 纯色背景颜色，bgMode==='solid' 时使用 */
@@ -216,6 +222,10 @@ export const defaultFrameConfig: FrameConfig = {
   bgColor: '#000000',
   overlayAlign: 'center',
   overlayBottom: 20,
+
+  showBackground: true,
+  showBorder: true,
+  showInfo: true,
 
   blur: 40,
   padding: 0,

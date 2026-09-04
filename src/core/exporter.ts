@@ -5,6 +5,7 @@ import type { FrameConfig } from './types'
 import { drawBlurredBackground, drawVignette, drawGrain, drawWatermark, type ImgSource } from './bgRenderer'
 import { resolveLogo, preloadBrandLogo } from '../composables/useLogoStore'
 import { drawInfoLayer, preloadInfoLogos } from './infoRenderer'
+import { applyShowToggles } from './showToggles'
 import { buildSrgbICC, embedJpegICC } from './icc'
 import { hexLuminance, hexToRgba, logoAutoColor, footerTextColor } from './colorUtils'
 import { DESIGN_CONTAINER, phoneBrandOf } from './constants'
@@ -542,6 +543,8 @@ export async function exportFrame(
   const jpgQuality = options.jpgQuality ?? 0.95
   const supersample = options.scale && options.scale > 0 ? options.scale : 1
   const isJpg = format === 'jpg'
+  // 显示开关 → 生效配置（隐藏边框/背景时 padding/bgMode 等归零），导出与预览缩放同源
+  config = applyShowToggles(config)
   // Logo 着色：'auto' 时随背景明暗取黑/白，保证浅色相框下 Logo 不与底色融为一体
   const logoColor = logoAutoColor(config.logoColor, config.bgMode, config.bgColor)
 
@@ -619,9 +622,9 @@ export async function exportFrame(
     ctx.restore()
   }
 
-  // 2) 背景图层（受 layerVisible.bg 控制，与预览一致）：
+  // 2) 背景图层（受 layerVisible.bg 与 显示开关 showBackground 控制，与预览一致）：
   //    背景区域 = 画板 content box（边框内侧），canvasW 已含 bgExpand，innerW/H 即背景区域尺寸。
-  const bgVisible = config.layerVisible.bg !== false
+  const bgVisible = config.layerVisible.bg !== false && config.showBackground
   const bgW = innerW
   const bgH = innerH
   const bgX = padX
@@ -693,16 +696,16 @@ export async function exportFrame(
     ctx.restore()
   }
 
-  // 3) 信息图层（顶层：Logo + 相机型号 + EXIF），受 layerVisible.info 控制
+  // 3) 信息图层（顶层：Logo + 相机型号 + EXIF），受 layerVisible.info 与 显示开关 showInfo 控制
   const infoVisible = config.layerVisible.info !== false
-  if (infoVisible) {
+  if (infoVisible && config.showInfo) {
     // 若调用方未显式传入 logo（如自定义 Logo），则使用内置品牌 Logo（暗白双版）
     const footerLogo = options.logo ?? (config.showLogo ? resolveLogo(config.brand, logoColor) : undefined)
     await drawFooter(ctx, config, unitScale, footerLogo, effectivePad + bgExpand, canvas.height, magazinePalette)
   }
 
   // 3.5) 顶层 INFO 多元素容器层（自由拖拽排版）：与预览 InfoLayerDisplay 一致
-  if (infoVisible && config.infoLayer?.enabled) {
+  if (infoVisible && config.infoLayer?.enabled && config.showInfo) {
     // 预载内置品牌 Logo，确保导出拿到完整画布
     await preloadInfoLogos(config.infoLayer)
     const canvasCenter = { x: DESIGN_CONTAINER / 2, y: designCanvasH / 2 }
