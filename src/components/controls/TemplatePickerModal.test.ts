@@ -163,11 +163,19 @@ describe('默认选中', () => {
   })
 })
 
-describe('大预览合成', () => {
+describe('缩略图与大预览合成', () => {
+  it('左网格缩略图以当前选中照片为底图合成（renderThumb 收到 blob:photo-1 与 480 上限）', async () => {
+    const w = mountModal(true)
+    await flushPromises()
+    const thumbCalls = mock.renderThumb.mock.calls.filter((c) => c[1] === 'blob:photo-1' && c[2] === 480)
+    expect(thumbCalls.length).toBe(3) // 3 张模板卡各渲染一张
+    w.unmount()
+  })
+
   it('打开弹窗即渲染默认选中模板的大预览（immediate 触发，无需点击）', async () => {
     const w = mountModal(true)
     await flushPromises()
-    const previewCalls = mock.renderThumb.mock.calls.filter((c) => c[1] === 'blob:photo-1')
+    const previewCalls = mock.renderThumb.mock.calls.filter((c) => c[1] === 'blob:photo-1' && c[2] === 960)
     expect(previewCalls.length).toBeGreaterThan(0)
     expect(previewCalls[0][2]).toBe(960)
     expect(w.find('.tp-preview-img').attributes('src')).toBe('data:image/jpeg;base64,BIG')
@@ -179,7 +187,7 @@ describe('大预览合成', () => {
     await flushPromises()
     await w.findAll('.tp-card')[1].trigger('click')
     await flushPromises()
-    const previewCalls = mock.renderThumb.mock.calls.filter((c) => c[1] === 'blob:photo-1')
+    const previewCalls = mock.renderThumb.mock.calls.filter((c) => c[1] === 'blob:photo-1' && c[2] === 960)
     expect(previewCalls.length).toBeGreaterThan(0)
     expect(previewCalls[0][2]).toBe(960)
     expect(w.find('.tp-preview-img').attributes('src')).toBe('data:image/jpeg;base64,BIG')

@@ -37,17 +37,23 @@ const selectedDesc = computed(() => {
   return raw || '自定义模板（导出/导入保存的参数预设）'
 })
 
-// 网格缩略图：SVG 即时占位 → 真实照片合成（复用 templateThumb 兜底）
+// 网格缩略图：SVG 即时占位 → 用「当前选中照片 + 模板」真实合成（photoSrc 缺省走内置示例图）。
+// 照片切换（photoSrc 变化）时清空重渲，保证缩略图始终对照当前照片。
 const thumbs = reactive<Record<string, string>>({})
+const prevThumbSrc = ref<null | string>(null)
 watch(
-  () => list.value.map((t) => t.id).join(','),
+  () => [list.value.map((t) => t.id).join(','), state.photoSrc] as const,
   () => {
+    const src = state.photoSrc || null
+    const srcChanged = src !== prevThumbSrc.value
+    prevThumbSrc.value = src
     for (const t of list.value) {
-      if (thumbs[t.id] && !thumbs[t.id].startsWith('data:image/svg')) continue
-      if (!thumbs[t.id]) thumbs[t.id] = templateThumbDataUrl(t.config)
+      const cachedReal = thumbs[t.id] && !thumbs[t.id].startsWith('data:image/svg')
+      if (!srcChanged && cachedReal) continue
+      if (!cachedReal || srcChanged) thumbs[t.id] = templateThumbDataUrl(t.config)
       void (async () => {
         try {
-          thumbs[t.id] = await renderTemplateThumbDataUrl(t.config)
+          thumbs[t.id] = await renderTemplateThumbDataUrl(t.config, src || undefined, 480)
         } catch {
           /* templateThumb 已内建 SVG 兜底 */
         }
