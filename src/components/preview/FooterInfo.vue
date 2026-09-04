@@ -206,14 +206,25 @@ function updatePosition(mx: number, my: number) {
   const panDy = viewer.panY.value - panStart.value.y
   let nx = origin.value.x + (mx - start.value.x - panDx) / scale
   let ny = origin.value.y + (my - start.value.y - panDy) / scale
-  // 钳制元素「本体」在画板范围内（x/y 对称）：内容区坐标下界 = -(pad + bgExpand)（元素左/上缘最多到画板边缘）。
-  // 上界 = 画板尺寸 - pad - bgExpand - 元素尺寸，使元素四边最多到画板四边：
-  // x 右缘最多到画板右缘；y 底部最多到画板底缘（可覆盖背景区域下边扩展 bgBottomExpand 与下边框 padBottom）。
-  // 渲染时 absStyle 再加 pad + bgExpand 得画板坐标。
-  nx = Math.max(-(pad.value + bgExpand.value), Math.min(DESIGN_CONTAINER + pad.value + bgExpand.value - elemW, nx))
+  // 锚点语义钳制（与 absStyle 渲染完全一致）：
+  // classic 布局的行/Logo 带水平锚点——center = 行中心、right = 右缘（translate 平移），
+  // 其余（left 与 duo/inline）x 为左缘锚点。钳制必须按「视觉锚点」而非统一按左缘计算，
+  // 否则宽元素（如 CCD 30px 等宽日期戳）在 right 锚点下首次拖动起点即超出 -elemW 的上界，
+  // 元素会被突然后压出现跳变/拖不回去。y 向无平移，始终按左缘（顶）语义钳制。
+  const classicAnchor = (() => {
+    if (state.infoLayout !== 'classic') return 'left'
+    return state.overlayAlign === 'right' ? 'right' : state.overlayAlign === 'center' ? 'center' : 'left'
+  })()
+  const minX = -(pad.value + bgExpand.value)
+  const maxX =
+    DESIGN_CONTAINER +
+    pad.value +
+    bgExpand.value -
+    (classicAnchor === 'left' ? elemW : classicAnchor === 'center' ? elemW / 2 : 0)
+  nx = Math.max(minX, Math.min(maxX, nx))
   ny = Math.max(-(pad.value + bgExpand.value), Math.min(canvasH - pad.value - bgExpand.value - elemH, ny))
   // ===== 居中辅助线：元素中心接近画板中心时吸附并高亮 =====
-  const snapped = applyCenterSnap(nx, ny)
+  const snapped = applyCenterSnap(nx, ny, classicAnchor)
   const k = dragging.value
   patch({
     [k + 'X']: snapped.x,
@@ -257,14 +268,19 @@ function canvasCenterInContent(): { x: number; y: number } {
   return { x: DESIGN_CONTAINER / 2, y: cy }
 }
 
-/** 元素中心接近画板中心 / 下边白框带中线时吸附并返回吸附后的坐标 */
-function applyCenterSnap(x: number, y: number): { x: number; y: number } {
+/** 元素中心接近画板中心 / 下边白框带中线时吸附并返回吸附后的坐标。
+ *  x 为 classic 布局的锚点坐标（left=左缘 / center=行中心 / right=右缘），
+ *  吸附判断按「元素实际中心」计算，吸附后还原为锚点坐标（与 absStyle 渲染语义一致）。 */
+function applyCenterSnap(x: number, y: number, anchor: 'left' | 'center' | 'right'): { x: number; y: number } {
   if (!dragEl.value) return { x, y }
   const cx = canvasCenterInContent()
   const elemW = dragEl.value.offsetWidth
   const elemH = dragEl.value.offsetHeight
   const T = 10 // 吸附阈值（设计 px）
-  const dx = Math.abs(x + elemW / 2 - cx.x)
+  // 锚点 → 元素左缘 → 元素中心
+  const left = x - (anchor === 'right' ? elemW : anchor === 'center' ? elemW / 2 : 0)
+  const centerX = left + elemW / 2
+  const dx = Math.abs(centerX - cx.x)
   guideV.value = dx < T
   // y 向双候选：画板水平中线 / 下边白框带中线（存在时），谁更近吸谁
   const band = bottomBandCenter.value
@@ -272,8 +288,10 @@ function applyCenterSnap(x: number, y: number): { x: number; y: number } {
   const dBand = band == null ? Infinity : Math.abs(y + elemH / 2 - band)
   guideH.value = dCenter < T && dCenter <= dBand
   guideBand.value = band != null && dBand < T && dBand < dCenter
+  const snappedLeft = guideV.value ? cx.x - elemW / 2 : left
+  // 还原为锚点坐标
   return {
-    x: guideV.value ? cx.x - elemW / 2 : x,
+    x: snappedLeft + (anchor === 'right' ? elemW : anchor === 'center' ? elemW / 2 : 0),
     y: guideH.value
       ? cx.y - elemH / 2
       : guideBand.value

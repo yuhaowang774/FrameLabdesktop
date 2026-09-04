@@ -8,6 +8,7 @@
 当前相框模板库以**左栏内嵌双列小卡片**展示（TemplatePanel.vue），10 套内置模板 + 自定义模板挤在窄栏里：
 
 - 卡片高度 110px、网格两列，模板样式细节无法看清，挑选不直观；
+
 - 缺少对选中模板效果的放大预览，用户只能"先应用、再关闭面板看画布"往返试错。
 
 **目标**：点击「相框模板库」弹出**居中大弹窗**供用户选择模板。弹窗颜值高、对比直观、操作顺手；点击卡片即实时应用（弹窗不关闭），可连续对比多个模板后再关闭。
@@ -16,8 +17,11 @@
 
 1. 左栏「相框模板库」折叠区不再内嵌模板列表，改为**入口卡片**（聚合图标 + "10 套内置模板 · 点击挑选"文案）→ 点击弹出 `TemplatePickerModal`。
 2. 弹窗左侧为模板网格（分组：内置模板 / 我的模板），点击任意卡片：
+
    - 立即 `applyTemplateToState(config)` 应用到当前照片（编辑画布实时变化）；
+
    - 右栏大预览以**当前编辑照片 + 该模板配置**合成"应用后真实效果"，异步渲染（先占位后出图）；
+
    - 卡片高亮为选中态；弹窗**不关闭**。
 3. 批量应用：卡片右上角 ⇉ 角标（语义与现状一致：应用到选中照片，无选中则全部），执行后弹窗保留，缺失提示浮层叠于弹窗之上。
 4. 关闭：右上 × / 底部「完成」/ Esc / 点击遮罩。关闭后停留在编辑页，可直接查看画布效果。
@@ -43,23 +47,33 @@
 ```
 
 - 左侧网格：2 列大卡（缩略图 16:10 裁切 + 名称 + 角标区），分组小标题；自定义分组空时隐藏。
+
 - 右侧预览区：竖向居中大图 + 模板名 + 说明 + **唯一的操作按钮「⇉ 批量应用到 N 张」**——单张应用即「点击卡片」本身，无需重复按钮，避免交互冗余。
+
 - 选中卡片：主题色描边 + 轻微高亮背景。
+
 - 「批量应用到 N 张」按钮：N = 选中照片数，无选中时文本为「批量应用到全部」且不禁用。
 
 ## 四、组件与数据流
 
 ### 新增组件：`src/components/controls/TemplatePickerModal.vue`
+
 - `<Teleport to="body">` 渲染遮罩 + 弹窗卡片；`v-model` 控制显隐（对应 `open`）。
+
 - 顶部标题 + 关闭按钮；底部提示条 + 「完成」按钮；Esc / 遮罩点击触发关闭（组件内 `onMounted` 添加 keydown 监听，unmount 移除；遮罩点击需 `@click.self`）。
+
 - 视觉：复用 `GlassModal` 同款磨砂变量（`--modal-bg` 等）与圆角/阴影规范；弹窗内容区滚动独立。
 
 ### 改造：`src/components/layout/TemplatePanel.vue`
+
 - 移除内嵌 `tpl-list` 双列卡片，改为入口卡片（图标 + 文案 + 「打开」chevron），点击 emit `open-picker` 或由 LeftPanels 持有弹窗开关。
+
 - 迁移到弹窗内的逻辑：`apply`（应用模板 + 展开右栏 + INFO 缺失提示）、`applyBatch`（批量应用 + 缺失提示）、`onRemove`（删除自定义）、缩略图 watch。
+
 - 缺失提示仍用 `GlassModal`（z-index 高于 picker）。
 
 ### 数据流
+
 ```
 TemplatePanel（入口卡片）→ open: true → TemplatePickerModal
   点击网格卡片 → applyTemplateToState(config)   （复用，右栏展开逻辑一并迁移）
@@ -71,40 +85,56 @@ TemplatePanel（入口卡片）→ open: true → TemplatePickerModal
 ## 五、缩略图与大预览
 
 - **网格小卡**：沿用现有「SVG 即时占位 → 真实合成」双段策略（`templateThumbDataUrl` + `renderTemplateThumbDataUrl`），复用现有 watch 逻辑平移进弹窗。
+
 - **右栏大预览**：`renderTemplateThumbDataUrl(config, 当前照片 src, 960)`。
+
   - 图源 = `state.photoSrc`（当前编辑照片，objectURL/dataURL），无照片时省略参数走内置示例图。
+
   - 降采样：`renderTemplateThumbDataUrl` 内部对 >maxLongEdge 原图先 `downscaleImage`，成本可控。
+
   - 异步渲染期间显示 SVG 占位（同一 SVG 源，尺寸放大），完成后替换 dataURL。
+
   - 大预览缓存：按 `templateId + photoSrc 摘要` 缓存，重复选中不重渲。
 
 ## 六、边界与错误处理
 
-| 场景 | 处理 |
-|---|---|
-| 模板缩略图/大预览合成失败 | 捕获异常，回退 SVG dataURL（`renderTemplateThumbDataUrl` 内建兜底），不阻塞交互 |
-| 当前照片超大（如 12000×8000） | 复用降采样（≤960 长边），先占位后异步 |
-| 无照片时打开弹窗并点击卡片 | 大预览走内置示例图；应用逻辑照常 |
-| INFO 缺失提示与弹窗叠层 | GlassModal 浮于 picker 之上，二者 Esc/关闭互不干扰 |
-| 自定义模板删除 | 移除后选中态清空（若删的是当前选中项），列表即时更新 |
-| 窄视口（<768px） | 弹窗宽高随视口缩放（≤92%），双栏可切换为上下堆叠（`@media`） |
+| 场景                   | 处理                                                           |
+| -------------------- | ------------------------------------------------------------ |
+| 模板缩略图/大预览合成失败        | 捕获异常，回退 SVG dataURL（`renderTemplateThumbDataUrl` 内建兜底），不阻塞交互 |
+| 当前照片超大（如 12000×8000） | 复用降采样（≤960 长边），先占位后异步                                        |
+| 无照片时打开弹窗并点击卡片        | 大预览走内置示例图；应用逻辑照常                                             |
+| INFO 缺失提示与弹窗叠层       | GlassModal 浮于 picker 之上，二者 Esc/关闭互不干扰                        |
+| 自定义模板删除              | 移除后选中态清空（若删的是当前选中项），列表即时更新                                   |
+| 窄视口（<768px）          | 弹窗宽高随视口缩放（≤92%），双栏可切换为上下堆叠（`@media`）                         |
 
 ## 七、测试计划
 
 - 组件测试 `TemplatePickerModal.test.ts`（@vue/test-utils + jsdom）：
+
   - 分组渲染：内置/自定义分别出现，自定义为空时隐藏分组；
+
   - 点击卡片 → 选中态 + 触发展板应用（mock `applyTemplateToState`）；
+
   - ⇉ 角标 → 触发批量（mock `applyTemplateToPhotos` + `useLibrary` 选中态）；
+
   - 自定义模板删除回调；
+
   - 空库提示文案；
+
   - `v-model` 开关与 Esc 关闭。
+
 - mock `core/templateThumb`（返回固定 dataURL），避免 jsdom 无法 canvas 合成。
+
 - 既有 176 测试保持全绿；双端（FrameLab + frame）`npm run build` + `npm run test` 验证。
 
 ## 八、不做的事（YAGNI）
 
 - 不做模板搜索/关键词过滤（10 个内置 + 少量自定义，网格一眼可见）；
+
 - 不做模板收藏/排序拖拽；
+
 - 不改应用模板的装饰逻辑本身（`applyTemplateToState` 语义保持）；
+
 - 不加弹窗拖拽/缩放（固定居中，随视口缩放）。
 
 ## 九、验收标准
@@ -115,3 +145,4 @@ TemplatePanel（入口卡片）→ open: true → TemplatePickerModal
 4. 连续点不同卡片可对比；「批量应用到 N 张」「删除自定义」「INFO 缺失提示」全部可用。
 5. Esc / × / 完成 / 遮罩点击均可关闭；关闭后预览保留。
 6. 双端测试全绿、构建通过。
+

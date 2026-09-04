@@ -15,4 +15,11 @@ describe('CollapsiblePanel titleAction', () => {
     expect(w.emitted('popup')).toHaveLength(1)
     expect(w.emitted('toggle')).toBeUndefined()
   })
+
+  it('emphasized：根元素带 emphasized class，用于重要入口高亮', () => {
+    const w = mount(CollapsiblePanel, { props: { title: '相框模板库', open: true, emphasized: true } })
+    expect(w.find('.panel').classes()).toContain('emphasized')
+    const plain = mount(CollapsiblePanel, { props: { title: '我的素材', open: true } })
+    expect(plain.find('.panel').classes()).not.toContain('emphasized')
+  })
 })

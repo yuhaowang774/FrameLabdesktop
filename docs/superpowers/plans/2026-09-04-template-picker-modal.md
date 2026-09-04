@@ -8,29 +8,40 @@
 
 **Tech Stack:** Vue 3 `<script setup>` + TS、@vue/test-utils + vitest、Teleport、CSS 变量（磨砂暗色 token）
 
----
+***
 
 ## 关键既有代码速查（实施前必读）
 
 - `src/components/layout/TemplatePanel.vue` — 被删除，其 `apply` / `applyBatch` / `onRemove` / 缩略图 watch / missing 提示逻辑整体迁入弹窗
+
 - `src/components/common/CollapsiblePanel.vue` — 标题点击 `emit('toggle')`，将加 `titleAction`
+
 - `src/components/common/GlassModal.vue` — INFO 缺失提示复用，z-index 1000（弹窗设为 1100 以浮于其上）
+
 - `src/composables/useTemplates.ts` — `FrameTemplate { id, name, category, config, builtin? }`，`templates` 为 `reactive` 数组，`remove(id)` 删除自定义；`applyTemplateToState(config)` 返回缺失字段名数组
+
 - `src/composables/useAppState.ts` — `app.state.rightOpen`、`app.setPanel('right', 'background'|'border', true)`
+
 - `src/composables/useLibrary.ts` — `library.items[]`（含 `id`/`selected`），`activeId`
+
 - `src/composables/useHistory.ts` — `applyTemplateToPhotos(ids: string[], config, name): Promise<boolean>`（任一缺失返回 true）
+
 - `src/core/templateThumb.ts` — `templateThumbDataUrl(config)` 同步 SVG；`renderTemplateThumbDataUrl(config, imageUrl?, maxLongEdge?)` 异步真实合成（失败回退 SVG）；`imageUrl` 传当前照片 src 即为「当前照片+模板」合成
+
 - `src/core/colorUtils.ts` — `logoAutoColor` 等（模板应用已适配，勿动）
+
 - 测试样板：`src/components/common/SelectableBox.test.ts`（@vue/test-utils + jsdom）
 
 约束：`CollapsiblePanel` 默认行为必须不变（其余面板依赖 toggle）；项目 CSS 用变量 token（`--panel` / `--panel-2` / `--panel-3` / `--border` / `--text` / `--text-dim` / `--hover` / `--pressed` / `--accent` / `--btn-bg`），border-radius 全 0（项目风格无圆角）。
 
----
+***
 
 ### Task 1: TemplatePickerModal 骨架（显隐 / 关闭 / 空库提示）
 
 **Files:**
+
 - Create: `src/components/controls/TemplatePickerModal.vue`
+
 - Create: `src/components/controls/TemplatePickerModal.test.ts`
 
 - [ ] **Step 1: 写失败测试（骨架行为）**
@@ -440,11 +451,12 @@ git add src/components/controls/TemplatePickerModal.vue src/components/controls/
 git -c user.name=yuhaowang774 -c user.email=yuhaowang774@users.noreply.github.com commit -m "feat: 模板选择弹窗 TemplatePickerModal 骨架（左右分栏 + 点卡即应用 + 批量/删除/缺失提示）"
 ```
 
----
+***
 
 ### Task 2: 内置模板描述文案（FrameTemplate.desc）
 
 **Files:**
+
 - Modify: `src/composables/useTemplates.ts:21-28`（FrameTemplate 加 desc、BUILTIN 10 项补 desc）
 
 - [ ] **Step 1: 修改 FrameTemplate 接口与内置模板数据**
@@ -491,11 +503,12 @@ git add src/composables/useTemplates.ts
 git -c user.name=yuhaowang774 -c user.email=yuhaowang774@users.noreply.github.com commit -m "feat: 内置 10 套模板补充一句话说明 desc（模板选择弹窗右侧展示）"
 ```
 
----
+***
 
 ### Task 3: 模板选择弹窗组件测试（分组渲染 / 选中 / 大预览 / 批量 / 删除）
 
 **Files:**
+
 - Modify: `src/components/controls/TemplatePickerModal.test.ts`（扩展现有 mock 为带数据）
 
 - [ ] **Step 1: 扩展测试（覆盖分组、desc、选中、批量、删除）**
@@ -671,14 +684,18 @@ git add src/components/controls/TemplatePickerModal.test.ts
 git -c user.name=yuhaowang774 -c user.email=yuhaowang774@users.noreply.github.com commit -m "test: 模板选择弹窗组件测试（分组渲染/默认选中/当前照片大预览/批量/删除）"
 ```
 
----
+***
 
 ### Task 4: CollapsiblePanel 标题点击弹出 + LeftPanels 接入
 
 **Files:**
+
 - Modify: `src/components/common/CollapsiblePanel.vue`（titleAction、emit popup，默认行为不变）
+
 - Create: `src/components/common/CollapsiblePanel.test.ts`
+
 - Modify: `src/components/layout/LeftPanels.vue`（相框模板库面板 titleAction=popup，挂载 TemplatePickerModal，删除 TemplatePanel 引用）
+
 - Delete: `src/components/layout/TemplatePanel.vue`
 
 - [ ] **Step 1: 写 CollapsiblePanel 失败测试**
@@ -821,12 +838,14 @@ git add src/components/common/CollapsiblePanel.vue src/components/common/Collaps
 git -c user.name=yuhaowang774 -c user.email=yuhaowang774@users.noreply.github.com commit -m "feat: 左栏「相框模板库」标题点击弹出模板选择器；CollapsiblePanel 支持 titleAction=popup；删除 TemplatePanel"
 ```
 
----
+***
 
 ### Task 5: 双端同步与构建验证
 
 **Files:**
+
 - Copy: `src/components/controls/TemplatePickerModal.vue`、`src/components/controls/TemplatePickerModal.test.ts`、`src/components/common/CollapsiblePanel.vue`、`src/components/common/CollapsiblePanel.test.ts`、`src/components/layout/LeftPanels.vue`、`src/composables/useTemplates.ts` → `d:\A\frame\src\` 对应路径
+
 - Delete: `d:\A\frame\src\components\layout\TemplatePanel.vue`
 
 - [ ] **Step 1: 同步到 frame 仓库**
@@ -862,16 +881,21 @@ git -C d:\A\frame -c user.name=yuhaowang774 -c user.email=yuhaowang774@users.nor
 - [ ] **Step 4: DEV 版人工验收**
 
 确认 tauri dev 进程在跑（PID 有 framelab）；浏览器打开 `http://localhost:5180`：
+
 1. 左栏点「相框模板库」标题 → 弹出弹窗
 2. 网格展示内置+自定义；点卡片 → 画布立即变化、右栏大预览为"当前照片+模板"合成、卡片高亮、弹窗不关
 3. 「⇉ 批量应用到 N 张」、自定义删除、INFO 缺失提示可用
 4. × / 完成 / Esc / 遮罩点击均关闭
 
----
+***
 
 ## Self-Review
 
 - **Spec 覆盖**：入口弹窗（Task 4）✅；左右分栏+点卡即应用（Task 1）✅；大预览当前照片合成（Task 1/3）✅；批量+删除+缺失提示（Task 1/3）✅；空库提示（Task 1）✅；窄视口堆叠（Task 1 @media）✅；内置描述（Task 2）✅；测试计划（Task 1/3/4）✅；双端同步（Task 5）✅
+
 - **占位符**：无 TBD/TODO；Task 2 的"文案示例"明确按模板逐一对应，未留空洞
+
 - **类型一致性**：`selectAndApply`/`applyBatch`/`removeCustom` 在 Step 2b 定义并被模板引用；`titleAction` prop 在 CollapsiblePanel 定义并在 LeftPanels 使用；`renderThumb` mock 断言第 3 参 960 与实现一致；`applyTemplateToPhotos` 签名与 useHistory 一致
+
 - **注意**：Task 1 Step 3 的运行期未定义风险已通过 Step 2b 一次性补齐消除；`titleAction` 传值采用绑定写法避免布尔/字符串陷阱
+

@@ -63,6 +63,7 @@ function onResizeUp() {
       title="相框模板库"
       :open="P.frameTemplates"
       :title-action="'popup'"
+      emphasized
       @popup="pickerOpen = true"
       @toggle="app.togglePanel('left', 'frameTemplates')"
     >

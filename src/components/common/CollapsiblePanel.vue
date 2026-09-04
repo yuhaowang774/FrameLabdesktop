@@ -13,8 +13,10 @@ const props = withDefaults(
     badge?: string | number
     /** popup：点击标题改为 emit popup（供弹窗式入口），默认 toggle 保持折叠语义 */
     titleAction?: 'toggle' | 'popup'
+    /** 强调态：高亮标题（主色竖条 + 主色文字），用于重要入口（如相框模板库） */
+    emphasized?: boolean
   }>(),
-  { badge: undefined, titleAction: 'toggle' },
+  { badge: undefined, titleAction: 'toggle', emphasized: false },
 )
 const emit = defineEmits<{ toggle: []; popup: [] }>()
 
@@ -27,7 +29,7 @@ function onHeadClick() {
 </script>
 
 <template>
-  <section class="panel" :class="{ open: props.open }">
+  <section class="panel" :class="{ open: props.open, emphasized: props.emphasized }">
     <header
       class="panel-head"
       :class="{ hover }"
@@ -66,6 +68,18 @@ function onHeadClick() {
 .panel-head.hover,
 .panel-head:hover {
   background: var(--hover);
+}
+/* 强调态（重要入口）：主色竖条 + 主色标题，与其他面板区分 */
+.panel.emphasized .panel-head {
+  border-left: 3px solid var(--accent);
+  padding-left: 11px;
+}
+.panel.emphasized .title {
+  color: var(--accent);
+  font-weight: 500;
+}
+.panel.emphasized .twisty {
+  color: var(--accent);
 }
 .icon {
   flex: none;
