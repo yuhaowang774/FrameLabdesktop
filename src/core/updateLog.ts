@@ -44,6 +44,19 @@ export const IMPORTANCE_LABELS: Record<UpdateImportance, string> = {
 // ===== 更新日志（新版本追加在最上方）=====
 export const UPDATE_LOG: UpdateEntry[] = [
   {
+    version: '0.1.16',
+    date: '2026-09-04',
+    importance: 'normal',
+    groups: {
+      improved: [
+        '应用图标更换为全新 A+Z 几何徽标（窗口、任务栏、安装包图标同步更新）',
+      ],
+      fixed: [
+        '0.1.15 更新记录缺失（已补写 0.1.15 条目），并增加发版时更新日志校验，防止再遗漏',
+      ],
+    },
+  },
+  {
     version: '0.1.15',
     date: '2026-09-04',
     importance: 'major',
