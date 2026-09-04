@@ -150,9 +150,13 @@ export function computeFooterLayout(cfg: FrameConfig, canvasBottom: number, logo
       logo: { x: logoX, y: logoY },
       divider:
         showExif || showDate
-          ? // 高度自动跟随下边白框带（padding + borderRatio）全高：
-            // 竖线从白框带顶（照片下缘）延伸到画板底缘，调下边宽度/边框宽度时同步伸缩
-            { x: dividerX, y: canvasBottom - (cfg.padding + cfg.borderRatio), h: cfg.padding + cfg.borderRatio }
+          ? // 默认竖线垂直居中于「下边框白框带」（band = padding + borderRatio）：
+            // 高度取带高的一半，位于带的中部，而非贯穿整条下边框；水平位置即 dividerX（中线）。
+            // 用户可用鼠标水平拖动竖线（infoDividerX），手柄调节高度（infoDividerTop/Bottom）。
+            (() => {
+              const band = cfg.padding + cfg.borderRatio
+              return { x: dividerX, y: canvasBottom - band * 0.75, h: band / 2 }
+            })()
           : null,
     }
   }

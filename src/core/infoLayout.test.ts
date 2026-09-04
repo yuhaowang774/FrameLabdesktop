@@ -125,4 +125,17 @@ describe('duo 杂志双栏：独立字号联动', () => {
     expect(L.exif.x).toBeCloseTo(DESIGN / 2 + 21, 6) // 右栏左缘贴线右侧（DUO_DIVIDER_GAP=21）
     expect(L.logo.x + c.logoSize * 2.6).toBeCloseTo(DESIGN / 2 - 28, 6) // Logo 右缘贴线左侧（DUO_LOGO_GAP=28）
   })
+
+  it('竖线默认垂直居中于下边框白框带（高度为带高一半，位于带中部）', () => {
+    // 下边框带 = padding 36 + borderRatio 120 = 156；画板底缘 CANVAS_BOTTOM=1200
+    const band = 36 + 120
+    const c = cfg({ ...INFO_ON, infoLayout: 'duo', showLens: false, padding: 36, borderRatio: 120 })
+    const L = computeFooterLayout(c, CANVAS_BOTTOM, 2.6)
+    expect(L.divider).not.toBeNull()
+    // 带顶 = 1200-156=1044；带中线 = 1122；竖线高 = 78 → y = 1122-39 = 1083
+    expect(L.divider!.h).toBeCloseTo(band / 2, 6)
+    expect(L.divider!.y).toBeCloseTo(CANVAS_BOTTOM - band * 0.75, 6)
+    // 竖线垂直中心落在带中线附近（允许默认手柄后续微调）
+    expect(L.divider!.y + L.divider!.h / 2).toBeCloseTo(CANVAS_BOTTOM - band / 2, 6)
+  })
 })
