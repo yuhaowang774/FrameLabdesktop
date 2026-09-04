@@ -11,6 +11,7 @@ import { DESIGN_CONTAINER } from './constants'
 import { computeFooterLayout, computeMagazineLayout, magazineTitleFontSize, measureTextWidth, MAG_SUB_SIZE, MAG_SWATCH_COUNT, MAG_SWATCH_W, MAG_SWATCH_H, CLASSIC_SIDE_INSET, CLASSIC_ROW_GAP, LENS_LINE_GAP } from './infoLayout'
 import { footerTextColor, logoAutoColor } from './colorUtils'
 import { exportFrame } from './exporter'
+import { resolveLogo, preloadBrandLogo } from '../composables/useLogoStore'
 import { FALLBACK_PALETTE } from './photoPalette'
 
 /** 示意文本：让 INFO 按真实字宽排版（模板本身不保存 EXIF 文本） */
@@ -316,7 +317,19 @@ export async function renderTemplateThumbDataUrl(
       ? downscaleImage(img, maxLongEdge)
       : img
     const full = buildDemoConfig(config, info)
-    const result = await exportFrame(source, full, { format: 'jpg', jpgQuality: DEMO_JPG_QUALITY })
+    // 品牌 Logo 与预览/导出同源：按模板明暗自适应取色，预加载真实 SVG 后传入合成器。
+    // （exportFrame 未提供 logo 时跳过 Logo 绘制——此前真实缩略图/大预览缺失品牌 Logo 的根因）
+    let logo: HTMLCanvasElement | undefined
+    if (full.showLogo && full.brand) {
+      try {
+        const fill = logoAutoColor(full.logoColor, full.bgMode, full.bgColor)
+        await preloadBrandLogo(full.brand, fill)
+        logo = resolveLogo(full.brand, fill)
+      } catch {
+        logo = undefined
+      }
+    }
+    const result = await exportFrame(source, full, { format: 'jpg', jpgQuality: DEMO_JPG_QUALITY, logo })
     return await blobToDataUrl(result.blob)
   } catch (e) {
     console.warn('[templateThumb] 真实缩略图渲染失败，回退到 SVG:', e)
