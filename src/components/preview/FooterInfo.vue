@@ -6,6 +6,7 @@ import { useAppState } from '../../composables/useAppState'
 import { useViewer } from '../../composables/useViewer'
 import { resolveLogoDataURL, resolveLogo } from '../../composables/useLogoStore'
 import { DESIGN_CONTAINER, phoneBrandOf } from '../../core/constants'
+import { clampInfoX, type InfoAnchor } from '../../core/rectMath'
 import {
   computeFooterLayout,
   computeClassicLayout,
@@ -209,19 +210,13 @@ function updatePosition(mx: number, my: number) {
   // 锚点语义钳制（与 absStyle 渲染完全一致）：
   // classic 布局的行/Logo 带水平锚点——center = 行中心、right = 右缘（translate 平移），
   // 其余（left 与 duo/inline）x 为左缘锚点。钳制必须按「视觉锚点」而非统一按左缘计算，
-  // 否则宽元素（如 CCD 30px 等宽日期戳）在 right 锚点下首次拖动起点即超出 -elemW 的上界，
-  // 元素会被突然后压出现跳变/拖不回去。y 向无平移，始终按左缘（顶）语义钳制。
-  const classicAnchor = (() => {
+  // 否则宽元素（如 CCD 30px 等宽日期戳）在 right 锚点下右缘/左缘会拖出画板出现跳变与超界。
+  // y 向无平移，始终按左缘（顶）语义钳制。
+  const classicAnchor: InfoAnchor = (() => {
     if (state.infoLayout !== 'classic') return 'left'
     return state.overlayAlign === 'right' ? 'right' : state.overlayAlign === 'center' ? 'center' : 'left'
   })()
-  const minX = -(pad.value + bgExpand.value)
-  const maxX =
-    DESIGN_CONTAINER +
-    pad.value +
-    bgExpand.value -
-    (classicAnchor === 'left' ? elemW : classicAnchor === 'center' ? elemW / 2 : 0)
-  nx = Math.max(minX, Math.min(maxX, nx))
+  nx = clampInfoX(nx, elemW, pad.value, bgExpand.value, canvasW.value, classicAnchor)
   ny = Math.max(-(pad.value + bgExpand.value), Math.min(canvasH - pad.value - bgExpand.value - elemH, ny))
   // ===== 居中辅助线：元素中心接近画板中心时吸附并高亮 =====
   const snapped = applyCenterSnap(nx, ny, classicAnchor)

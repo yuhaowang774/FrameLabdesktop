@@ -1,8 +1,38 @@
 import { describe, it, expect } from 'vitest'
-import { computeRect, type Rect } from './rectMath'
+import { computeRect, clampInfoX, type Rect } from './rectMath'
 
 const base: Rect = { left: 100, top: 100, width: 400, height: 300 }
 const ratio = base.height / base.width // 0.75
+
+describe('clampInfoX - classic 锚点语义钳制（CCD 日期戳超照片回归）', () => {
+  // 典型场景：无边框全幅照片 canvasW=1200、pad=0、bgExpand=0、日期元素宽 160（CCD 30px 等宽）
+  it('right 锚点：元素视觉左右缘均不超画板（下界需回补全宽，否则左缘拖出画板左侧）', () => {
+    // 右缘 = 1180 → 允许（视觉左缘 1020 在画板内）
+    expect(clampInfoX(1180, 160, 0, 0, 1200, 'right')).toBe(1180)
+    // 右缘 = 1300 超出画板 → 钳到 1200（max）
+    expect(clampInfoX(1300, 160, 0, 0, 1200, 'right')).toBe(1200)
+    // 右缘 = 100 → 视觉左缘 = -60 → 超画板左缘 → 钳到 160（min=0+elemW）
+    expect(clampInfoX(100, 160, 0, 0, 1200, 'right')).toBe(160)
+    // 修复前 bug：下界取 0，返回 100 → 左缘 -60 超出画板（CCD 日期拖出照片）
+  })
+
+  it('center 锚点：下界回补半宽，上界扣半宽', () => {
+    expect(clampInfoX(0, 160, 0, 0, 1200, 'center')).toBe(80) // min = elemW/2
+    expect(clampInfoX(1200, 160, 0, 0, 1200, 'center')).toBe(1120) // max = 1200 - 80
+  })
+
+  it('left 锚点：x 为左缘，范围 [-(pad+bgExpand), canvasW-(pad+bgExpand)-elemW]', () => {
+    expect(clampInfoX(-100, 160, 20, 0, 1200, 'left')).toBe(-20)
+    expect(clampInfoX(2000, 160, 20, 0, 1200, 'left')).toBe(1020)
+    expect(clampInfoX(500, 160, 20, 0, 1200, 'left')).toBe(500)
+  })
+
+  it('含边框留白（pad/bgExpand>0）时允许进入留白区但不超画板', () => {
+    // pad=27 bgExpand=40 canvasW = 1200+2*(27+40)=1334；right 锚点 min = -(27+40)+160 = 93
+    expect(clampInfoX(0, 160, 27, 40, 1334, 'right')).toBe(93)
+    expect(clampInfoX(1400, 160, 27, 40, 1334, 'right')).toBe(1267) // max = 1334-67
+  })
+})
 
 describe('computeRect - move', () => {
   it('平移：left/top 随位移变化，宽高不变', () => {

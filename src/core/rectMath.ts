@@ -111,3 +111,34 @@ function clampWidth(w: number, min: number): number {
 function clampHeight(h: number, min: number): number {
   return Math.max(min, h)
 }
+
+/** classic INFO 元素水平锚点语义（与渲染 translate 一致的左侧/中心/右缘锚点） */
+export type InfoAnchor = 'left' | 'center' | 'right'
+
+/**
+ * 按渲染锚点语义钳制 INFO 元素水平坐标 x（内容区坐标）：
+ * left：x = 元素左缘；center：x = 行中心；right：x = 元素右缘（translate(-100%)）。
+ * 元素「视觉左右缘」始终限制在画板内（允许进入边框留白区 pad+bgExpand，不允许超出画板）。
+ * 反例：right 锚点下若下界取 -(pad+bgExpand)，宽元素左缘会拖出画板左缘（日期戳超出照片）。
+ *
+ * @param x 待钳制的锚点坐标
+ * @param elemW 元素设计宽（px）
+ * @param pad 边框内边距（设计 px）
+ * @param bgExpand 背景扩展（设计 px）
+ * @param canvasW 画板设计宽 = 内容区宽 + 2×(pad + bgExpand)
+ */
+export function clampInfoX(
+  x: number,
+  elemW: number,
+  pad: number,
+  bgExpand: number,
+  canvasW: number,
+  anchor: InfoAnchor,
+): number {
+  const inset = pad + bgExpand
+  // 视觉左缘 ≥ -inset：left 时 x 即左缘（+0），center 补半宽，right 补全宽
+  const min = -inset + (anchor === 'left' ? 0 : anchor === 'center' ? elemW / 2 : elemW)
+  // 视觉右缘 ≤ canvasW - inset：left 时 x 是左缘（需扣 elemW），center 扣半宽，right 时 x 即右缘（-0）
+  const max = canvasW - inset - (anchor === 'left' ? elemW : anchor === 'center' ? elemW / 2 : 0)
+  return Math.max(min, Math.min(max, x))
+}
