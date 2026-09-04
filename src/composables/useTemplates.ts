@@ -25,6 +25,8 @@ export interface FrameTemplate {
   /** 预设配置（不含 photoSrc） */
   config: Partial<FrameConfig>
   builtin?: boolean
+  /** 一句话说明（模板选择弹窗右侧展示）；自定义模板缺省 */
+  desc?: string
 }
 
 // 内置预设：与两张用户样例逐像素对齐（Desktop/相框样式，2026-08-28 实测），
@@ -33,6 +35,7 @@ const BUILTIN: FrameTemplate[] = [
   {
     id: 'm_duo_card',
     name: '白框参数卡',
+    desc: '经典白底等宽边框 + 左侧机型/右侧参数排布',
     category: 'frame',
     builtin: true,
     // 样例1：白底等宽边 26 + 底部加宽 66；INFO 左=镜头(20粗)+机型(17灰) / 中=Logo / 右=参数(20粗)+日期(17灰)，
@@ -73,6 +76,7 @@ const BUILTIN: FrameTemplate[] = [
   {
     id: 'm_float_round',
     name: '圆角悬浮·模糊延展',
+    desc: '圆角悬浮照片 + 背景模糊向外延展',
     category: 'frame',
     builtin: true,
     // 样例2：照片大圆角+阴影悬浮，四周原图模糊延展（四边 100 / 底部 190）；
@@ -110,6 +114,7 @@ const BUILTIN: FrameTemplate[] = [
   {
     id: 'm_matte_serif',
     name: '白卡装裱·衬线字标',
+    desc: '白卡装裱 + 衬线字标 INFO 排版',
     category: 'frame',
     builtin: true,
     // 样张「HASSELBLAD」：大幅白卡纸装裱（四边留白 22 / 底部 152），仅底部一行斜体衬线字，
@@ -147,6 +152,7 @@ const BUILTIN: FrameTemplate[] = [
   {
     id: 'm_center_params',
     name: '白底居中·机型参数',
+    desc: '白底居中布局 + 机型参数居中排布',
     category: 'frame',
     builtin: true,
     // 样张「XIAOMI 15 | LEICA」/「OPPO Find X8 Ultra」：白底加宽下边带，居中两行——
@@ -180,6 +186,7 @@ const BUILTIN: FrameTemplate[] = [
   {
     id: 'm_strip_plate',
     name: '全幅白条·铭牌',
+    desc: '全幅白条 + 底部铭牌式信息栏',
     category: 'frame',
     builtin: true,
     // 样张「iPhone 16 Pro」：照片全幅铺满，仅在底部压一条窄白带（118），
@@ -217,6 +224,7 @@ const BUILTIN: FrameTemplate[] = [
   {
     id: 'm_tech_silver',
     name: '银灰测绘·等宽参数',
+    desc: '银灰测绘风格 + 等宽参数行',
     category: 'frame',
     builtin: true,
     // 样张「XIAOMI 14 | LEICA」：银灰底色 + 等宽字体的数据美学；信息分居下边两角——
@@ -254,6 +262,7 @@ const BUILTIN: FrameTemplate[] = [
   {
     id: 'm_film_noir',
     name: '胶片暗房·黑框',
+    desc: '胶片暗房 + 深色底黑框展示',
     category: 'frame',
     builtin: true,
     // 样张「XIAOMI 13 PRO | LEICA」：纯黑边框营造暗房出片感，左下白色机型、右下浅灰参数；
@@ -287,6 +296,7 @@ const BUILTIN: FrameTemplate[] = [
   {
     id: 'm_float_badge',
     name: '轻量悬浮·型号水印',
+    desc: '轻量悬浮 + 型号水印式标注',
     category: 'frame',
     builtin: true,
     // 样张「DJI OSMO POCKET 4P」：不做画框，照片全幅，底部中央一行 Logo+型号半透明白字，
@@ -323,6 +333,7 @@ const BUILTIN: FrameTemplate[] = [
   {
     id: 'm_ccd_stamp',
     name: '复古CCD·日期戳',
+    desc: '复古 CCD + 日期戳点缀',
     category: 'frame',
     builtin: true,
     // 样张「2008/10/04」：无边框全幅照片，右下角一枚等宽粗体橙色数字日期，模拟 2000 年代
@@ -357,6 +368,7 @@ const BUILTIN: FrameTemplate[] = [
   {
     id: 'm_magazine_edit',
     name: '杂志编辑·标题色卡',
+    desc: '杂志双栏 + 标题与取色色卡',
     category: 'frame',
     builtin: true,
     // 样张「Nature's poetry」：白框非对称杂志排版——顶部大标题 + "PHOTOGRAPHED IN : 日期"
