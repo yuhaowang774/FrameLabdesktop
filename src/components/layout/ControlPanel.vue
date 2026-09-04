@@ -6,6 +6,7 @@ import { useAppState } from '../../composables/useAppState'
 import { useLibrary } from '../../composables/useLibrary'
 import { useFrameConfig } from '../../composables/useFrameConfig'
 import CollapsiblePanel from '../common/CollapsiblePanel.vue'
+import Switch from '../common/Switch.vue'
 import Icon from '../common/Icon.vue'
 import ImageLayout from '../controls/ImageLayout.vue'
 import BackgroundMode from '../controls/BackgroundMode.vue'
@@ -194,7 +195,7 @@ function onResizeUp() {
       >
         <template #icon><Icon name="background" /></template>
         <template #actions>
-          <button class="vis-toggle" :class="{ on: state.showBackground }" :title="`${state.showBackground ? '隐藏' : '显示'}背景层`" @click="patch({ showBackground: !state.showBackground })">{{ state.showBackground ? '显示' : '隐藏' }}</button>
+          <Switch :model-value="state.showBackground" title="显示/隐藏背景层" @update:model-value="(v: boolean) => patch({ showBackground: v })" />
           <button title="复位背景参数" @click="resetBackground()">复位</button>
         </template>
         <BackgroundMode />
@@ -208,7 +209,7 @@ function onResizeUp() {
       >
         <template #icon><Icon name="border" /></template>
         <template #actions>
-          <button class="vis-toggle" :class="{ on: state.showBorder }" :title="`${state.showBorder ? '隐藏' : '显示'}边框层`" @click="patch({ showBorder: !state.showBorder })">{{ state.showBorder ? '显示' : '隐藏' }}</button>
+          <Switch :model-value="state.showBorder" title="显示/隐藏边框层" @update:model-value="(v: boolean) => patch({ showBorder: v })" />
           <button title="复位边框参数" @click="resetBorder()">复位</button>
         </template>
         <BorderSettings />
@@ -222,7 +223,7 @@ function onResizeUp() {
       >
         <template #icon><Icon name="info" /></template>
         <template #actions>
-          <button class="vis-toggle" :class="{ on: state.showInfo }" :title="`${state.showInfo ? '隐藏' : '显示'}INFO 信息`" @click="patch({ showInfo: !state.showInfo })">{{ state.showInfo ? '显示' : '隐藏' }}</button>
+          <Switch :model-value="state.showInfo" title="显示/隐藏 INFO 信息" @update:model-value="(v: boolean) => patch({ showInfo: v })" />
           <button title="复位 INFO 参数" @click="resetInfo()">复位</button>
         </template>
         <InfoLayerPanel />
@@ -354,10 +355,5 @@ function onResizeUp() {
 }
 .foot-btn:active {
   background: var(--pressed);
-}
-/* 栏显示开关：开启=主色描边+主色字；隐藏态用默认弱化色 */
-.vis-toggle.on {
-  color: var(--accent);
-  border-color: var(--accent);
 }
 </style>
