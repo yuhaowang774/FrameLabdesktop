@@ -118,7 +118,8 @@ function onHeadClick() {
   height: 18px;
   color: var(--text-dim);
 }
-.actions :deep(button) {
+/* :not(.tik) 排除子组件 Switch 开关——避免给胶囊开关套上方形 hover 边框/背景（显示开关悬浮异常的根因） */
+.actions :deep(button:not(.tik)) {
   height: 18px;
   padding: 0 6px;
   font-size: 11px;
@@ -131,12 +132,12 @@ function onHeadClick() {
   cursor: pointer;
   font-family: inherit;
 }
-.actions :deep(button:hover) {
+.actions :deep(button:not(.tik):hover) {
   background: var(--pressed);
   color: var(--text);
   border-color: var(--border);
 }
-.actions :deep(button:active) {
+.actions :deep(button:not(.tik):active) {
   background: var(--pressed);
 }
 .twisty {
