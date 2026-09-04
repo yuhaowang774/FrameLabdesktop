@@ -508,6 +508,12 @@ export function applyTemplateToState(config: Partial<FrameConfig>): string[] {
     exifRaw: state.exifRaw,
     eqFocal: state.eqFocal,
     cropFactor: state.cropFactor,
+    // ===== 层显示开关（showBackground/showBorder/showInfo）：保留用户当前值，
+    // 不被 defaultFrameConfig 兜底 true 覆盖——应用模板不应把用户手动关闭的层悄悄打开，
+    // 否则开关被重置为 on 而面板未必展开，造成「切开不展开」的错乱。 =====
+    showBackground: state.showBackground,
+    showBorder: state.showBorder,
+    showInfo: state.showInfo,
     // ===== INFO 文本独立样式：字体/字号/粗细/透明度保留用户设置；颜色随模板背景自适应 =====
     exifFontFamily: state.exifFontFamily,
     exifFontSize: state.exifFontSize,

@@ -89,3 +89,23 @@ describe('applyTemplateToState 二次应用不丢 info', () => {
     expect(missing).toContain('品牌信息')
   })
 })
+
+describe('applyTemplateToState 层显示开关保留', () => {
+  it('应用模板不重置用户手动关闭的 showBackground/showBorder/showInfo（开关与面板联动一致）', () => {
+    const { state, loadConfig } = useFrameConfig()
+    loadConfig({ showBackground: false, showBorder: false, showInfo: false })
+    applyTemplateToState({ bgMode: 'solid', bgColor: '#ffffff', showLogo: true })
+    expect(state.showBackground).toBe(false)
+    expect(state.showBorder).toBe(false)
+    expect(state.showInfo).toBe(false)
+  })
+
+  it('未手动关闭时应用模板后开关保持开启', () => {
+    const { state, loadConfig } = useFrameConfig()
+    loadConfig({ showBackground: true, showBorder: true, showInfo: true })
+    applyTemplateToState({ bgMode: 'blur', showCameraModel: true })
+    expect(state.showBackground).toBe(true)
+    expect(state.showBorder).toBe(true)
+    expect(state.showInfo).toBe(true)
+  })
+})
