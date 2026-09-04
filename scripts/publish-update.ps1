@@ -111,20 +111,23 @@ $api = "https://api.github.com/repos/$Owner/$Repo"
 $uploadBase = "https://uploads.github.com/repos/$Owner/$Repo/releases"
 
 # ===== 6) 创建或复用 Release =====
+# 防乱码：PS5.1 的 Invoke-RestMethod 发送字符串 body 时按默认（ISO-8859-1/ASCII）编码，
+# 中文会全部变成 '?'。必须显式转 UTF-8 字节数组后再发送。
 $rel = $null
 try {
   $rel = Invoke-RestMethod -Headers $headers -Method Get -Uri "$api/releases/tags/$tag" -TimeoutSec 60
 } catch { }
 if (-not $rel) {
-  $body = @{
+  $relBody = @{
     tag_name         = $tag
     target_commitish = 'main'
     name             = "FrameLab $tag"
     body             = $Notes
     draft            = $false
     prerelease       = $false
-  } | ConvertTo-Json
-  $rel = Invoke-RestMethod -Headers $headers -Method Post -Uri "$api/releases" -Body $body -ContentType 'application/json' -TimeoutSec 60
+  } | ConvertTo-Json -Depth 5
+  $relBytes = [System.Text.Encoding]::UTF8.GetBytes($relBody)
+  $rel = Invoke-RestMethod -Headers $headers -Method Post -Uri "$api/releases" -Body $relBytes -ContentType 'application/json; charset=utf-8' -TimeoutSec 60
   Write-Host "已创建 Release $tag"
 } else {
   Write-Host "Release $tag 已存在，复用"
