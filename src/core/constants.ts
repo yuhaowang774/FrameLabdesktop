@@ -166,13 +166,22 @@ export const BORDER_COLORS: { value: string; label: string }[] = [
  * - 3:4 / 9:16：竖版常用
  */
 export const FRAME_RATIOS: { value: string; label: string }[] = [
-  { value: 'free', label: '自由' },
-  { value: '16:9', label: '16:9' },
-  { value: '4:3', label: '4:3' },
-  { value: '3:2', label: '3:2' },
+  { value: 'free', label: '原图' },
   { value: '1:1', label: '1:1' },
+  { value: '2:3', label: '2:3' },
+  { value: '3:2', label: '3:2' },
   { value: '3:4', label: '3:4' },
+  { value: '3:5', label: '3:5' },
+  { value: '4:3', label: '4:3' },
+  { value: '4:5', label: '4:5' },
+  { value: '5:4', label: '5:4' },
+  { value: '5:7', label: '5:7' },
+  { value: '7:5', label: '7:5' },
   { value: '9:16', label: '9:16' },
+  { value: '16:9', label: '16:9' },
+  { value: '9:18', label: '9:18' },
+  { value: '18:9', label: '18:9' },
+  { value: '2.35:1', label: '2.35:1' },
 ]
 
 /** 等效焦距画幅系数选项：value 为裁切系数字符串（'0'=自动用 EXIF 35mm 字段） */
@@ -213,6 +222,21 @@ export function frameRatioKey(ratio: number | null): string {
     return v != null && Math.abs(v - ratio) < 1e-9
   })
   return hit ? hit.value : 'free'
+}
+
+/** 画幅比例图标的显示尺寸（比例图标容器 30×20 内的最大内接矩形）。
+ *  传入 null（自由/跟随照片）返回 null，由调用方渲染虚线占位。 */
+export function ratioIconSize(ratio: number | null): { w: number; h: number } | null {
+  if (ratio == null || ratio <= 0) return null
+  const W = 30
+  const H = 20
+  let w = W
+  let h = W / ratio
+  if (h > H) {
+    h = H
+    w = H * ratio
+  }
+  return { w: Math.max(1, Math.round(w)), h: Math.max(1, Math.round(h)) }
 }
 
 export const OVERLAY_ALIGNS: { value: OverlayAlign; label: string }[] = [
