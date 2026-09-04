@@ -652,14 +652,31 @@ fn green_update_apply() -> Result<(), String> {
         return Err("未找到已下载的新版本，请重新检查更新".to_string());
     }
     let bat = dir.join("framelab-update.bat");
+    // 批处理健壮性：旧进程 exit(0) 后 exe 仍可能被短暂占用（WebView 清理 / Defender 扫描等），
+    // 因此循环重试 move（每轮约 2s，最多 10 轮 ≈ 20s），避免一次性 move 失败导致：
+    // 版本未更新 + FrameLab.exe.new 残留（0.1.18/0.1.19 已发生）。覆盖成功才启动新版。
     std::fs::write(
         &bat,
         format!(
-            "@echo off\r\nping 127.0.0.1 -n 2 >nul\r\nmove /y \"{}\" \"{}\"\r\nif exist \"{}\" start \"\" \"{}\"\r\ndel \"%~f0\"\r\n",
-            tmp.display(),
-            exe.display(),
-            exe.display(),
-            exe.display()
+            "@echo off\r\n\
+set \"UPDF={tmp}\"\r\n\
+set \"EXEF={exe}\"\r\n\
+set /a N=0\r\n\
+:TRY\r\n\
+ping 127.0.0.1 -n 2 >nul\r\n\
+move /y \"%UPDF%\" \"%EXEF%\" >nul 2>&1\r\n\
+if not errorlevel 1 goto OK\r\n\
+set /a N+=1\r\n\
+if %N% lss 10 goto TRY\r\n\
+if exist \"%EXEF%\" start \"\" \"%EXEF%\"\r\n\
+del \"%~f0\" >nul 2>&1\r\n\
+exit /b\r\n\
+:OK\r\n\
+start \"\" \"%EXEF%\"\r\n\
+del \"%~f0\" >nul 2>&1\r\n\
+exit /b\r\n",
+            tmp = tmp.display(),
+            exe = exe.display(),
         ),
     )
     .map_err(|e| format!("写入更新脚本失败: {e}"))?;
@@ -812,6 +829,11 @@ pub fn run() {
             build_menu(app.handle())?;
             // 绿色版自更新的下载参数暂存
             app.manage(GreenPendingState::default());
+            // 启动时清理上次残留的绿色版更新临时文件：更新成功会被批处理 move 走，
+            // 仍存在则说明上次下载后未完成应用（如 0.1.18 一次性 move 失败的残留）。
+            if let Ok(exe) = std::env::current_exe() {
+                let _ = std::fs::remove_file(exe.with_file_name("FrameLab.exe.new"));
+            }
             // 窗口改为 Rust 侧创建：开发版需要指定独立 WebView2 数据目录
             // （此前开发/正式版共用 EBWebView 目录，并行启动会因目录被占用而白屏）。
             let mut win = tauri::WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::App("index.html".into()))
