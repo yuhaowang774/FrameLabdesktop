@@ -153,12 +153,9 @@ function applyWheelZoom() {
   // 锚点偏移 = 鼠标 - (布局原点 + 当前平移)：由缓存推算，避免强制布局
   const dx = anchor.x - (wrapOrigin.x + viewer.panX.value)
   const dy = anchor.y - (wrapOrigin.y + viewer.panY.value)
-  // 先改倍率（totalScale 随之变化），再据锚点修正平移，使鼠标下的内容点保持不动
-  viewer.zoomBy(factor - 1)
-  viewer.setPan(
-    viewer.panX.value - (factor - 1) * dx,
-    viewer.panY.value - (factor - 1) * dy,
-  )
+  // 锚点缩放：setZoomAt 按「实际生效倍率（受 10%~800% 钳制）」修正平移——
+  // 已达上限/下限时倍率不变、平移不动，鼠标下的内容点保持固定，画面不偏移。
+  viewer.setZoomAt(viewer.zoom.value * factor, dx, dy)
 }
 // ===== 双击快速放大 / 复位（放大预览）=====
 // 未放大时：以双击位置为锚点放大 2x（查看细节）；已放大（zoom>1 或有平移）时：复位视图。

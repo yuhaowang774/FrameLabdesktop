@@ -16,6 +16,19 @@ function setZoom(z: number): void {
 function zoomBy(delta: number): void {
   setZoom(zoom.value * (1 + delta))
 }
+/**
+ * 锚点缩放：以画布上相对布局原点的锚点 (anchorDx, anchorDy) 为中心缩放。
+ * 平移修正基于「实际生效倍率」（钳制后 zoom/原 zoom），而非请求的原始倍率——
+ * 到达 10%~800% 上限/下限后继续滚轮时倍率不变，平移不动，画面不会偏移。
+ */
+function setZoomAt(z: number, anchorDx: number, anchorDy: number): void {
+  const prev = zoom.value
+  zoom.value = Math.max(0.1, Math.min(8, z))
+  const eff = zoom.value / prev
+  if (eff === 1) return // 已达上限/下限，倍率未变：不做平移修正，画面保持不动
+  panX.value -= (eff - 1) * anchorDx
+  panY.value -= (eff - 1) * anchorDy
+}
 function setPan(x: number, y: number): void {
   panX.value = x
   panY.value = y
@@ -29,6 +42,7 @@ export function useViewer() {
     resetView,
     setZoom,
     zoomBy,
+    setZoomAt,
     setPan,
   }
 }
