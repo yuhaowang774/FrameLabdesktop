@@ -164,10 +164,19 @@ describe('默认选中', () => {
 })
 
 describe('大预览合成', () => {
-  it('大预览使用当前照片合成（renderTemplateThumbDataUrl 收到 photoSrc 与 960 上限），img 为真实合成 dataURL', async () => {
+  it('打开弹窗即渲染默认选中模板的大预览（immediate 触发，无需点击）', async () => {
     const w = mountModal(true)
     await flushPromises()
-    // 初始选中首个内置模板 b1；右栏大预览 watch 非 immediate，点击第二张卡片触发合成
+    const previewCalls = mock.renderThumb.mock.calls.filter((c) => c[1] === 'blob:photo-1')
+    expect(previewCalls.length).toBeGreaterThan(0)
+    expect(previewCalls[0][2]).toBe(960)
+    expect(w.find('.tp-preview-img').attributes('src')).toBe('data:image/jpeg;base64,BIG')
+    w.unmount()
+  })
+
+  it('点击另一张卡片后大预览切换到该模板（renderTemplateThumbDataUrl 收到 photoSrc 与 960 上限）', async () => {
+    const w = mountModal(true)
+    await flushPromises()
     await w.findAll('.tp-card')[1].trigger('click')
     await flushPromises()
     const previewCalls = mock.renderThumb.mock.calls.filter((c) => c[1] === 'blob:photo-1')
