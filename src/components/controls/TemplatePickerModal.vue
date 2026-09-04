@@ -239,7 +239,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
   color: var(--text-dim); font-size: 13px; line-height: 24px;
 }
 .tp-close:hover { background: var(--hover); color: var(--text); }
-.tp-body { flex: 1; display: grid; grid-template-columns: 3fr 5fr; min-height: 0; }
+.tp-body { flex: 1; display: grid; grid-template-columns: 2fr 5fr; min-height: 0; }
 .tp-col { min-height: 0; overflow-y: auto; padding: 12px; }
 .tp-grid-col { border-right: 1px solid var(--border); }
 .tp-group {
