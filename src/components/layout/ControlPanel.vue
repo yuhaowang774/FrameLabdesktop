@@ -195,7 +195,7 @@ function onResizeUp() {
       >
         <template #icon><Icon name="background" /></template>
         <template #actions>
-          <Switch :model-value="state.showBackground" title="显示/隐藏背景层" @update:model-value="(v: boolean) => patch({ showBackground: v })" />
+          <Switch :model-value="state.showBackground" title="显示/隐藏背景层" @update:model-value="(v: boolean) => { patch({ showBackground: v }); app.setPanel('right', 'background', v) }" />
           <button title="复位背景参数" @click="resetBackground()">复位</button>
         </template>
         <BackgroundMode />
@@ -209,7 +209,7 @@ function onResizeUp() {
       >
         <template #icon><Icon name="border" /></template>
         <template #actions>
-          <Switch :model-value="state.showBorder" title="显示/隐藏边框层" @update:model-value="(v: boolean) => patch({ showBorder: v })" />
+          <Switch :model-value="state.showBorder" title="显示/隐藏边框层" @update:model-value="(v: boolean) => { patch({ showBorder: v }); app.setPanel('right', 'border', v) }" />
           <button title="复位边框参数" @click="resetBorder()">复位</button>
         </template>
         <BorderSettings />
@@ -223,7 +223,7 @@ function onResizeUp() {
       >
         <template #icon><Icon name="info" /></template>
         <template #actions>
-          <Switch :model-value="state.showInfo" title="显示/隐藏 INFO 信息" @update:model-value="(v: boolean) => patch({ showInfo: v })" />
+          <Switch :model-value="state.showInfo" title="显示/隐藏 INFO 信息" @update:model-value="(v: boolean) => { patch({ showInfo: v }); app.setPanel('right', 'info', v) }" />
           <button title="复位 INFO 参数" @click="resetInfo()">复位</button>
         </template>
         <InfoLayerPanel />
