@@ -139,7 +139,7 @@ function onResizeUp() {
   flex: none;
   background: var(--panel-3);
   border: 1px solid var(--border);
-  color: var(--accent);
+  color: var(--text);
 }
 .tpl-entry-icon :deep(svg) {
   width: 20px;
@@ -149,7 +149,7 @@ function onResizeUp() {
   flex: 1;
   font-size: 13px;
   font-weight: 500;
-  color: var(--accent);
+  color: var(--text);
   white-space: nowrap;
 }
 .tpl-entry-count {
