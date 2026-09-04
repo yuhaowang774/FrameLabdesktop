@@ -154,11 +154,11 @@ function onResizeUp() {
 }
 .tpl-entry-count {
   font-size: 11px;
-  color: var(--text-dim);
+  color: var(--text);
   white-space: nowrap;
 }
 .tpl-entry-arrow {
-  color: var(--text-dim);
+  color: var(--text);
   font-size: 12px;
 }
 </style>
