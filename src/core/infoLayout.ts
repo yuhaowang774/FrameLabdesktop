@@ -114,15 +114,6 @@ export function computeFooterLayout(cfg: FrameConfig, canvasBottom: number, logo
   const exifS = exifTextStyle(cfg)
   const lensS = lensTextStyle(cfg)
   const modelS = modelTextStyle(cfg)
-  // duo 下日期默认沿用机型样式组（灰细小字，与样例一致）；
-  // 只要用户改了一个日期独立属性，就以该组生效样式为准（计算布局/测量宽度）。
-  const usesModelDateStyle =
-    cfg.infoLayout === 'duo' &&
-    cfg.dateFontFamily === null &&
-    cfg.dateFontSize === null &&
-    cfg.dateTextWeight === null &&
-    cfg.dateTextOpacity === null
-  const dateS = usesModelDateStyle ? modelS : dateTextStyle(cfg)
   const exifH = exifS.size
   const modelH = modelS.size
   const showDate = cfg.showDate && !!cfg.dateText
@@ -131,14 +122,13 @@ export function computeFooterLayout(cfg: FrameConfig, canvasBottom: number, logo
   const bottom = canvasBottom - cfg.overlayBottom
   const logoW = cfg.logoSize * logoRatio
 
-  // ===== 杂志双栏（duo）：左=镜头(粗)+机型(灰细) / 中=Logo / 右栏=参数(粗)+日期(灰细)，右栏右缘对齐照片右缘 =====
+  // ===== 杂志双栏（duo）：左=镜头(粗)+机型(灰细) / 中=Logo / 右栏=参数(粗)+日期(灰细)，竖线中置左右对称 =====
   if (cfg.infoLayout === 'duo') {
-    // 宽度测量用各组生效样式：单独改 EXIF/日期字体或字号后，右缘对齐仍然准确
-    const exifW = measureTextWidth(cfg.exifText, toCanvasFont(exifS))
-    const dateFont = toCanvasFont(dateS, usesModelDateStyle ? cfg.cameraModelItalic : false)
-    const dateW = measureTextWidth(cfg.dateText, dateFont)
-    const rightW = Math.max(showExif ? exifW : 0, showDate ? dateW : 0)
-    const rightX = DESIGN_CONTAINER - DUO_INSET - rightW
+    // 竖线固定在内容区水平中线，形成左右对称抱合（白框参数卡样板）：
+    // 右栏左缘贴竖线右侧（参数从线边展开），Logo 右缘贴竖线左侧，左栏=镜头+机型保持左缘。
+    // 右栏不再按右缘锚定，避免参数较长时竖线被推到画面左侧、左右失衡。
+    const dividerX = DESIGN_CONTAINER / 2
+    const rightX = dividerX + DUO_DIVIDER_GAP
     const dateY = bottom - modelH
     const exifY = showDate ? dateY - DUO_ROW_GAP - exifH : bottom - exifH
     // 文字块高度：右栏（参数+日期）与左栏（镜头+机型）取较高者。
@@ -150,7 +140,6 @@ export function computeFooterLayout(cfg: FrameConfig, canvasBottom: number, logo
     const blockTop = bottom - blockH
     // 左栏：镜头行顶对齐块顶；无镜头时机型行在块内垂直居中
     const modelY = hasLens ? dateY : blockTop + (blockH - modelH) / 2
-    const dividerX = rightX - DUO_DIVIDER_GAP
     const logoX = dividerX - DUO_LOGO_GAP - logoW
     const logoY = blockTop + blockH / 2 - cfg.logoSize / 2
     return {

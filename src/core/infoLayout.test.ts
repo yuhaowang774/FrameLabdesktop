@@ -115,4 +115,14 @@ describe('duo 杂志双栏：独立字号联动', () => {
     expect(b.exif.y).toBeLessThan(a.exif.y)
     expect(b.date.y).toBeCloseTo(a.date.y, 6)
   })
+
+  it('竖线固定在内容区水平中线，右栏贴线左、Logo 贴线右', () => {
+    const c = cfg({ ...INFO_ON, infoLayout: 'duo', showLens: false })
+    const L = computeFooterLayout(c, CANVAS_BOTTOM, 2.6)
+    const DESIGN = 1200
+    expect(L.divider).not.toBeNull()
+    expect(L.divider!.x).toBeCloseTo(DESIGN / 2, 6) // 中线
+    expect(L.exif.x).toBeCloseTo(DESIGN / 2 + 21, 6) // 右栏左缘贴线右侧（DUO_DIVIDER_GAP=21）
+    expect(L.logo.x + c.logoSize * 2.6).toBeCloseTo(DESIGN / 2 - 28, 6) // Logo 右缘贴线左侧（DUO_LOGO_GAP=28）
+  })
 })
