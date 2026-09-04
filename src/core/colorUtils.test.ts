@@ -35,6 +35,13 @@ describe('logoAutoColor', () => {
     expect(logoAutoColor('#ffffff', 'solid', '#ffffff')).toBe('#ffffff')
   })
 
+  it('非法/历史哨兵色值（如 "brand"）回退背景自适应，杜绝品牌 SVG 原色泄漏', () => {
+    expect(logoAutoColor('brand', 'solid', '#ffffff')).toBe('#1a1a1a')
+    expect(logoAutoColor('brand', 'blur', '#ffffff')).toBe('#ffffff')
+    expect(logoAutoColor('auto', 'solid', '#ffffff')).toBe('#1a1a1a')
+    expect(logoAutoColor('not-a-color', 'blur', null)).toBe('#ffffff')
+  })
+
   it('未设置 logoColor 时按 auto 处理', () => {
     expect(logoAutoColor(undefined, 'solid', '#ffffff')).toBe('#1a1a1a')
   })

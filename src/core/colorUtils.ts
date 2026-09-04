@@ -39,14 +39,17 @@ export function hexToRgba(hex: string | null | undefined, alpha: number): string
 
 /**
  * Logo 着色解析（与 footerTextColor 同一明暗判据）：
- * - 非 'auto'：用户显式指定的色值，原样返回；
- * - 'auto'：随背景明暗自适应——纯色浅底用近黑、其余（深底/模糊/照片）用纯白。
+ * - 合法 hex（#rgb/#rrggbb）：用户显式指定的色值，原样返回；
+ * - 其余（null/undefined/'auto'/历史哨兵如 'brand' 等非法值）：随背景明暗自适应——
+ *   纯色浅底用近黑、其余（深底/模糊/照片）用纯白。
  *
  * 内置品牌 SVG 资源多为白色版本，白底相框下会与背景融为一体；
  * 统一按对比度取黑/白，保证任何品牌的 Logo 在任何底色上都清晰可辨。
+ * 严格 hex 校验是必需的：历史数据中的哨兵值（如 'brand'）若被当色值传给 SVG，
+ * fill 非法会被浏览器忽略，回退显示品牌 SVG 原色（即品牌主色）而非期望的黑/白。
  */
 export function logoAutoColor(logoColor: string | null | undefined, bgMode: string, bgColor: string | null): string {
-  if (logoColor && logoColor !== 'auto') return logoColor
+  if (logoColor && /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(logoColor.trim())) return logoColor.trim()
   if (bgMode === 'solid' && hexLuminance(bgColor) > 0.6) return '#1a1a1a'
   return '#ffffff'
 }

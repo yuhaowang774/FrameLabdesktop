@@ -23,8 +23,13 @@ export function suspendCommit(suspend: boolean): void {
 export function useFrameConfig() {
   /** 整体替换（用于历史恢复 / 预设应用），保留未列出的默认字段 */
   function loadConfig(partial: Partial<FrameConfig>): void {
-    // 旧数据归一化：logoColor 'auto'（自动项已从 UI 移除）→ 白色
-    const norm = partial.logoColor === 'auto' ? { ...partial, logoColor: '#ffffff' } : partial
+    // 旧数据归一化：logoColor 任何非 hex 哨兵值（'auto' / 历史 'brand' 等）→ 白色。
+    // 渲染端 logoAutoColor 已严格校验 hex 兜底，这里再归一保持 UI（ColorField）展示标准色值。
+    const lc = partial.logoColor
+    const norm =
+      typeof lc === 'string' && !/^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(lc.trim())
+        ? { ...partial, logoColor: '#ffffff' }
+        : partial
     Object.assign(state, defaultFrameConfig, norm)
     if (suspendDepth === 0) commitHook?.('loadConfig')
   }
