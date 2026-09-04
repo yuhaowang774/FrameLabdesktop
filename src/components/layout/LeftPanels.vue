@@ -1,20 +1,22 @@
 <script setup lang="ts">
 // 左侧可折叠面板组：我的素材 / 相框模板库 / 修改历史记录。
 // 各面板相互独立展开/收起，互不影响；支持拖拽调宽。
+import { ref } from 'vue'
 import { useAppState } from '../../composables/useAppState'
 import { useLibrary } from '../../composables/useLibrary'
 import { useHistory } from '../../composables/useHistory'
 import CollapsiblePanel from '../common/CollapsiblePanel.vue'
 import LeftLibraryPanel from './LeftLibraryPanel.vue'
 import MediaInfoPanel from './MediaInfoPanel.vue'
-import TemplatePanel from './TemplatePanel.vue'
 import HistoryPanel from './HistoryPanel.vue'
+import TemplatePickerModal from '../controls/TemplatePickerModal.vue'
 
 const app = useAppState()
 const library = useLibrary()
 const history = useHistory()
 
 const P = app.state.leftPanels
+const pickerOpen = ref(false)
 
 // ===== 右边缘拖拽调整宽度（持久化到 useAppState.setLeftWidth） =====
 let startX = 0
@@ -60,9 +62,11 @@ function onResizeUp() {
     <CollapsiblePanel
       title="相框模板库"
       :open="P.frameTemplates"
+      :title-action="'popup'"
+      @popup="pickerOpen = true"
       @toggle="app.togglePanel('left', 'frameTemplates')"
     >
-      <TemplatePanel category="frame" />
+      <p class="tpl-hint">点击上方标题打开模板选择器</p>
     </CollapsiblePanel>
 
     <CollapsiblePanel
@@ -74,6 +78,7 @@ function onResizeUp() {
       <HistoryPanel />
     </CollapsiblePanel>
   </aside>
+  <TemplatePickerModal v-model="pickerOpen" category="frame" />
 </template>
 
 <style scoped>
@@ -100,4 +105,5 @@ function onResizeUp() {
 .resize-handle:hover {
   background: var(--hover);
 }
+.tpl-hint { font-size: 12px; color: var(--text-dim); }
 </style>

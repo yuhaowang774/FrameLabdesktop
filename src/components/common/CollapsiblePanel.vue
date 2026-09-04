@@ -6,14 +6,24 @@
 //   - 整行除 actions 区域外点击切换折叠；actions 区域 click.stop 隔离
 import { ref } from 'vue'
 
-const props = defineProps<{
-  title: string
-  open: boolean
-  badge?: string | number
-}>()
-const emit = defineEmits<{ (e: 'toggle'): void }>()
+const props = withDefaults(
+  defineProps<{
+    title: string
+    open: boolean
+    badge?: string | number
+    /** popup：点击标题改为 emit popup（供弹窗式入口），默认 toggle 保持折叠语义 */
+    titleAction?: 'toggle' | 'popup'
+  }>(),
+  { badge: undefined, titleAction: 'toggle' },
+)
+const emit = defineEmits<{ toggle: []; popup: [] }>()
 
 const hover = ref(false)
+
+function onHeadClick() {
+  if (props.titleAction === 'popup') emit('popup')
+  else emit('toggle')
+}
 </script>
 
 <template>
@@ -21,7 +31,7 @@ const hover = ref(false)
     <header
       class="panel-head"
       :class="{ hover }"
-      @click="emit('toggle')"
+      @click="onHeadClick"
       @mouseenter="hover = true"
       @mouseleave="hover = false"
     >
