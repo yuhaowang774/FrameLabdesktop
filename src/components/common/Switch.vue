@@ -31,8 +31,13 @@ defineEmits<{ 'update:modelValue': [value: boolean] }>()
   cursor: pointer;
 }
 .tik:focus-visible {
-  outline: 1px solid var(--accent);
-  outline-offset: 1px;
+  outline: none;
+}
+.tik:focus-visible .track {
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+.tik:hover .track {
+  border-color: var(--text-dim);
 }
 .track {
   display: inline-flex;
