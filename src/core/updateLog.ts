@@ -44,6 +44,16 @@ export const IMPORTANCE_LABELS: Record<UpdateImportance, string> = {
 // ===== 更新日志（新版本追加在最上方）=====
 export const UPDATE_LOG: UpdateEntry[] = [
   {
+    version: '0.1.17',
+    date: '2026-09-04',
+    importance: 'normal',
+    groups: {
+      improved: [
+        '应用图标背景改为纯白（A+Z 徽标白底版），窗口 / 任务栏 / 安装包图标统一为白底效果',
+      ],
+    },
+  },
+  {
     version: '0.1.16',
     date: '2026-09-04',
     importance: 'normal',
