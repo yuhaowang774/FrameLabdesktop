@@ -219,15 +219,23 @@ export function computeClassicLayout(cfg: FrameConfig, canvasBottom: number): Fo
   // 水平锚点（语义见函数注释）：不依赖文本宽度测量
   const rowX = () =>
     cfg.overlayAlign === 'left' ? CLASSIC_SIDE_INSET : cfg.overlayAlign === 'right' ? DESIGN_CONTAINER - CLASSIC_SIDE_INSET : center
-  // EXIF 块高 = EXIF 行 +（镜头行 + 固定行距）；镜头行是块内附加行，不参与独立拖拽
-  const exifBlockH = hasLens ? exifS.size + LENS_LINE_GAP + lensS.size : exifS.size
+  // EXIF 块高 = EXIF 行 +（镜头行 + 固定行距）：镜头行是块内附加行（仅当 EXIF 行也显示时）。
+  // showExif 关闭但 showLens 开启时：镜头行升级为独立堆叠行（可独立拖拽）——
+  // 修复：此前镜头行嵌在 EXIF 块内，参数行关闭时镜头行随容器一起消失（画布上不显示）。
+  const lensInBlock = hasLens && showExif
+  const exifBlockH = lensInBlock ? exifS.size + LENS_LINE_GAP + lensS.size : exifS.size
   const bottomEdge = canvasBottom - cfg.overlayBottom
-  // 自底向上：日期 → EXIF → 型号 → Logo，未开启/无内容的行不占位
+  // 自底向上：日期 → EXIF(+镜头) / 镜头独立行 → 型号 → Logo，未开启/无内容的行不占位
   let cursor = bottomEdge
   const date = { x: rowX(), y: cursor - dateS.size }
   if (showDate) cursor -= dateS.size + CLASSIC_ROW_GAP
   const exif = { x: rowX(), y: cursor - exifBlockH }
   if (showExif) cursor -= exifBlockH + CLASSIC_ROW_GAP
+  // 镜头行坐标：块内附加行（跟随 EXIF，渲染端不独立拖拽）或独立行（showExif 关闭时，占位堆叠）
+  const lens = lensInBlock
+    ? { x: exif.x, y: exif.y + exifS.size + LENS_LINE_GAP }
+    : { x: rowX(), y: cursor - lensS.size }
+  if (hasLens && !showExif) cursor -= lensS.size + CLASSIC_ROW_GAP
   const model = { x: rowX(), y: cursor - modelS.size }
   if (showModel) cursor -= modelS.size + CLASSIC_ROW_GAP
   const logo = { x: rowX(), y: cursor - cfg.logoSize }
@@ -235,7 +243,7 @@ export function computeClassicLayout(cfg: FrameConfig, canvasBottom: number): Fo
     exif: exif,
     date: date,
     model: model,
-    lens: { x: exif.x, y: exif.y + exifS.size + LENS_LINE_GAP },
+    lens: lens,
     logo: logo,
     divider: null,
   }
@@ -368,6 +376,9 @@ export function computeCardLayout(cfg: FrameConfig, canvasBottom: number): CardL
 export const MAG_TITLE_INSET = 34 // 标题/副标题距内容区左缘
 export const MAG_TITLE_TOP = 24 // 标题顶距画板顶缘（上边留白内）
 export const MAG_TITLE_SIZE = 44 // 标题字号（设计 px）
+// 标题专用衬线字体（预览/导出同源）：杂志刊头气质，与正文无衬线形成对比；
+// 同时与最初参考样张（"Nature's poetry" 无衬线粗体）拉开区分度
+export const MAG_TITLE_FONT = "Didot, 'Bodoni MT', 'Playfair Display', Georgia, 'Times New Roman', serif"
 export const MAG_SUB_SIZE = 16 // 副标题字号（"PHOTOGRAPHED IN : 日期"）
 export const MAG_SUB_GAP = 16 // 副标题与标题行距
 export const MAG_SUB_LETTER_SPACING = 3 // 副标题字距

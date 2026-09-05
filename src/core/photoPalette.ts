@@ -101,6 +101,8 @@ export const FALLBACK_PALETTE = ['#1d3a5f', '#2e5a8f', '#4a7fbd', '#8fa8b8', '#a
 /**
  * 预览端取色：按 photoSrc 异步加载照片并提取色卡（带缓存）。
  * 返回缓存的即时结果（可能为兜底色），完成后通过 paletteVersion 触发刷新。
+ * 桌面端 photoSrc 是 asset 协议 URL：直接绘制 canvas 会污染（getImageData 抛错，
+ * extractPalette 内部吞错回退兜底色）——先经 toDrawableUrl 读盘转 dataURL 再提取。
  */
 export function paletteFor(photoSrc: string | null): string[] {
   if (!photoSrc) return FALLBACK_PALETTE
@@ -108,13 +110,25 @@ export function paletteFor(photoSrc: string | null): string[] {
   if (hit) return hit
   // 未加载过：占位兜底 + 异步提取
   cachePut(photoSrc, FALLBACK_PALETTE)
-  const img = new Image()
-  img.onload = () => {
-    const pal = extractPalette(img, img.naturalWidth, img.naturalHeight)
-    if (pal) cachePut(photoSrc, pal)
+  void (async () => {
+    try {
+      let src = photoSrc
+      if (/^(?:https?:\/\/asset\.localhost|asset:\/\/localhost)\//.test(photoSrc)) {
+        const { toDrawableUrl } = await import('../platform/fs')
+        src = await toDrawableUrl(photoSrc)
+      }
+      const img = new Image()
+      await new Promise<void>((res, rej) => {
+        img.onload = () => res()
+        img.onerror = () => rej(new Error('取色源加载失败'))
+        img.src = src
+      })
+      const pal = extractPalette(img, img.naturalWidth, img.naturalHeight)
+      if (pal) cachePut(photoSrc, pal)
+    } catch {
+      /* 提取失败保持兜底色 */
+    }
     paletteVersion.value++
-  }
-  img.onerror = () => { paletteVersion.value++ }
-  img.src = photoSrc
+  })()
   return FALLBACK_PALETTE
 }

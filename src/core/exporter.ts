@@ -23,6 +23,7 @@ import {
   CARD_RADIUS,
   CARD_BADGE_FONT_SIZE,
   LENS_LINE_GAP,
+  MAG_TITLE_FONT,
   MAG_SUB_SIZE,
   MAG_SUB_LETTER_SPACING,
   MAG_SWATCH_COUNT,
@@ -206,11 +207,12 @@ function drawMagazineFooter(
     font: string,
     letterSpacing = 0,
     align: CanvasTextAlign = 'left',
+    italic = false,
   ): void => {
     if (!text) return
     ctx.save()
     ctx.fillStyle = color
-    ctx.font = fontStr(weight, size * s, font)
+    ctx.font = fontStr(weight, size * s, font, italic)
     ctx.textAlign = align
     ctx.textBaseline = 'top'
     if (letterSpacing > 0) canvasCtx.letterSpacing = `${letterSpacing * s}px`
@@ -218,8 +220,9 @@ function drawMagazineFooter(
     ctx.restore()
   }
 
-  // 顶部标题区（上边留白内）：大标题（长标题自适应缩小）+ "PHOTOGRAPHED IN : 日期" 副标题
-  drawText(L.title.x, L.title.y, config.infoTitle, L.titleSize, primary, 700, config.fontFamily)
+  // 顶部标题区（上边留白内）：大标题（衬线斜体刊头字，与正文无衬线区分；长标题自适应缩小）
+  // + "PHOTOGRAPHED IN : 日期" 副标题
+  drawText(L.title.x, L.title.y, config.infoTitle, L.titleSize, primary, 700, MAG_TITLE_FONT, 0, 'left', true)
   if (config.showDate && config.dateText) {
     drawText(L.subtitle.x, L.subtitle.y, `PHOTOGRAPHED IN : ${config.dateText}`, MAG_SUB_SIZE, secondary, 500, config.fontFamily, MAG_SUB_LETTER_SPACING)
   }
@@ -388,12 +391,14 @@ async function drawFooter(
     )
     ctx.restore()
   }
-  // 镜头行（duo 左栏上行，样式随 EXIF 文本组）
-  if (config.infoLayout === 'duo' && hasLensText) {
+  // 镜头行（独立元素，可单独拖拽）：duo 左栏上行；classic 参数行关闭时的独立行
+  // （修复：classic 下 showExif 关闭时镜头行随 EXIF 块消失，勾选镜头但导出成片不显示）
+  if (hasLensText && (config.infoLayout === 'duo' || (config.infoLayout === 'classic' && !config.showExif))) {
     ctx.save()
     ctx.fillStyle = paint(config.lensTextColor, lensOpacity)
     ctx.font = fontStr(lensWeight, lensH, lensFont)
-    ctx.textAlign = 'left'
+    // duo 为左缘锚点；classic 独立行沿用 classic 水平锚点语义（与预览 absStyle 的 translate 一致）
+    ctx.textAlign = config.infoLayout === 'duo' ? 'left' : rowTextAlign
     ctx.textBaseline = 'top'
     applyTextShadow()
     ctx.fillText(config.lensText, ox + dLensX * unitScale, ox + dLensY * unitScale)

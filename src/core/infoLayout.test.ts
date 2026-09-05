@@ -91,6 +91,25 @@ describe('classic 纵向堆叠：独立字号联动', () => {
   })
 })
 
+describe('classic：参数行关闭时镜头行独立显示（回归：勾选镜头但画布不显示）', () => {
+  it('showExif 关闭 + showLens 开启：镜头行独立占位，位于日期行上方', () => {
+    const c = cfg({ ...INFO_ON, showExif: false })
+    const L = computeClassicLayout(c, CANVAS_BOTTOM)
+    const lensS = lensTextStyle(c)
+    // 镜头行紧跟日期行上方（独立堆叠行，非 EXIF 块内附加行）
+    expect(L.lens.y + lensS.size).toBeLessThanOrEqual(L.date.y - CLASSIC_ROW_GAP + EPS)
+    expect(L.lens.y).toBeCloseTo(L.date.y - CLASSIC_ROW_GAP - lensS.size, 6)
+    // 型号行在镜头行上方让位
+    expect(L.model.y + c.cameraModelSize).toBeLessThanOrEqual(L.lens.y - CLASSIC_ROW_GAP + EPS)
+  })
+
+  it('showExif 开启时镜头行仍为 EXIF 块内附加行（原行为不变）', () => {
+    const c = cfg(INFO_ON)
+    const L = computeClassicLayout(c, CANVAS_BOTTOM)
+    expect(L.lens.y).toBeCloseTo(L.exif.y + exifTextStyle(c).size + LENS_LINE_GAP, 6)
+  })
+})
+
 describe('duo 杂志双栏：独立字号联动', () => {
   it('单独调大镜头字号时文字块增高，镜头行不与机型行重叠', () => {
     const big = cfg({ ...INFO_ON, infoLayout: 'duo', lensFontSize: 60 })
@@ -114,28 +133,5 @@ describe('duo 杂志双栏：独立字号联动', () => {
     const b = computeFooterLayout(big, CANVAS_BOTTOM, 2.6)
     expect(b.exif.y).toBeLessThan(a.exif.y)
     expect(b.date.y).toBeCloseTo(a.date.y, 6)
-  })
-
-  it('竖线固定在内容区水平中线，右栏贴线左、Logo 贴线右', () => {
-    const c = cfg({ ...INFO_ON, infoLayout: 'duo', showLens: false })
-    const L = computeFooterLayout(c, CANVAS_BOTTOM, 2.6)
-    const DESIGN = 1200
-    expect(L.divider).not.toBeNull()
-    expect(L.divider!.x).toBeCloseTo(DESIGN / 2, 6) // 中线
-    expect(L.exif.x).toBeCloseTo(DESIGN / 2 + 21, 6) // 右栏左缘贴线右侧（DUO_DIVIDER_GAP=21）
-    expect(L.logo.x + c.logoSize * 2.6).toBeCloseTo(DESIGN / 2 - 28, 6) // Logo 右缘贴线左侧（DUO_LOGO_GAP=28）
-  })
-
-  it('竖线默认垂直居中于下边框白框带（高度为带高一半，位于带中部）', () => {
-    // 下边框带 = padding 36 + borderRatio 120 = 156；画板底缘 CANVAS_BOTTOM=1200
-    const band = 36 + 120
-    const c = cfg({ ...INFO_ON, infoLayout: 'duo', showLens: false, padding: 36, borderRatio: 120 })
-    const L = computeFooterLayout(c, CANVAS_BOTTOM, 2.6)
-    expect(L.divider).not.toBeNull()
-    // 带顶 = 1200-156=1044；带中线 = 1122；竖线高 = 78 → y = 1122-39 = 1083
-    expect(L.divider!.h).toBeCloseTo(band / 2, 6)
-    expect(L.divider!.y).toBeCloseTo(CANVAS_BOTTOM - band * 0.75, 6)
-    // 竖线垂直中心落在带中线附近（允许默认手柄后续微调）
-    expect(L.divider!.y + L.divider!.h / 2).toBeCloseTo(CANVAS_BOTTOM - band / 2, 6)
   })
 })

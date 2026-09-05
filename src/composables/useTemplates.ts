@@ -372,9 +372,10 @@ const BUILTIN: FrameTemplate[] = [
     desc: '杂志双栏 + 标题与取色色卡',
     category: 'frame',
     builtin: true,
-    // 样张「Nature's poetry」：白框非对称杂志排版——顶部大标题 + "PHOTOGRAPHED IN : 日期"
-    // 副标题，底部左侧从照片取色的五格色卡、右侧大号机型 + 灰色参数。对称大留白 padding 120
-    // 容纳标题区，下边加宽 71 放色卡与信息块。标题文本可自定义（INFO 面板），色卡随照片换色。
+    // 样张重构版：白框非对称杂志排版——顶部衬线斜体刊头标题（Didot 系，与原参考样张的
+    // 无衬线粗体拉开区分度）+ "PHOTOGRAPHED IN : 日期" 副标题，底部左侧从照片取色的五格
+    // 色卡、右侧大号机型 + 灰色参数。对称大留白 padding 120 容纳标题区，下边加宽 71 放
+    // 色卡与信息块。标题文本可自定义（INFO 面板），色卡随照片换色。
     config: {
       bgMode: 'solid',
       bgColor: '#ffffff',
@@ -389,7 +390,7 @@ const BUILTIN: FrameTemplate[] = [
       infoLayout: 'magazine',
       overlayAlign: 'center',
       overlayBottom: 40,
-      infoTitle: "Nature's poetry",
+      infoTitle: 'Fragments of Light',
       showPalette: true,
       showLogo: false,
       showCameraModel: true,

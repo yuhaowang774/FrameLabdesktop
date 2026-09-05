@@ -201,7 +201,15 @@ function configFor(item: LibraryItem, backfill: boolean): FrameConfig {
 }
 
 async function renderOne(item: LibraryItem, backfill: boolean): Promise<Blob> {
-  const source = await loadImage(item.url)
+  // 桌面端照片 URL 是 asset 协议：直接绘制会污染画布导致 toBlob 抛
+  // "Tainted canvases may not be exported"（另一台电脑导出失败的根因）。
+  // 先读盘转 dataURL 再加载，同源可安全合成；网页端（blob:/data:）短路不经 fs 模块。
+  let src = item.url
+  if (/^(?:https?:\/\/asset\.localhost|asset:\/\/localhost)\//.test(src)) {
+    const { toDrawableUrl } = await import('../../platform/fs')
+    src = await toDrawableUrl(src)
+  }
+  const source = await loadImage(src)
   const opts: ExportOptions = { format: format.value, jpgQuality: jpgQuality.value, scale: supersample.value }
   if (state.bgMode === 'photo' && state.customBgImage) {
     opts.backgroundImage = await loadImage(state.customBgImage)

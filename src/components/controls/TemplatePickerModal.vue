@@ -9,7 +9,6 @@ import { useAppState } from '../../composables/useAppState'
 import { useLibrary } from '../../composables/useLibrary'
 import { useFrameConfig } from '../../composables/useFrameConfig'
 import { templateThumbDataUrl, renderTemplateThumbDataUrl, type ThumbInfoOverride } from '../../core/templateThumb'
-import { isTauri } from '../../platform/env'
 import GlassModal from '../common/GlassModal.vue'
 
 const props = withDefaults(defineProps<{ modelValue: boolean; category?: 'frame' | 'all' }>(), {
@@ -45,23 +44,17 @@ const prevThumbSrc = ref<null | string>(null)
 
 // 桌面端照片 src 是 Tauri asset 协议 URL（http://asset.localhost/...）：该来源绘制到 canvas
 // 会因 CORS 污染画布，导致 exportFrame → toBlob 抛 SecurityError，缩略图合成失败回退 SVG（看不到照片）。
-// 渲染前把 asset 图源读盘转 dataURL（同源可绘制）并缓存；网页端（blob/dataURL）原样使用。
+// 统一经 platform/fs.toDrawableUrl 读盘转 dataURL（同源可绘制）并缓存；网页端原样返回。
+// 非 asset URL（blob:/data:）先短路，避免网页端/测试环境加载桌面端 fs 模块链。
 let drawableCache: { src: string; dataUrl: string } | null = null
 async function photoDrawableSrc(src: string | null): Promise<string | undefined> {
   if (!src) return undefined
-  if (!isTauri) return src
-  const hit = src.match(/^(?:http:\/\/asset\.localhost|asset:\/\/localhost)\/(.+)$/)
-  if (!hit) return src
+  if (!/^(?:https?:\/\/asset\.localhost|asset:\/\/localhost)\//.test(src)) return src
   if (drawableCache?.src === src) return drawableCache.dataUrl
-  try {
-    const path = decodeURIComponent(hit[1])
-    const { readLocalDataURL } = await import('../../platform/fs')
-    const dataUrl = await readLocalDataURL(path)
-    drawableCache = { src, dataUrl }
-    return dataUrl
-  } catch {
-    return src // 读盘失败（如网页直链）仍按原 URL 尝试
-  }
+  const { toDrawableUrl } = await import('../../platform/fs')
+  const u = await toDrawableUrl(src)
+  drawableCache = { src, dataUrl: u }
+  return u
 }
 
 watch(

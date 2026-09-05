@@ -95,6 +95,27 @@ export async function readLocalDataURL(path: string): Promise<string> {
   return `data:${mime};base64,${b64}`
 }
 
+/** asset 协议 URL 判定（Tauri convertFileSrc 在 Windows 生成 http://asset.localhost/<encoded-path>） */
+export function isAssetProtocolUrl(url: string): boolean {
+  return /^(?:https?:\/\/asset\.localhost|asset:\/\/localhost)\/.+/.test(url)
+}
+
+/**
+ * 任意图片 URL → canvas 可绘制 URL（桌面端 asset 协议 → dataURL，其余原样返回）。
+ * 桌面端照片引用是 asset 协议 URL：直接绘制到 canvas 会因 CORS 污染画布，导致
+ * toBlob / getImageData 抛 SecurityError（导出报 Tainted canvases、缩略图/取色失败的根因）。
+ * 读盘转 dataURL 后为同源数据，可安全绘制；网页端（blob:/data:）不经过此路径。
+ */
+export async function toDrawableUrl(url: string): Promise<string> {
+  if (!isTauri || !isAssetProtocolUrl(url)) return url
+  const hit = url.match(/^(?:https?:\/\/asset\.localhost|asset:\/\/localhost)\/(.+)$/)
+  try {
+    return await readLocalDataURL(decodeURIComponent(hit![1]))
+  } catch {
+    return url // 读盘失败（文件被移动等）仍按原 URL 尝试，由调用方兜底
+  }
+}
+
 // ===== 导出落盘（双端） =====
 
 function blobToBase64(blob: Blob): Promise<string> {
