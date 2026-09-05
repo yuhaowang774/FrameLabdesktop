@@ -256,7 +256,7 @@ const greenDesc = computed(() => {
     case 'error':
       return gError.value
     default:
-      return '绿色版直接下载替换自身完成更新，无需安装器。'
+      return '便携版为免安装单文件，更新需自行替换；建议安装安装版（下载安装一次）以获得全自动更新。'
   }
 })
 const greenBtnText = computed(() =>

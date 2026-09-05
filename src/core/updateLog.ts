@@ -44,6 +44,17 @@ export const IMPORTANCE_LABELS: Record<UpdateImportance, string> = {
 // ===== 更新日志（新版本追加在最上方）=====
 export const UPDATE_LOG: UpdateEntry[] = [
   {
+    version: '0.1.26',
+    date: '2026-09-06',
+    importance: 'normal',
+    groups: {
+      improved: [
+        '安装版更新改为静默安装（无进度窗口，下载后自动完成替换并重启）',
+        '便携版（免安装单文件）更新入口增加引导：建议安装安装版以获得全自动更新',
+      ],
+    },
+  },
+  {
     version: '0.1.25',
     date: '2026-09-06',
     importance: 'patch',
