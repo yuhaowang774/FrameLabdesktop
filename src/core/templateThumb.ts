@@ -255,6 +255,10 @@ function loadImageElement(src: string): Promise<HTMLImageElement> {
     const im = new Image()
     im.onload = () => resolve(im)
     im.onerror = () => reject(new Error(`缩略图底图加载失败: ${src}`))
+    // 以 CORS 模式加载：同源 / dataURL / blob 不受影响；跨源资源（如桌面端 asset 协议
+    // 配置了 CORS 头时）绘制 canvas 不污染。无 CORS 头的跨源图会 onerror，由调用方回退
+    //（TemplatePickerModal 已把 asset 图源读盘转 dataURL 传入，此处主要为网页直链兜底）。
+    im.crossOrigin = 'anonymous'
     im.src = src
   })
 }

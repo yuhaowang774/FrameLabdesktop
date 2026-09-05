@@ -9,6 +9,7 @@ import { useAppState } from '../../composables/useAppState'
 import { useLibrary } from '../../composables/useLibrary'
 import { useFrameConfig } from '../../composables/useFrameConfig'
 import { templateThumbDataUrl, renderTemplateThumbDataUrl, type ThumbInfoOverride } from '../../core/templateThumb'
+import { isTauri } from '../../platform/env'
 import GlassModal from '../common/GlassModal.vue'
 
 const props = withDefaults(defineProps<{ modelValue: boolean; category?: 'frame' | 'all' }>(), {
@@ -41,19 +42,43 @@ const selectedDesc = computed(() => {
 // 照片切换（photoSrc 变化）时清空重渲，保证缩略图始终对照当前照片。
 const thumbs = reactive<Record<string, string>>({})
 const prevThumbSrc = ref<null | string>(null)
+
+// 桌面端照片 src 是 Tauri asset 协议 URL（http://asset.localhost/...）：该来源绘制到 canvas
+// 会因 CORS 污染画布，导致 exportFrame → toBlob 抛 SecurityError，缩略图合成失败回退 SVG（看不到照片）。
+// 渲染前把 asset 图源读盘转 dataURL（同源可绘制）并缓存；网页端（blob/dataURL）原样使用。
+let drawableCache: { src: string; dataUrl: string } | null = null
+async function photoDrawableSrc(src: string | null): Promise<string | undefined> {
+  if (!src) return undefined
+  if (!isTauri) return src
+  const hit = src.match(/^(?:http:\/\/asset\.localhost|asset:\/\/localhost)\/(.+)$/)
+  if (!hit) return src
+  if (drawableCache?.src === src) return drawableCache.dataUrl
+  try {
+    const path = decodeURIComponent(hit[1])
+    const { readLocalDataURL } = await import('../../platform/fs')
+    const dataUrl = await readLocalDataURL(path)
+    drawableCache = { src, dataUrl }
+    return dataUrl
+  } catch {
+    return src // 读盘失败（如网页直链）仍按原 URL 尝试
+  }
+}
+
 watch(
   () => [list.value.map((t) => t.id).join(','), state.photoSrc] as const,
   () => {
     const src = state.photoSrc || null
     const srcChanged = src !== prevThumbSrc.value
     prevThumbSrc.value = src
+    drawableCache = null // 照片切换后缓存失效
     for (const t of list.value) {
       const cachedReal = thumbs[t.id] && !thumbs[t.id].startsWith('data:image/svg')
       if (!srcChanged && cachedReal) continue
       if (!cachedReal || srcChanged) thumbs[t.id] = templateThumbDataUrl(t.config)
       void (async () => {
         try {
-          thumbs[t.id] = await renderTemplateThumbDataUrl(t.config, src || undefined, 480)
+          const ds = await photoDrawableSrc(src)
+          thumbs[t.id] = await renderTemplateThumbDataUrl(t.config, ds, 480)
         } catch {
           /* templateThumb 已内建 SVG 兜底 */
         }
@@ -81,7 +106,7 @@ const previewInfo = computed<ThumbInfoOverride | undefined>(() => {
     : undefined
 })
 watch(
-  () => [selected.value?.id, previewInfo.value] as const,
+  () => [selected.value?.id, previewInfo.value, state.photoSrc] as const,
   () => {
     const t = selected.value
     if (!t) return
@@ -89,7 +114,7 @@ watch(
     previewUrl.value = templateThumbDataUrl(t.config)
     void (async () => {
       try {
-        const photoSrc = state.photoSrc || undefined
+        const photoSrc = await photoDrawableSrc(state.photoSrc || null)
         const url = await renderTemplateThumbDataUrl(t.config, photoSrc, 960, previewInfo.value)
         if (previewId.value === t.id) previewUrl.value = url
       } catch {
