@@ -44,6 +44,16 @@ export const IMPORTANCE_LABELS: Record<UpdateImportance, string> = {
 // ===== 更新日志（新版本追加在最上方）=====
 export const UPDATE_LOG: UpdateEntry[] = [
   {
+    version: '0.1.23',
+    date: '2026-09-05',
+    importance: 'patch',
+    groups: {
+      fixed: [
+        '修复绿色版放在中文路径时在线更新失败的问题（更新脚本改为纯 ASCII 相对路径，不受系统代码页影响；替换改为改名法，重启更快更稳）',
+      ],
+    },
+  },
+  {
     version: '0.1.22',
     date: '2026-09-05',
     importance: 'patch',

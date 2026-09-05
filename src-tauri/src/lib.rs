@@ -638,8 +638,19 @@ async fn green_update_download(app: tauri::AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-/// 应用更新：写隐藏批处理（等本进程退出 → move 覆盖自身 → 启动新版 → 自删），
+/// 应用更新：写隐藏批处理（改名让位 → 新 exe 就位 → 等本进程退出 → 启动新版 → 清理），
 /// 启动批处理后立即退出本进程。前端调用后应用会直接关闭。
+///
+/// 批处理设计要点（0.1.23 重构，修复中文路径下更新失败）：
+/// 1. **纯 ASCII 内容 + %~dp0 相对路径**：此前把 exe 绝对路径硬编码进 UTF-8 批处理，
+///    中文版 Windows 的 cmd 按代码页 936(GBK) 解析批处理 → 中文路径乱码 → move 全部失败
+///    （循环重试 20s 后放弃，版本不变 + 重启缓慢）。%~dp0 由 cmd 运行时展开（Unicode 安全），
+///    批处理文件本身不含任何非 ASCII 字符，任何代码页下解析一致。
+/// 2. **改名法替换**：Windows 不允许覆盖运行中的 exe，但允许 rename——先把旧 exe 改名为
+///    .old 让位（立即成功，无需等待进程退出），再把 .new 就位；比「等退出后 move 覆盖」快且稳。
+/// 3. **按 PID 等待旧进程退出**：单实例插件会在旧实例存活时让新版静默退出，必须等本进程
+///    （按 PID 精确匹配，不误伤其它同名进程）退出后再 start 新版；超时 taskkill 兜底。
+/// 4. .old 残留由新版启动时清理（setup 内），本次 del 失败（旧进程仍持有）也不影响流程。
 #[tauri::command]
 fn green_update_apply() -> Result<(), String> {
     let exe = std::env::current_exe().map_err(|e| format!("获取应用路径失败: {e}"))?;
@@ -652,34 +663,53 @@ fn green_update_apply() -> Result<(), String> {
         return Err("未找到已下载的新版本，请重新检查更新".to_string());
     }
     let bat = dir.join("framelab-update.bat");
-    // 批处理健壮性：旧进程 exit(0) 后 exe 仍可能被短暂占用（WebView 清理 / Defender 扫描等），
-    // 因此循环重试 move（每轮约 2s，最多 10 轮 ≈ 20s），避免一次性 move 失败导致：
-    // 版本未更新 + FrameLab.exe.new 残留（0.1.18/0.1.19 已发生）。覆盖成功才启动新版。
-    std::fs::write(
-        &bat,
-        format!(
-            "@echo off\r\n\
-set \"UPDF={tmp}\"\r\n\
-set \"EXEF={exe}\"\r\n\
+    let pid = std::process::id();
+    let script = format!(
+        "@echo off\r\n\
+setlocal\r\n\
+set \"UPDF=%~dp0FrameLab.exe.new\"\r\n\
+set \"EXEF=%~dp0FrameLab.exe\"\r\n\
+set \"OLDF=%~dp0FrameLab.exe.old\"\r\n\
+set \"OLDPID={pid}\"\r\n\
+\r\n\
+rem step1: rename the running exe out of the way (rename works while running)\r\n\
 set /a N=0\r\n\
-:TRY\r\n\
-ping 127.0.0.1 -n 2 >nul\r\n\
-move /y \"%UPDF%\" \"%EXEF%\" >nul 2>&1\r\n\
-if not errorlevel 1 goto OK\r\n\
+:REN\r\n\
+move /y \"%EXEF%\" \"%OLDF%\" >nul 2>&1\r\n\
+if not errorlevel 1 goto MOVED\r\n\
 set /a N+=1\r\n\
-if %N% lss 10 goto TRY\r\n\
-if exist \"%EXEF%\" start \"\" \"%EXEF%\"\r\n\
+if %N% lss 5 (ping 127.0.0.1 -n 2 >nul & goto REN)\r\n\
+goto FAIL\r\n\
+\r\n\
+:MOVED\r\n\
+rem step2: move new exe into place\r\n\
+move /y \"%UPDF%\" \"%EXEF%\" >nul 2>&1\r\n\
+if exist \"%UPDF%\" goto FAIL\r\n\
+\r\n\
+rem step3: wait for old process exit (single-instance), then start new exe\r\n\
+set /a N=0\r\n\
+:WAIT\r\n\
+tasklist /fi \"pid eq %OLDPID%\" 2>nul | find /i \"FrameLab\" >nul 2>&1\r\n\
+if errorlevel 1 goto START\r\n\
+set /a N+=1\r\n\
+if %N% lss 15 (ping 127.0.0.1 -n 2 >nul & goto WAIT)\r\n\
+taskkill /f /pid %OLDPID% >nul 2>&1\r\n\
+ping 127.0.0.1 -n 2 >nul\r\n\
+\r\n\
+:START\r\n\
+start \"\" \"%EXEF%\"\r\n\
+del \"%OLDF%\" >nul 2>&1\r\n\
 del \"%~f0\" >nul 2>&1\r\n\
 exit /b\r\n\
-:OK\r\n\
-start \"\" \"%EXEF%\"\r\n\
+\r\n\
+:FAIL\r\n\
+if exist \"%OLDF%\" move /y \"%OLDF%\" \"%EXEF%\" >nul 2>&1\r\n\
+if exist \"%EXEF%\" start \"\" \"%EXEF%\"\r\n\
 del \"%~f0\" >nul 2>&1\r\n\
 exit /b\r\n",
-            tmp = tmp.display(),
-            exe = exe.display(),
-        ),
-    )
-    .map_err(|e| format!("写入更新脚本失败: {e}"))?;
+        pid = pid,
+    );
+    std::fs::write(&bat, script).map_err(|e| format!("写入更新脚本失败: {e}"))?;
     hidden_command("cmd")
         .current_dir(&dir)
         .args(["/c", "framelab-update.bat"])
@@ -829,10 +859,12 @@ pub fn run() {
             build_menu(app.handle())?;
             // 绿色版自更新的下载参数暂存
             app.manage(GreenPendingState::default());
-            // 启动时清理上次残留的绿色版更新临时文件：更新成功会被批处理 move 走，
-            // 仍存在则说明上次下载后未完成应用（如 0.1.18 一次性 move 失败的残留）。
+            // 启动时清理上次绿色版更新的残留临时文件：
+            // .new = 下载后未完成应用；.old = 改名法替换后旧 exe（正常由批处理删除，
+            // 旧进程仍持锁时删除失败，留待本次启动清理）。
             if let Ok(exe) = std::env::current_exe() {
                 let _ = std::fs::remove_file(exe.with_file_name("FrameLab.exe.new"));
+                let _ = std::fs::remove_file(exe.with_file_name("FrameLab.exe.old"));
             }
             // 窗口改为 Rust 侧创建：开发版需要指定独立 WebView2 数据目录
             // （此前开发/正式版共用 EBWebView 目录，并行启动会因目录被占用而白屏）。
