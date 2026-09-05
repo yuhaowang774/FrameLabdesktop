@@ -25,6 +25,21 @@ describe('estimateExportSize', () => {
     expect(r.h).toBe(Math.round(800 * 5))
   })
 
+  it('frameRatio + 边框：最终整体画布比例 = frameRatio（非内容区）', () => {
+    // 画布宽 = 1200 + padding40×2 = 1280；选 16:9（1.7778）→ 整体高 = 1280/1.7778 = 720
+    // 比例模式反推内容高 = 720 - 上下 padding(80) - borderRatio(0) = 640
+    const cfg = { ...defaultFrameConfig, frameRatio: 16 / 9, scale: 100, padding: 40, borderRatio: 0, bgExpand: 0, canvasH: 0 }
+    const r = estimateExportSize(3000, 2000, cfg, 1)
+    expect(r.w / r.h).toBeCloseTo(16 / 9, 3)
+  })
+
+  it('frameRatio + 1:1 + 下边留白：整体画布仍为 1:1', () => {
+    // 画布宽 = 1200 + padding20×2 = 1240；borderRatio=100 → 内容高 = 1240 - 40 - (20+100) = 1040
+    const cfg = { ...defaultFrameConfig, frameRatio: 1, scale: 100, padding: 20, borderRatio: 100, bgExpand: 0, canvasH: 0 }
+    const r = estimateExportSize(3000, 2000, cfg, 1)
+    expect(r.w / r.h).toBeCloseTo(1, 3)
+  })
+
   it('超采样等比放大（bgExpand/bgBottomRatio 同步）', () => {
     const cfg = { ...defaultFrameConfig, frameRatio: null, padding: 20, bgExpand: 30, bgBottomRatio: 10, canvasH: 0 }
     const r1 = estimateExportSize(1200, 800, cfg, 1)

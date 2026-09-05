@@ -90,15 +90,30 @@ const cssPadding = computed(() => effConfig.value.padding)
 // 下边宽度：边框留白下边 = padding + borderRatio（eff）
 const cssPadBottom = computed(() => effConfig.value.padding + effConfig.value.borderRatio)
 
+// 背景区域（独立于内容区，单位 px，与边框宽度一致）
+// bgExpand=0：背景=内容区；>0：上/左/右各扩 bgExpand，下边扩 bgExpand + bgBottomRatio，边框/画布同步跟随。
+// 背景区域始终以内容区为锚点：内容区左/上距背景区域边缘 = bgExpand，下距 = bgExpand + bgBottomRatio。
+const bgExpand = computed(() => effConfig.value.bgExpand)
+const bgBottomExpand = computed(() => effConfig.value.bgExpand + effConfig.value.bgBottomRatio)
+
 // 画面（边框）比例：内容区宽高比（16:9 / 4:3 / 1:1 ...）。null = 自由（跟随照片）。
 const frameRatio = computed(() => state.frameRatio)
+
+// 比例模式内容区高度：反推使「最终整体画布」（含背景扩展 + 边框 padding）的宽高比 = frameRatio。
+// 示例：选择 16:9 后导出成片的整体比例即 16:9，而非只保证内容区为 16:9（画布会被边框撑成别的比例）。
+const ratioContentH = computed(() => {
+  const r = frameRatio.value
+  if (!r) return 0
+  const W = availW.value + 2 * bgExpand.value + 2 * effConfig.value.padding
+  return Math.max(0, W / r - bgExpand.value - bgBottomExpand.value - effConfig.value.padding - cssPadBottom.value)
+})
 
 // 照片在内容区内的「基准宽」（scale=100 时的照片宽）：
 // - 自由模式：= 内容区宽（照片宽 = 内容宽 × scale%，原行为）
 // - 比例模式：= contain 适配宽（照片等比完整放入固定比例内容区，取「贴宽 / 贴高」中较小者）
 const photoBaseW = computed(() => {
   if (!frameRatio.value) return availW.value
-  const ch = availW.value / frameRatio.value
+  const ch = Math.max(1, ratioContentH.value)
   const contentAspect = availW.value / ch
   const pa = photoDisplayAspect.value
   return pa >= contentAspect ? availW.value : ch * pa
@@ -110,7 +125,7 @@ const photoRect = computed(() => {
   // 内容区坐标：x=0 即贴内容区左缘（= 画布左 padding 内侧）
   const x = state.photoX ?? (availW.value - w) / 2
   // 自由模式默认贴内容区顶；比例模式默认垂直居中（照片完整放入固定比例内容区）
-  const y = state.photoY ?? (frameRatio.value ? (availW.value / frameRatio.value - h) / 2 : 0)
+  const y = state.photoY ?? (frameRatio.value ? Math.max(0, (ratioContentH.value - h) / 2) : 0)
   return { left: x, top: y, width: w, height: h }
 })
 
@@ -124,18 +139,15 @@ const photoRectAbs = computed(() => ({
 }))
 
 // 内容区设计高度（照片/INFO 坐标系，边框内侧固定区域）：
-// 比例模式固定高（1200/ratio）；自由模式 = 照片高。canvasH 存在时由用户手动指定覆盖。
+// 比例模式 = ratioContentH（整体画布比例 = frameRatio，比例优先）；自由模式 = 照片高 / canvasH。
 const contentHDesign = computed(() => {
+  if (frameRatio.value) return ratioContentH.value
   if (state.canvasH) return Math.max(0, state.canvasH - effConfig.value.padding - cssPadBottom.value)
-  if (frameRatio.value) return availW.value / frameRatio.value
   return Math.max(0, photoRect.value.top + photoRect.value.height)
 })
 
 // ===== 背景区域（独立于内容区，单位 px，与边框宽度一致） =====
-// bgExpand=0：背景=内容区；>0：上/左/右各扩 bgExpand，下边扩 bgExpand + bgBottomRatio，边框/画布同步跟随。
-// 背景区域始终以内容区为锚点：内容区左/上距背景区域边缘 = bgExpand，下距 = bgExpand + bgBottomRatio。
-const bgExpand = computed(() => effConfig.value.bgExpand)
-const bgBottomExpand = computed(() => effConfig.value.bgExpand + effConfig.value.bgBottomRatio)
+// bgExpand/bgBottomExpand 已在上方定义（photoBaseW 需在其后），此处复用。
 const bgAreaW = computed(() => availW.value + 2 * bgExpand.value)
 const bgAreaH = computed(() => contentHDesign.value + bgExpand.value + bgBottomExpand.value)
 

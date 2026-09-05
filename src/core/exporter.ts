@@ -490,13 +490,16 @@ export function computeExportMetrics(
   const displayH = Math.max(1, rSize.h * config.photoCrop.h)
   const displayAspect = displayW / displayH
 
-  // 画面（边框）比例：内容区宽高比。null = 自由（跟随照片）
+  // 画面（边框）比例：整体画布宽高比。null = 自由（跟随照片）。
+  // 比例模式反推设计内容高，使「最终整体画布」（含背景扩展 + 边框 padding）宽高比 = frameRatio。
   const frameRatio = config.frameRatio
   let designContentH = 0
   let photoBaseW = DESIGN_CONTAINER
   if (frameRatio) {
-    designContentH = DESIGN_CONTAINER / frameRatio
-    const contentAspect = DESIGN_CONTAINER / designContentH
+    const canvasWD = DESIGN_CONTAINER + 2 * bgExpand + 2 * effectivePad
+    const padsV = bgExpand + bgBottomExpand + effectivePad + effectivePadBottom
+    designContentH = Math.max(0, canvasWD / frameRatio - padsV)
+    const contentAspect = DESIGN_CONTAINER / Math.max(1, designContentH)
     photoBaseW = displayAspect >= contentAspect ? DESIGN_CONTAINER : designContentH * displayAspect
   }
 
@@ -507,8 +510,11 @@ export function computeExportMetrics(
   // unitScale：把设计坐标（1200 宽）映射到像素；照片以原生裁剪像素 1:1 进入
   const unitScale = (displayW / photoDesignW) * ss
   const canvasW = Math.round((DESIGN_CONTAINER + 2 * bgExpand + 2 * effectivePad) * unitScale)
+  // 比例模式始终按设计内容高定画布高（保证整体比例 = frameRatio）；自由模式才允许 canvasH 覆盖。
   const designCanvasH =
-    (config.canvasH || designContentH + effectivePad + effectivePadBottom) + bgExpand + bgBottomExpand
+    (frameRatio
+      ? designContentH + effectivePad + effectivePadBottom
+      : config.canvasH || designContentH + effectivePad + effectivePadBottom) + bgExpand + bgBottomExpand
   const canvasH = Math.round(designCanvasH * unitScale)
   const photoW = Math.round(displayW * ss)
   const photoH = Math.round(displayH * ss)

@@ -45,8 +45,9 @@ const BUILTIN: FrameTemplate[] = [
       bgColor: '#ffffff',
       borderColor: '#ffffff',
       padding: 27,
-      borderRatio: 0,
-      bgBottomRatio: 69,
+      // 下边留白由边框负责（borderRatio），背景纯色不下延（bgBottomRatio=0），
+      // 避免「背景纯色下边」与「边框下边」两层职责重叠。
+      borderRatio: 69,
       photoRadius: 0,
       borderRadius: 0,
       scale: 100,

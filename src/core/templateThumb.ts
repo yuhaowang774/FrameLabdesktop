@@ -73,7 +73,10 @@ export function templateThumbSvg(config: Partial<FrameConfig>, opts: ThumbOption
 
   const photoW = (DESIGN_CONTAINER * c.scale) / 100
   const photoH = photoW / DEMO_ASPECT
-  const contentH = c.frameRatio ? DESIGN_CONTAINER / c.frameRatio : photoH
+  // 比例模式：反推内容高使「整体画布」宽高比 = frameRatio（与 exporter 同源）
+  const contentH = c.frameRatio
+    ? Math.max(0, (DESIGN_CONTAINER + 2 * bgExpand + 2 * pad) / c.frameRatio - bgBottomExpand - pad - padBottom)
+    : photoH
 
   const canvasW = DESIGN_CONTAINER + 2 * bgExpand + 2 * pad
   const canvasH = contentH + pad + padBottom + bgExpand + bgBottomExpand
