@@ -44,6 +44,16 @@ export const IMPORTANCE_LABELS: Record<UpdateImportance, string> = {
 // ===== 更新日志（新版本追加在最上方）=====
 export const UPDATE_LOG: UpdateEntry[] = [
   {
+    version: '0.1.25',
+    date: '2026-09-06',
+    importance: 'patch',
+    groups: {
+      fixed: [
+        '彻底修复绿色版在线更新失败：改为等待旧进程完全退出后再替换 exe（此前在文件被占用时重试窗口过短，导致更新后版本不变、残留 FrameLab.exe.new），并加大防病毒扫描期的重试余量',
+      ],
+    },
+  },
+  {
     version: '0.1.24',
     date: '2026-09-06',
     importance: 'normal',
