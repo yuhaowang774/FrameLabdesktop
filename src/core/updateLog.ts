@@ -44,6 +44,20 @@ export const IMPORTANCE_LABELS: Record<UpdateImportance, string> = {
 // ===== 更新日志（新版本追加在最上方）=====
 export const UPDATE_LOG: UpdateEntry[] = [
   {
+    version: '0.1.21',
+    date: '2026-09-05',
+    importance: 'normal',
+    groups: {
+      improved: [
+        '画面比例：选择 16:9 / 1:1 等预设后，最终整体画布（含边框/背景）宽高比即所选比例，预览与导出一致',
+        '白框参数卡模板：下边留白改由边框承担（背景纯色不再向下延伸），与其余纯色模板形制统一',
+      ],
+      fixed: [
+        '绿色版更新批处理改进（循环重试覆盖 + 启动清理残留）',
+      ],
+    },
+  },
+  {
     version: '0.1.20',
     date: '2026-09-04',
     importance: 'patch',
