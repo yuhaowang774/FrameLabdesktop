@@ -298,6 +298,20 @@ async function onGreenCheck() {
     gError.value = `检查更新失败：${(err as Error)?.message ?? err}（可到 GitHub Releases 页手动下载）`
   }
 }
+// 便携版停更引导：检测到 404 / 停更提示时，按钮变为「下载安装版」并打开 GitHub Releases
+const GREEN_RELEASES_URL = 'https://github.com/yuhaowang774/FrameLabdesktop/releases/latest'
+const greenStopped = computed(() => {
+  if (gState.value !== 'error') return false
+  return gError.value.includes('404') || gError.value.includes('便携版不再发布更新')
+})
+async function openReleases() {
+  try {
+    const { invoke } = await import('@tauri-apps/api/core')
+    await invoke('open_external', { url: GREEN_RELEASES_URL })
+  } catch {
+    window.open(GREEN_RELEASES_URL, '_blank')
+  }
+}
 async function onGreenApply() {
   // 应用在命令内直接退出（批处理完成替换并重启新版），无需处理返回
   try {
@@ -454,9 +468,9 @@ async function onGreenApply() {
               class="pf-btn"
               :class="{ 'pf-btn-accent': portable && gState === 'ready' }"
               :disabled="portable ? greenBusy : updBusy"
-              @click="portable ? (gState === 'ready' ? onGreenApply() : onGreenCheck()) : onCheckUpdate()"
+              @click="portable ? (greenStopped ? openReleases() : gState === 'ready' ? onGreenApply() : onGreenCheck()) : onCheckUpdate()"
             >
-              {{ portable ? greenBtnText : (updState === 'checking' ? '检查中…' : updBusy ? '更新中…' : '检查更新') }}
+              {{ portable ? (greenStopped ? '下载安装版' : greenBtnText) : (updState === 'checking' ? '检查中…' : updBusy ? '更新中…' : '检查更新') }}
             </button>
           </div>
           <div class="pf-row" v-if="isTauri">

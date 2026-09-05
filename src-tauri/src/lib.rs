@@ -563,7 +563,14 @@ fn verify_green_signature(
 /// 有更新返回 Some(info) 并暂存下载参数；无更新 / 同版本 / 降级返回 None。
 #[tauri::command]
 async fn green_update_check(app: tauri::AppHandle) -> Result<Option<GreenPending>, String> {
-    let text = http_get_text(&green_manifest_url()).await?;
+    let text = match http_get_text(&green_manifest_url()).await {
+        Ok(t) => t,
+        // 便携版已停更（green-latest.json 404）：明确引导下载安装版，而不是报晦涩的 404
+        Err(e) if e.contains("404") => {
+            return Err("便携版不再发布更新：请下载安装版以获得全自动更新（点击「下载安装版」打开 GitHub Releases）".into())
+        }
+        Err(e) => return Err(e),
+    };
     let manifest: serde_json::Value =
         serde_json::from_str(&text).map_err(|e| format!("更新清单解析失败: {e}"))?;
     let get_str = |k: &str| {
@@ -705,6 +712,24 @@ exit /b\r\n",
         .spawn()
         .map_err(|e| format!("启动更新脚本失败: {e}"))?;
     std::process::exit(0);
+}
+
+/// 打开外部 URL（默认浏览器）。便携版停更引导 / 通用外链场景使用。
+#[tauri::command]
+fn open_external(url: String) -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        hidden_command("cmd")
+            .args(["/c", "start", "", &url])
+            .spawn()
+            .map_err(|e| format!("打开链接失败: {e}"))?;
+        Ok(())
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = url;
+        Err("当前平台不支持".into())
+    }
 }
 
 /// 系统显示适配器信息（独显/核显为名称启发式判定）
@@ -895,6 +920,7 @@ pub fn run() {
             list_gpus,
             reveal_path,
             restart_app,
+            open_external,
             is_portable,
             green_update_check,
             green_update_download,

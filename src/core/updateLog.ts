@@ -44,6 +44,16 @@ export const IMPORTANCE_LABELS: Record<UpdateImportance, string> = {
 // ===== 更新日志（新版本追加在最上方）=====
 export const UPDATE_LOG: UpdateEntry[] = [
   {
+    version: '0.1.26',
+    date: '2026-09-06',
+    importance: 'normal',
+    groups: {
+      improved: [
+        '便携版（绿色版）更新入口改进：不再发布更新时明确提示「下载安装版」并一键打开 GitHub Releases（替代晦涩的 404 报错）',
+      ],
+    },
+  },
+  {
     version: '0.1.25',
     date: '2026-09-06',
     importance: 'normal',
