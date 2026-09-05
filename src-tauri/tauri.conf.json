@@ -27,7 +27,7 @@
         "https://github.com/yuhaowang774/FrameLabdesktop/releases/latest/download/latest.json"
       ],
       "windows": {
-        "installMode": "silent"
+        "installMode": "quiet"
       }
     }
   },

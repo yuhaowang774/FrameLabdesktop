@@ -49,7 +49,7 @@ export const UPDATE_LOG: UpdateEntry[] = [
     importance: 'normal',
     groups: {
       improved: [
-        '安装版更新改为静默安装（无进度窗口，下载后自动完成替换并重启）',
+        '安装版更新改为静默安装（quiet 模式，无进度窗口，下载后自动完成替换并重启）',
         '便携版（免安装单文件）更新入口增加引导：建议安装安装版以获得全自动更新',
       ],
     },
