@@ -44,7 +44,7 @@ export const IMPORTANCE_LABELS: Record<UpdateImportance, string> = {
 // ===== 更新日志（新版本追加在最上方）=====
 export const UPDATE_LOG: UpdateEntry[] = [
   {
-    version: '0.1.26',
+    version: '0.1.25',
     date: '2026-09-06',
     importance: 'normal',
     groups: {
@@ -52,15 +52,9 @@ export const UPDATE_LOG: UpdateEntry[] = [
         '安装版更新改为静默安装（quiet 模式，无进度窗口，下载后自动完成替换并重启）',
         '便携版（免安装单文件）更新入口增加引导：建议安装安装版以获得全自动更新',
       ],
-    },
-  },
-  {
-    version: '0.1.25',
-    date: '2026-09-06',
-    importance: 'patch',
-    groups: {
       fixed: [
-        '彻底修复绿色版在线更新失败：改为等待旧进程完全退出后再替换 exe（此前在文件被占用时重试窗口过短，导致更新后版本不变、残留 FrameLab.exe.new），并加大防病毒扫描期的重试余量',
+        '修复应用模板后「显示镜头型号」无法在画布上显示/拖拽的问题（镜头行在经典 / 双栏 / 悬浮布局均升级为独立可拖拽元素）',
+        '修复绿色版在线更新失败：等待旧进程完全退出后再替换 exe，加大防病毒扫描重试余量（残留 FrameLab.exe.new 问题）',
       ],
     },
   },

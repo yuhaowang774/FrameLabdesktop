@@ -22,7 +22,6 @@ import {
   modelTextStyle,
   CARD_RADIUS,
   CARD_BADGE_FONT_SIZE,
-  LENS_LINE_GAP,
   MAG_TITLE_FONT,
   MAG_SUB_SIZE,
   MAG_SUB_LETTER_SPACING,
@@ -391,14 +390,15 @@ async function drawFooter(
     )
     ctx.restore()
   }
-  // 镜头行（独立元素，可单独拖拽）：duo 左栏上行；classic 参数行关闭时的独立行
-  // （修复：classic 下 showExif 关闭时镜头行随 EXIF 块消失，勾选镜头但导出成片不显示）
-  if (hasLensText && (config.infoLayout === 'duo' || (config.infoLayout === 'classic' && !config.showExif))) {
+  // 镜头行（独立元素，可单独拖拽）：classic / duo / inline 下统一绘制
+  // （修复：classic 下镜头行曾嵌在 EXIF 块内不可独立定位；inline 布局完全未渲染镜头行）
+  if (hasLensText && ['classic', 'duo', 'inline'].includes(config.infoLayout)) {
     ctx.save()
     ctx.fillStyle = paint(config.lensTextColor, lensOpacity)
     ctx.font = fontStr(lensWeight, lensH, lensFont)
-    // duo 为左缘锚点；classic 独立行沿用 classic 水平锚点语义（与预览 absStyle 的 translate 一致）
-    ctx.textAlign = config.infoLayout === 'duo' ? 'left' : rowTextAlign
+    // duo 为左缘锚点；inline 为居中锚点（x=center）；classic 沿用经典水平锚点语义
+    ctx.textAlign =
+      config.infoLayout === 'inline' ? 'center' : config.infoLayout === 'classic' ? rowTextAlign : 'left'
     ctx.textBaseline = 'top'
     applyTextShadow()
     ctx.fillText(config.lensText, ox + dLensX * unitScale, ox + dLensY * unitScale)
@@ -412,22 +412,6 @@ async function drawFooter(
     ctx.textBaseline = 'top'
     applyTextShadow()
     ctx.fillText(config.exifText, ox + dExifX * unitScale, ox + dExifY * unitScale)
-    ctx.restore()
-  }
-  // 镜头型号：EXIF 文本块附加行（仅 classic 布局；duo 有独立镜头行、inline 不展示，避免与日期重叠）
-  if (config.infoLayout === 'classic' && config.showExif && config.showLens && config.lensText) {
-    ctx.save()
-    ctx.fillStyle = paint(config.lensTextColor, lensOpacity)
-    ctx.font = fontStr(lensWeight, lensH, lensFont)
-    ctx.textAlign = rowTextAlign
-    ctx.textBaseline = 'top'
-    applyTextShadow()
-    // 行距与 EXIF 生效字号：与预览 .exif-text 块内 .lens-line 的 margin-top 完全一致
-    ctx.fillText(
-      config.lensText,
-      ox + dExifX * unitScale,
-      ox + (dExifY + exifSize + LENS_LINE_GAP) * unitScale,
-    )
     ctx.restore()
   }
   // 拍摄日期：duo 下使用机型样式组（灰细小字，与样例一致）；其余布局沿用 EXIF 样式组

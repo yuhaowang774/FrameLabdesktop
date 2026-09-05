@@ -15,7 +15,6 @@ import {
   cardThemeColors,
   cardBadgeColors,
   CARD_RADIUS,
-  LENS_LINE_GAP,
   MAG_TITLE_FONT,
   MAG_SUB_SIZE,
   MAG_SUB_LETTER_SPACING,
@@ -563,10 +562,13 @@ function absStyle(key: ItemKey) {
           ? 'translate(-100%, 0)'
           : 'none'
       : 'none'
+  // inline 布局的镜头行为居中锚点（布局 x=center，-50% 平移）；其余 inline 元素为左缘锚点
+  const inlineShift = state.infoLayout === 'inline' && key === 'lens' ? 'translate(-50%, 0)' : 'none'
+  const shift = state.infoLayout === 'classic' ? classicShift : inlineShift
   return {
     left: pad.value + bgExpand.value + x + 'px',
     top: pad.value + bgExpand.value + y + 'px',
-    transform: classicShift,
+    transform: shift,
   }
 }
 </script>
@@ -721,24 +723,14 @@ function absStyle(key: ItemKey) {
       @pointerdown="onPointerDown($event, 'exif')"
     >
       <span class="exif-line" v-if="state.showExif">{{ state.exifText }}</span>
-      <span
-        v-if="state.showLens && state.lensText && state.infoLayout === 'classic' && state.showExif"
-        class="lens-line"
-        :style="{
-          font: 'var(--lens-text-weight) var(--lens-font-size)/1 var(--lens-font-family)',
-          opacity: 'var(--lens-text-opacity)',
-          color: 'var(--lens-text-color)',
-          marginTop: LENS_LINE_GAP + 'px',
-        }"
-        >{{ state.lensText }}</span>
     </div>
 
-    <!-- 镜头行（duo 双栏左栏上行 / classic 参数行关闭时的独立行，独立定位可拖拽；
-         classic 参数行开启时随 EXIF 块内 lens-line，不重复渲染） -->
+    <!-- 镜头行：classic / duo / inline 下均为独立可拖拽元素（不再嵌在 EXIF 块内），
+         位置由共享布局计算；classic 带水平锚点平移，inline 居中锚点 -50% 平移 -->
     <div
       class="lens-text drag-item"
       data-item="lens"
-      v-if="(state.infoLayout === 'duo' || (state.infoLayout === 'classic' && !state.showExif)) && state.showLens && state.lensText"
+      v-if="state.showLens && state.lensText && ['classic', 'duo', 'inline'].includes(state.infoLayout)"
       :class="{ dragging: dragging === 'lens' }"
       :style="[
         absStyle('lens'),

@@ -55,27 +55,8 @@ Stop-Process -Name FrameLab -Force -ErrorAction SilentlyContinue
 Copy-Item (Join-Path $root 'src-tauri\target\release\framelab.exe') (Join-Path $root 'release\FrameLab.exe') -Force
 Write-Host '已更新 release\FrameLab.exe'
 
-# ===== 3.5) 绿色版三件套：裸 exe + 签名 + green-latest.json =====
-# 绿色单文件版自更新（绕过 NSIS/SmartScreen）：应用端拉 green-latest.json（GitHub
-# latest/download 重定向）→ 下载裸 exe → minisign 验签 → 隐藏批处理替换自身。
-$greenName = "FrameLab_${version}_x64-green.exe"
-$greenPath = Join-Path $nsisDir $greenName
-$greenSig = "$greenPath.sig"
-Copy-Item (Join-Path $root 'src-tauri\target\release\framelab.exe') $greenPath -Force
-npx tauri signer sign -k $env:TAURI_SIGNING_PRIVATE_KEY --password $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD "$greenPath" 2>$null
-if (-not (Test-Path $greenSig)) { throw '绿色版签名失败：未生成 .sig' }
-$greenLatest = [ordered]@{
-  version   = $version
-  notes     = $Notes
-  pub_date  = (Get-Date).ToUniversalTime().ToString('yyyy-MM-dd\THH:mm:ss\Z')
-  url       = "https://github.com/$Owner/$Repo/releases/download/$tag/$greenName"
-  signature = (Get-Content $greenSig -Raw).Trim()
-}
-$greenManifest = Join-Path $nsisDir 'green-latest.json'
-[System.IO.File]::WriteAllText($greenManifest, ($greenLatest | ConvertTo-Json -Depth 5), (New-Object System.Text.UTF8Encoding($false)))
-Write-Host "已生成绿色版三件套（$version）"
-
 # ===== 4) latest.json（无 BOM UTF-8）=====
+# 注：自 0.1.25 起只发布安装版（NSIS + tauri-plugin-updater 官方链路），不再生成绿色版三件套。
 $sigContent = (Get-Content $sig -Raw).Trim()
 $latest = [ordered]@{
   version  = $version
@@ -136,7 +117,7 @@ if (-not $rel) {
 # ===== 7) 上传资产（同名资产先删后覆盖，确保重发时资产带最新内容）=====
 $existing = @()
 if ($rel.assets) { $existing = @($rel.assets | ForEach-Object { $_.name }) }
-foreach ($f in @($setup, $sig, $latestPath, $greenPath, $greenSig, $greenManifest)) {
+foreach ($f in @($setup, $sig, $latestPath)) {
   $name = Split-Path $f -Leaf
   if ($existing -contains $name) {
     # 同名资产已存在：先删除再覆盖（上次发布漏更新日志时重发）

@@ -135,3 +135,23 @@ describe('duo 杂志双栏：独立字号联动', () => {
     expect(b.date.y).toBeCloseTo(a.date.y, 6)
   })
 })
+
+describe('inline 悬浮双行：镜头行独立占位（回归：勾选镜头但画布不显示）', () => {
+  it('showLens 开启：镜头行位于行1（机型/Logo）上方，不与机型行重叠', () => {
+    const c = cfg({ ...INFO_ON, infoLayout: 'inline' })
+    const L = computeFooterLayout(c, CANVAS_BOTTOM, 2.6)
+    const lensS = lensTextStyle(c)
+    // 镜头行在行1（机型行）上方，留出行距
+    expect(L.lens.y + lensS.size).toBeLessThanOrEqual(L.model.y + EPS)
+    // 镜头行居中锚点 x = 内容区中心
+    expect(L.lens.x).toBeCloseTo(600, 6)
+  })
+
+  it('showLens 关闭：镜头行回退行1 位置（不渲染，不影响其它行）', () => {
+    const c = cfg({ ...INFO_ON, infoLayout: 'inline', showLens: false })
+    const L = computeFooterLayout(c, CANVAS_BOTTOM, 2.6)
+    // 机型行位置与镜头开启时一致（镜头行不参与占位）
+    const withLens = computeFooterLayout(cfg({ ...INFO_ON, infoLayout: 'inline' }), CANVAS_BOTTOM, 2.6)
+    expect(L.model.y).toBeCloseTo(withLens.model.y, 6)
+  })
+})

@@ -181,6 +181,9 @@ export function computeFooterLayout(cfg: FrameConfig, canvasBottom: number, logo
     ? (showModel ? logoW + INLINE_LOGO_GAP + modelW : logoW)
     : modelW
   const logoX = center - groupW / 2
+  // 镜头行：行1（Logo+机型）上方的独立居中行（showLens 开启时占位，避免与机型行重叠）
+  const hasLensRow = cfg.showLens && !!cfg.lensText
+  const lensY = hasLensRow ? row1Y - INLINE_ROW_GAP - lensS.size : row1Y
   return {
     exif: { x: center - measureTextWidth(cfg.exifText, toCanvasFont(exifS)) / 2, y: exifY },
     date: { x: center, y: exifY },
@@ -188,7 +191,7 @@ export function computeFooterLayout(cfg: FrameConfig, canvasBottom: number, logo
       x: showLogoInline ? logoX + logoW + INLINE_LOGO_GAP : center - modelW / 2,
       y: row1Y + (row1H - modelH) / 2,
     },
-    lens: { x: center, y: row1Y },
+    lens: { x: center, y: lensY },
     logo: { x: logoX, y: row1Y },
     divider: null,
   }
