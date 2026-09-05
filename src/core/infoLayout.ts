@@ -139,17 +139,22 @@ export function computeFooterLayout(cfg: FrameConfig, canvasBottom: number, logo
     const dateW = measureTextWidth(cfg.dateText, dateFont)
     const rightW = Math.max(showExif ? exifW : 0, showDate ? dateW : 0)
     const rightX = DESIGN_CONTAINER - DUO_INSET - rightW
-    const dateY = bottom - modelH
+    // 日期行高用生效样式（未改独立样式时 == 机型字号，行为不变）：
+    // 单独调大日期字号后仍按实际渲染高度预留，避免溢出行距与上方 EXIF 参数行重叠
+    // （回归：应用 duo 模板保留用户日期独立字号后，按机型字号预留导致重叠）。
+    const dateH = dateS.size
+    const dateY = bottom - dateH
     const exifY = showDate ? dateY - DUO_ROW_GAP - exifH : bottom - exifH
     // 文字块高度：右栏（参数+日期）与左栏（镜头+机型）取较高者。
     // 任一组字号被单独调大时块同步增高，避免两栏内部行重叠。
     const rightH =
-      (showExif ? exifH : 0) + (showExif && showDate ? DUO_ROW_GAP : 0) + (showDate ? modelH : 0)
+      (showExif ? exifH : 0) + (showExif && showDate ? DUO_ROW_GAP : 0) + (showDate ? dateH : 0)
     const leftH = (hasLens ? lensS.size + DUO_ROW_GAP : 0) + modelH
     const blockH = Math.max(0, Math.max(rightH, leftH))
     const blockTop = bottom - blockH
-    // 左栏：镜头行顶对齐块顶；无镜头时机型行在块内垂直居中
-    const modelY = hasLens ? dateY : blockTop + (blockH - modelH) / 2
+    // 左栏：镜头行顶对齐块顶；有镜头时机型行贴底（两栏最后一行底对齐，
+    // 不随日期行独立字号变高而上移），无镜头时机型行在块内垂直居中
+    const modelY = hasLens ? bottom - modelH : blockTop + (blockH - modelH) / 2
     const dividerX = rightX - DUO_DIVIDER_GAP
     const logoX = dividerX - DUO_LOGO_GAP - logoW
     const logoY = blockTop + blockH / 2 - cfg.logoSize / 2
@@ -168,8 +173,13 @@ export function computeFooterLayout(cfg: FrameConfig, canvasBottom: number, logo
     }
   }
 
-  // ===== 悬浮居中双行（inline）：行1 = Logo + 机型 内联居中；行2 = 参数 居中 =====
-  const exifY = bottom - exifH
+  // ===== 悬浮居中双行（inline）：行1 = Logo + 机型 内联居中；行2 = 参数 居中；日期 = 参数下方独立居中行 =====
+  // 自底向上：日期（开启时贴底）→ 行2 参数 → 行1（Logo+机型）/ 镜头行。
+  // 回归修复：此前日期 y 与 EXIF 参数行相同（两者同开时完全重叠），改为独立占位行。
+  let cursor = bottom
+  const dateY = showDate ? cursor - dateS.size : bottom
+  if (showDate) cursor -= dateS.size + INLINE_ROW_GAP
+  const exifY = cursor - exifH
   const modelW = measureTextWidth(cfg.cameraModel, toCanvasFont(modelS, cfg.cameraModelItalic))
   const showModel = cfg.showCameraModel && !!cfg.cameraModel
   // 手机品牌的 Logo 是文字标记（HUAWEI/XIAOMI…），与机型文本（通常含品牌名）并排显示会重复，
@@ -186,7 +196,11 @@ export function computeFooterLayout(cfg: FrameConfig, canvasBottom: number, logo
   const lensY = hasLensRow ? row1Y - INLINE_ROW_GAP - lensS.size : row1Y
   return {
     exif: { x: center - measureTextWidth(cfg.exifText, toCanvasFont(exifS)) / 2, y: exifY },
-    date: { x: center, y: exifY },
+    // 日期行独立居中（测宽居中，与 EXIF 行同规则）
+    date: {
+      x: center - measureTextWidth(cfg.dateText, toCanvasFont(dateS)) / 2,
+      y: dateY,
+    },
     model: {
       x: showLogoInline ? logoX + logoW + INLINE_LOGO_GAP : center - modelW / 2,
       y: row1Y + (row1H - modelH) / 2,

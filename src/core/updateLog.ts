@@ -44,6 +44,17 @@ export const IMPORTANCE_LABELS: Record<UpdateImportance, string> = {
 // ===== 更新日志（新版本追加在最上方）=====
 export const UPDATE_LOG: UpdateEntry[] = [
   {
+    version: '0.1.28',
+    date: '2026-09-06',
+    importance: 'patch',
+    groups: {
+      fixed: [
+        '修复应用模板后拍摄日期与 EXIF 参数行重叠：日期行高度改按实际生效字号预留（此前按机型字号预留，单独调大日期字号时溢出行距）',
+        '修复悬浮（inline）布局下拍摄日期与 EXIF 参数行完全重叠：日期改为参数下方独立居中一行',
+      ],
+    },
+  },
+  {
     version: '0.1.27',
     date: '2026-09-06',
     importance: 'patch',
