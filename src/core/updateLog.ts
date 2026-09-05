@@ -44,6 +44,21 @@ export const IMPORTANCE_LABELS: Record<UpdateImportance, string> = {
 // ===== 更新日志（新版本追加在最上方）=====
 export const UPDATE_LOG: UpdateEntry[] = [
   {
+    version: '0.1.24',
+    date: '2026-09-06',
+    importance: 'normal',
+    groups: {
+      improved: [
+        '杂志编辑模板标题改为衬线斜体刊头字（Didot 系）+ 新默认文案「Fragments of Light」，与原参考样张拉开区分度',
+        '取色色卡在桌面端改用可绘制图源提取，颜色随照片真实变化（此前静默回退兜底色）',
+      ],
+      fixed: [
+        '修复参数行关闭时勾选「显示镜头型号」画布上不显示镜头信息的问题（镜头行升级为独立行，可拖拽定位）',
+        '修复桌面端导出报「Tainted canvases may not be exported」失败的问题（asset 协议图源统一读盘转 dataURL 后合成）',
+      ],
+    },
+  },
+  {
     version: '0.1.23',
     date: '2026-09-05',
     importance: 'patch',
