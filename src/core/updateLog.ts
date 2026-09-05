@@ -44,6 +44,16 @@ export const IMPORTANCE_LABELS: Record<UpdateImportance, string> = {
 // ===== 更新日志（新版本追加在最上方）=====
 export const UPDATE_LOG: UpdateEntry[] = [
   {
+    version: '0.1.22',
+    date: '2026-09-05',
+    importance: 'patch',
+    groups: {
+      fixed: [
+        '修复桌面端模板库弹窗中照片缩略图不显示的问题（asset 协议图源读盘转 dataURL 后合成，缩略图与大预览均恢复正常）',
+      ],
+    },
+  },
+  {
     version: '0.1.21',
     date: '2026-09-05',
     importance: 'normal',
