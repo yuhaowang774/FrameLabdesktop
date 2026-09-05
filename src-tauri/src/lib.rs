@@ -379,16 +379,55 @@ fn set_gpu_preference_mode(mode: String) -> Result<(), String> {
     }
 }
 
+/// 用 ShellExecuteW 打开 URL / 系统设置页（走 shell 关联，无 cmd 子进程）。
+/// 说明：此前用 `cmd /c start <url>` 打开链接，0.1.26 起 Windows Defender 机器学习
+/// 将其判为 Trojan:Win32/Sabsik.FL.A!ml（dropper 常用 cmd start 拉起 payload/URL，
+/// 未签名 NSIS 包整体特征叠加后触发），改用 Win32 API 后消除该特征。
+#[cfg(windows)]
+fn shell_open(target: &str) -> Result<(), String> {
+    use std::os::windows::ffi::OsStrExt;
+
+    #[link(name = "shell32")]
+    extern "system" {
+        fn ShellExecuteW(
+            hwnd: *mut std::ffi::c_void,
+            verb: *const u16,
+            file: *const u16,
+            params: *const u16,
+            dir: *const u16,
+            show: i32,
+        ) -> usize;
+    }
+
+    let wide = |s: &str| -> Vec<u16> {
+        std::ffi::OsStr::new(s).encode_wide().chain(Some(0)).collect()
+    };
+    let verb = wide("open");
+    let file = wide(target);
+    // SW_SHOWNORMAL = 1；返回值 > 32 表示成功
+    let ret = unsafe {
+        ShellExecuteW(
+            std::ptr::null_mut(),
+            verb.as_ptr(),
+            file.as_ptr(),
+            std::ptr::null(),
+            std::ptr::null(),
+            1,
+        )
+    };
+    if ret > 32 {
+        Ok(())
+    } else {
+        Err(format!("ShellExecuteW 返回 {ret}"))
+    }
+}
+
 /// 打开 Windows「图形设置」页（用户可为应用手动指定高性能 GPU）
 #[tauri::command]
 fn open_graphics_settings() -> Result<(), String> {
     #[cfg(windows)]
     {
-        hidden_command("cmd")
-            .args(["/C", "start", "", "ms-settings:graphics"])
-            .spawn()
-            .map_err(|e| format!("打开系统设置失败: {e}"))?;
-        Ok(())
+        shell_open("ms-settings:graphics").map_err(|e| format!("打开系统设置失败: {e}"))
     }
     #[cfg(not(windows))]
     {
@@ -473,15 +512,26 @@ struct GreenPending {
 #[derive(Default)]
 struct GreenPendingState(std::sync::Mutex<Option<GreenPending>>);
 
-/// 当前 exe 是否为绿色版（不在 NSIS 安装目录 %LOCALAPPDATA%\FrameLab 内）
+/// 当前 exe 是否为绿色版。判定（按优先级）：
+/// 1. exe 同目录存在 NSIS 卸载程序 uninstall.exe → 安装版
+///    （覆盖管理员权限安装到 Program Files / 自定义安装路径等非默认目录的场景）
+/// 2. exe 在默认 perUser 安装目录 %LOCALAPPDATA%\FrameLab 内 → 安装版
+///    （canonicalize 消除大小写 / 8.3 短路径差异，目录不存在时退回直接比较）
+/// 3. 其余 → 绿色版
 #[tauri::command]
 fn is_portable() -> Result<bool, String> {
     let exe = std::env::current_exe().map_err(|e| format!("获取应用路径失败: {e}"))?;
     let dir = exe
         .parent()
         .ok_or_else(|| "无法定位应用目录".to_string())?;
+    if dir.join("uninstall.exe").exists() {
+        return Ok(false);
+    }
     let installed = installed_dir()?;
-    Ok(dir != installed)
+    match (dir.canonicalize(), installed.canonicalize()) {
+        (Ok(a), Ok(b)) => Ok(a != b),
+        _ => Ok(dir != installed.as_path()),
+    }
 }
 
 fn installed_dir() -> Result<std::path::PathBuf, String> {
@@ -719,11 +769,7 @@ exit /b\r\n",
 fn open_external(url: String) -> Result<(), String> {
     #[cfg(windows)]
     {
-        hidden_command("cmd")
-            .args(["/c", "start", "", &url])
-            .spawn()
-            .map_err(|e| format!("打开链接失败: {e}"))?;
-        Ok(())
+        shell_open(&url).map_err(|e| format!("打开链接失败: {e}"))
     }
     #[cfg(not(windows))]
     {

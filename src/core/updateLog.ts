@@ -44,6 +44,17 @@ export const IMPORTANCE_LABELS: Record<UpdateImportance, string> = {
 // ===== 更新日志（新版本追加在最上方）=====
 export const UPDATE_LOG: UpdateEntry[] = [
   {
+    version: '0.1.27',
+    date: '2026-09-06',
+    importance: 'patch',
+    groups: {
+      fixed: [
+        '修复安装版在非默认安装目录（管理员权限安装 / 自定义路径）被误判为便携版，导致检查更新报 404 的问题（改为按卸载程序特征识别安装版）',
+        '修复 0.1.26 安装包被 Windows Defender 误报 Trojan:Win32/Sabsik.FL.A!ml：打开链接 / 系统设置页改用系统 API（ShellExecuteW），不再创建 cmd 子进程',
+      ],
+    },
+  },
+  {
     version: '0.1.26',
     date: '2026-09-06',
     importance: 'normal',

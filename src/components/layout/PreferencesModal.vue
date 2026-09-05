@@ -295,7 +295,11 @@ async function onGreenCheck() {
     }
   } catch (err) {
     gState.value = 'error'
-    gError.value = `检查更新失败：${(err as Error)?.message ?? err}（可到 GitHub Releases 页手动下载）`
+    const msg = (err as Error)?.message ?? String(err)
+    // Rust 端停更引导文案自带操作指引，不再重复拼接手动下载后缀
+    gError.value = msg.includes('便携版不再发布更新')
+      ? msg
+      : `检查更新失败：${msg}（可到 GitHub Releases 页手动下载）`
   }
 }
 // 便携版停更引导：检测到 404 / 停更提示时，按钮变为「下载安装版」并打开 GitHub Releases
