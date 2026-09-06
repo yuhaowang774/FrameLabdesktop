@@ -40,6 +40,7 @@ const defaults: LayoutState = {
     library: true,
     mediaInfo: true,
     frameTemplates: true,
+    myTemplates: true,
     snapshots: false,
   },
   rightPanels: {
@@ -68,6 +69,10 @@ function load(): LayoutState {
           border: old.border ?? old.background ?? true,
           info: old.info ?? false,
         }
+      }
+      // 左栏面板：与默认值按键合并，保证新增面板（如「我的模板」）对存量用户按默认态出现
+      if (parsed.leftPanels) {
+        merged.leftPanels = { ...defaults.leftPanels, ...parsed.leftPanels }
       }
       return merged
     }

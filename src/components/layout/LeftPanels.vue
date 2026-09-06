@@ -10,6 +10,7 @@ import CollapsiblePanel from '../common/CollapsiblePanel.vue'
 import Icon from '../common/Icon.vue'
 import LeftLibraryPanel from './LeftLibraryPanel.vue'
 import MediaInfoPanel from './MediaInfoPanel.vue'
+import MyTemplatesPanel from './MyTemplatesPanel.vue'
 import TemplatePickerModal from '../controls/TemplatePickerModal.vue'
 import HistoryPanel from './HistoryPanel.vue'
 
@@ -71,6 +72,16 @@ function onResizeUp() {
       <span class="tpl-entry-count">共 {{ templates.templates.filter((t) => t.builtin).length }} 套内置模板</span>
       <span class="tpl-entry-arrow">▸</span>
     </button>
+
+    <!-- 我的模板：保存当前编辑配置为自定义模板，并应用 / 删除已存模板 -->
+    <CollapsiblePanel
+      title="我的模板"
+      :open="P.myTemplates"
+      :badge="templates.templates.filter((t) => !t.builtin).length"
+      @toggle="app.togglePanel('left', 'myTemplates')"
+    >
+      <MyTemplatesPanel />
+    </CollapsiblePanel>
 
     <CollapsiblePanel
       title="修改历史记录"

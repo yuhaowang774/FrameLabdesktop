@@ -25,9 +25,10 @@ function write(key: string, v: string): void {
 }
 
 // ===== 导出：默认格式与 JPG 画质 =====
+// 默认 JPG 高画质（0.95）：仅当用户显式选择过 PNG（已写入 'png'）时才沿用 PNG
 export type ExportFormatPref = 'png' | 'jpg'
 export function getExportFormatPref(): ExportFormatPref {
-  return read(KEYS.exportFormat, 'png') === 'jpg' ? 'jpg' : 'png'
+  return read(KEYS.exportFormat, 'jpg') === 'png' ? 'png' : 'jpg'
 }
 export function setExportFormatPref(v: ExportFormatPref): void {
   write(KEYS.exportFormat, v)

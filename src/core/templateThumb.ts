@@ -11,6 +11,7 @@ import { DESIGN_CONTAINER } from './constants'
 import { computeFooterLayout, computeMagazineLayout, magazineTitleFontSize, measureTextWidth, MAG_SUB_SIZE, MAG_SWATCH_COUNT, MAG_SWATCH_W, MAG_SWATCH_H, CLASSIC_SIDE_INSET, CLASSIC_ROW_GAP, LENS_LINE_GAP } from './infoLayout'
 import { footerTextColor, logoAutoColor, hexLuminance } from './colorUtils'
 import { exportFrame } from './exporter'
+import type { ImgSource } from './bgRenderer'
 import { resolveLogo, preloadBrandLogo } from '../composables/useLogoStore'
 import { FALLBACK_PALETTE } from './photoPalette'
 
@@ -306,11 +307,28 @@ function blobToDataUrl(blob: Blob): Promise<string> {
   })
 }
 
+// ===== 渲染缓存：模板库弹窗高频点击场景的换图提速 =====
+// 源图缓存：同一「图片 URL + 降采样上限」→ 已解码/已降采样的源图，
+// 避免每次渲染都重新解码大照片（解码是缩略图管线里最重的步骤之一）。
+const sourceCache = new Map<string, ImgSource>()
+const SOURCE_CACHE_MAX = 6
+// 结果缓存：「模板配置 + INFO + 源图 + 尺寸」→ 渲染产物 dataURL。
+// 用户在模板间来回对比挑选时，已看过的模板瞬时换图，无需重跑合成管线。
+// 两个缓存均按插入序做简单 FIFO 淘汰（照片切换/模板删除后的旧键自然让位）。
+const renderCache = new Map<string, string>()
+const RENDER_CACHE_MAX = 40
+
+/** Map 的 FIFO 淘汰：删除最早插入的键 */
+function evictOldest<K, V>(map: Map<K, V>): void {
+  const first = map.keys().next()
+  if (!first.done) map.delete(first.value)
+}
+
 /**
  * 用真实照片渲染模板缩略图。
- * 流程：加载内置示例照片 → 必要时降采样 → 用 exporter 完整合成 → 返回 JPG dataURL。
- * info：大预览时传入当前照片的真实 INFO（exifText/dateText/cameraModel/lensText/brand），
- * 缺省时使用示意文本（网格小卡保持稳定统一）。渲染失败则降级为程序化 SVG。
+ * 流程：加载源图（缓存）→ 必要时降采样（缓存）→ 用 exporter 完整合成 → 返回 JPG dataURL（缓存）。
+ * info：传入当前照片的真实 INFO（exifText/dateText/cameraModel/lensText/brand），
+ * 缺省时使用示意文本。渲染失败则降级为程序化 SVG。
  */
 export async function renderTemplateThumbDataUrl(
   config: Partial<FrameConfig>,
@@ -319,10 +337,23 @@ export async function renderTemplateThumbDataUrl(
   info?: ThumbInfoOverride,
 ): Promise<string> {
   try {
-    const img = await loadImageElement(imageUrl)
-    const source = img.naturalWidth > maxLongEdge || img.naturalHeight > maxLongEdge
-      ? downscaleImage(img, maxLongEdge)
-      : img
+    // 结果缓存命中：直接返回已渲染的 dataURL（来回对比模板时瞬时换图）
+    const cacheKey = JSON.stringify([config, info ?? null, imageUrl, maxLongEdge])
+    const cached = renderCache.get(cacheKey)
+    if (cached) return cached
+
+    // 源图缓存：解码 + 降采样只做一次，后续渲染复用
+    const srcKey = `${imageUrl}|${maxLongEdge}`
+    let source = sourceCache.get(srcKey)
+    if (!source) {
+      const img = await loadImageElement(imageUrl)
+      source =
+        img.naturalWidth > maxLongEdge || img.naturalHeight > maxLongEdge
+          ? downscaleImage(img, maxLongEdge)
+          : img
+      sourceCache.set(srcKey, source)
+      if (sourceCache.size > SOURCE_CACHE_MAX) evictOldest(sourceCache)
+    }
     const full = buildDemoConfig(config, info)
     // 复刻 applyTemplateToState 的 Logo 自适应：模板未显式定义 logoColor 时，
     // 浅色纯色底用近黑、其余用白（否则白 Logo 画在白色底上不可见——大预览/缩略图的缺失根因）
@@ -343,7 +374,10 @@ export async function renderTemplateThumbDataUrl(
       }
     }
     const result = await exportFrame(source, full, { format: 'jpg', jpgQuality: DEMO_JPG_QUALITY, logo })
-    return await blobToDataUrl(result.blob)
+    const url = await blobToDataUrl(result.blob)
+    renderCache.set(cacheKey, url)
+    if (renderCache.size > RENDER_CACHE_MAX) evictOldest(renderCache)
+    return url
   } catch (e) {
     console.warn('[templateThumb] 真实缩略图渲染失败，回退到 SVG:', e)
     return templateThumbDataUrl(config)

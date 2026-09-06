@@ -23,6 +23,8 @@ const SCAN_MAX_DEPTH: usize = 3;
 const SCAN_MAX_ENTRIES: usize = 2000;
 /// 单文件读取上限（256MB，防误读超大文件撑爆内存）
 const READ_MAX_BYTES: u64 = 256 * 1024 * 1024;
+/// 项目 GitHub 仓库地址（帮助菜单 → GitHub 项目主页）
+const GITHUB_REPO_URL: &str = "https://github.com/yuhaowang774/FrameLabdesktop";
 
 #[derive(Serialize, Clone)]
 pub struct ImageEntry {
@@ -282,7 +284,12 @@ fn build_menu(app: &AppHandle) -> tauri::Result<()> {
 
     // 帮助
     let show_help = MenuItem::with_id(app, "show_help", "使用帮助", true, None::<&str>)?;
-    let help_menu = SubmenuBuilder::new(app, "帮助").item(&show_help).build()?;
+    let open_github =
+        MenuItem::with_id(app, "open_github", "GitHub 项目主页", true, None::<&str>)?;
+    let help_menu = SubmenuBuilder::new(app, "帮助")
+        .item(&show_help)
+        .item(&open_github)
+        .build()?;
 
     let menu = MenuBuilder::new(app)
         .items(&[&file_menu, &edit_menu, &view_menu, &help_menu])
@@ -911,8 +918,18 @@ pub fn run() {
         // 签名公钥与更新源见 tauri.conf.json plugins.updater
         .plugin(tauri_plugin_updater::Builder::new().build())
         .on_menu_event(|app, event| {
-            // 菜单项 → 前端事件分发（前端在 platform/desktop.ts 中消费）
             let id = event.id().as_ref().to_string();
+            // 帮助 → GitHub 项目主页：后端直接用 ShellExecuteW 打开（不创建 cmd 子进程，规避 Defender 误报）
+            if id == "open_github" {
+                #[cfg(windows)]
+                {
+                    if let Err(e) = shell_open(GITHUB_REPO_URL) {
+                        let _ = app.emit("framelab://menu-error", e);
+                    }
+                }
+                return;
+            }
+            // 菜单项 → 前端事件分发（前端在 platform/desktop.ts 中消费）
             let _ = app.emit("framelab://menu", id);
         })
         .setup(|app| {

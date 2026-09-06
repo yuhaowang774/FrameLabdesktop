@@ -38,9 +38,13 @@ const selectedDesc = computed(() => {
 })
 
 // 网格缩略图：SVG 即时占位 → 用「当前选中照片 + 模板」真实合成（photoSrc 缺省走内置示例图）。
-// 照片切换（photoSrc 变化）时清空重渲，保证缩略图始终对照当前照片。
+// 照片切换（photoSrc）或 INFO 文本变化（previewInfo，与大预览同源）时重渲，
+// 保证缩略图与右侧大预览、实际应用效果一致（此前网格固定用示意 INFO 文本，与实际不符）。
 const thumbs = reactive<Record<string, string>>({})
 const prevThumbSrc = ref<null | string>(null)
+const prevThumbInfo = ref<ThumbInfoOverride | null | undefined>(null)
+// 渲染批次号：新触发使旧批次作废，避免异步渲染完成后用过期结果覆盖新缩略图
+let thumbSeq = 0
 
 // 桌面端照片 src 是 Tauri asset 协议 URL（http://asset.localhost/...）：该来源绘制到 canvas
 // 会因 CORS 污染画布，导致 exportFrame → toBlob 抛 SecurityError，缩略图合成失败回退 SVG（看不到照片）。
@@ -57,35 +61,9 @@ async function photoDrawableSrc(src: string | null): Promise<string | undefined>
   return u
 }
 
-watch(
-  () => [list.value.map((t) => t.id).join(','), state.photoSrc] as const,
-  () => {
-    const src = state.photoSrc || null
-    const srcChanged = src !== prevThumbSrc.value
-    prevThumbSrc.value = src
-    drawableCache = null // 照片切换后缓存失效
-    for (const t of list.value) {
-      const cachedReal = thumbs[t.id] && !thumbs[t.id].startsWith('data:image/svg')
-      if (!srcChanged && cachedReal) continue
-      if (!cachedReal || srcChanged) thumbs[t.id] = templateThumbDataUrl(t.config)
-      void (async () => {
-        try {
-          const ds = await photoDrawableSrc(src)
-          thumbs[t.id] = await renderTemplateThumbDataUrl(t.config, ds, 480)
-        } catch {
-          /* templateThumb 已内建 SVG 兜底 */
-        }
-      })()
-    }
-  },
-  { immediate: true },
-)
-
-// 右栏大预览：选中模板 + 当前编辑照片合成（photoSrc 缺省时走内置示例图）。
-// INFO 用当前照片的真实内容（exifText/dateText/cameraModel/lensText/brand，可留空），
-// 点击卡片应用后 state 回填真实信息 → watch 依赖 info 实时重渲，预览即「应用后效果」。
-const previewId = ref<string | null>(null)
-const previewUrl = ref('')
+// 当前照片的真实 INFO（exifText/dateText/cameraModel/lensText/brand，可留空）：
+// 网格缩略图与右栏大预览共用，保证「缩略图 = 大预览 = 实际应用效果」三处一致。
+// 声明须在下方网格缩略图 watch 之前（其 immediate 回调会立即读取本值）。
 const previewInfo = computed<ThumbInfoOverride | undefined>(() => {
   const has = state.exifText || state.dateText || state.cameraModel || state.lensText
   return has
@@ -98,20 +76,61 @@ const previewInfo = computed<ThumbInfoOverride | undefined>(() => {
       }
     : undefined
 })
+
+watch(
+  () => [list.value.map((t) => t.id).join(','), state.photoSrc, previewInfo.value] as const,
+  () => {
+    const src = state.photoSrc || null
+    const info = previewInfo.value
+    const ctxChanged = src !== prevThumbSrc.value || info !== prevThumbInfo.value
+    prevThumbSrc.value = src
+    prevThumbInfo.value = info
+    const seq = ++thumbSeq
+    drawableCache = null // 照片切换后缓存失效
+    for (const t of list.value) {
+      const cachedReal = thumbs[t.id] && !thumbs[t.id].startsWith('data:image/svg')
+      if (!ctxChanged && cachedReal) continue
+      // 静默换图：已有真实缩略图时保留旧图作底，后台重渲完成后直接替换，
+      // 不回退 SVG 占位图——点击卡片应用模板会改写 INFO（日期格式重排/回填）触发重渲，
+      // 先重置占位图会造成整排缩略图闪烁。
+      if (!cachedReal) thumbs[t.id] = templateThumbDataUrl(t.config)
+      void (async () => {
+        try {
+          const ds = await photoDrawableSrc(src)
+          const url = await renderTemplateThumbDataUrl(t.config, ds, 480, info)
+          if (seq === thumbSeq) thumbs[t.id] = url
+        } catch {
+          /* templateThumb 已内建 SVG 兜底 */
+        }
+      })()
+    }
+  },
+  { immediate: true },
+)
+
+// 右栏大预览：选中模板 + 当前编辑照片合成（photoSrc 缺省时走内置示例图）。
+// INFO 复用上方 previewInfo（当前照片真实内容），
+// 点击卡片应用后 state 回填真实信息 → watch 依赖 info 实时重渲，预览即「应用后效果」。
+const previewId = ref<string | null>(null)
+const previewUrl = ref('')
 watch(
   () => [selected.value?.id, previewInfo.value, state.photoSrc] as const,
   () => {
     const t = selected.value
     if (!t) return
     previewId.value = t.id
-    previewUrl.value = templateThumbDataUrl(t.config)
+    // 静默换图：已有预览图时保留旧图作底，重渲完成后直接替换，避免 SVG 占位闪烁
+    if (!previewUrl.value || previewUrl.value.startsWith('data:image/svg')) {
+      previewUrl.value = templateThumbDataUrl(t.config)
+    }
     void (async () => {
       try {
         const photoSrc = await photoDrawableSrc(state.photoSrc || null)
         const url = await renderTemplateThumbDataUrl(t.config, photoSrc, 960, previewInfo.value)
         if (previewId.value === t.id) previewUrl.value = url
       } catch {
-        /* 回退 SVG */
+        // 渲染异常：回退 SVG 示意图，避免停留在上一个模板的旧图上
+        if (previewId.value === t.id) previewUrl.value = templateThumbDataUrl(t.config)
       }
     })()
   },

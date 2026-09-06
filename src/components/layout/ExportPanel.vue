@@ -1,12 +1,12 @@
 <script setup lang="ts">
-// 导出模块：格式/画质/尺寸配置、单张/批量导出、进度条、参数批量同步。
+// 导出模块：格式/画质/尺寸配置、单张/批量导出、进度条。
+// （原「批量同步 → 保存当前配置为模板」入口已移至编辑页左栏「我的模板」面板。）
 // 导出成功后弹出预览（图片 + 保存按钮），确保用户「看得到」导出结果。
 // 桌面端（Tauri）：保存走系统对话框 + Rust 写盘；批量导出先选目录再逐张写入。
 import { ref, computed, watch } from 'vue'
 import { useLibrary, type LibraryItem } from '../../composables/useLibrary'
 import { useFrameConfig } from '../../composables/useFrameConfig'
 import { useAppState } from '../../composables/useAppState'
-import { useTemplates } from '../../composables/useTemplates'
 import type { FrameConfig } from '../../core/types'
 import { buildExifText, formatDate } from '../../composables/useExif'
 import { getExportFormatPref, getExportQualityPref } from '../../composables/usePrefs'
@@ -27,7 +27,6 @@ import RangeSlider from '../common/RangeSlider.vue'
 const library = useLibrary()
 const { state } = useFrameConfig()
 const app = useAppState()
-const templates = useTemplates()
 
 // 默认格式/画质可在「首选项 → 导出」中调整，打开导出页时采用该默认值
 const format = ref<ExportFormat>(getExportFormatPref())
@@ -340,15 +339,6 @@ async function exportBatch() {
   }
 }
 
-// ===== 参数批量同步 =====
-const syncName = ref('')
-function syncToSelected() {
-  if (!syncName.value.trim()) syncName.value = '批量同步模板'
-  templates.saveCurrent(syncName.value, state, 'all')
-  window.alert('已将当前配置保存为模板「' + syncName.value + '」，可在左侧「相框模板库 / 背景模板库」点击应用到各照片。')
-  syncName.value = ''
-}
-
 // ===== 照片选择（与图库/胶片条多选逻辑一致） =====
 function onThumbClick(item: { id: string }, e: MouseEvent) {
   if (e.metaKey || e.ctrlKey) {
@@ -435,20 +425,6 @@ function onThumbClick(item: { id: string }, e: MouseEvent) {
             spellcheck="false"
             placeholder="每行一条：查找 => 替换&#10;如 腾龙28-200 E A071 => 腾龙 28-200"
           ></textarea>
-        </div>
-      </section>
-
-      <!-- 批量同步（次级） -->
-      <section class="card secondary">
-        <div class="group-head">
-          <Icon name="border" />
-          <h3>批量同步</h3>
-          <span class="head-hint">保存当前配置为模板</span>
-        </div>
-        <p class="hint">把当前相框/背景配置保存为模板，在左侧模板库一键应用到各照片。</p>
-        <div class="row">
-          <input v-model="syncName" class="inp" placeholder="模板名称" />
-          <button class="btn" @click="syncToSelected">保存为模板</button>
         </div>
       </section>
     </div>
@@ -588,7 +564,6 @@ function onThumbClick(item: { id: string }, e: MouseEvent) {
   border-radius: 0;
   padding: 12px 14px;
 }
-.card.secondary { opacity: 0.92; }
 .group-head {
   display: flex;
   align-items: center;
@@ -674,18 +649,6 @@ function onThumbClick(item: { id: string }, e: MouseEvent) {
   line-height: 16px;
   font-family: inherit;
   resize: vertical;
-}
-.inp {
-  flex: 1;
-  height: 22px;
-  background: var(--panel-2);
-  border: 1px solid var(--border);
-  border-radius: 0;
-  color: var(--text);
-  padding: 0 8px;
-  font-size: 12px;
-  font-weight: 400;
-  line-height: 16px;
 }
 .hint {
   font-size: 12px;

@@ -860,6 +860,10 @@ function absStyle(key: ItemKey) {
   display: block;
   object-fit: contain;
   width: auto;
+  /* .drag-item 的 4px padding + 全局 border-box 会把 height: var(--logo-size)
+     的可视内容压缩为 logoSize − 8px，比模板库缩略图/导出小一截；
+     content-box 让 8px padding 只作拖拽热区，Logo 本体恢复为完整 logoSize */
+  box-sizing: content-box;
   filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.25));
 }
 .exif-text {
