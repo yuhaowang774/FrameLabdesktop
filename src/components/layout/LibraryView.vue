@@ -1,9 +1,11 @@
 <script setup lang="ts">
 // 图库模块：网格缩略图管理素材，支持拖拽/点击导入、多选、移除，点击进编辑。
 // 移除语义（同 LrC）：仅从软件图库中移除引用与编辑记录，磁盘上的原文件不会被删除。
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useLibrary } from '../../composables/useLibrary'
 import { useAppState } from '../../composables/useAppState'
+import { isTauri } from '../../platform/env'
+import { addLocalEntries, onDropImageFiles, pickImageFiles } from '../../platform/fs'
 import GlassModal from '../common/GlassModal.vue'
 
 const library = useLibrary()
@@ -13,6 +15,36 @@ const dragOver = ref(false)
 const fileInput = ref<HTMLInputElement | null>(null)
 
 const selectedCount = computed(() => library.items.filter((i) => i.selected).length)
+
+// 「导入」按钮：桌面端走系统对话框拿磁盘路径（进 catalog 持久化，重启可还原），
+// 与菜单「导入照片…」同链路；网页端保留 file input（blob 引用，无持久化能力）。
+async function onImportClick(): Promise<void> {
+  if (isTauri) {
+    const list = await pickImageFiles()
+    if (list.length) await addLocalEntries(list)
+  } else {
+    fileInput.value?.click()
+  }
+}
+
+// 拖拽：桌面端监听 Tauri 原生拖放（真实磁盘路径导入），网页端走 HTML5 drop（addFiles）。
+// 桌面端 drag_and_drop 开启后 HTML5 drop 事件不再触发，模板上的 @drop 仅网页端生效。
+let unlistenDrop: (() => void) | null = null
+onMounted(async () => {
+  if (!isTauri) return
+  unlistenDrop = await onDropImageFiles(
+    (over) => {
+      dragOver.value = over
+    },
+    (entries) => {
+      void addLocalEntries(entries)
+    },
+  )
+})
+onBeforeUnmount(() => {
+  unlistenDrop?.()
+  unlistenDrop = null
+})
 
 function onPick(e: Event) {
   const input = e.target as HTMLInputElement
@@ -84,14 +116,14 @@ function onConfirmRemove() {
         <h2>图库</h2>
         <p>拖拽照片到此处，或点击导入</p>
         <div class="empty-actions">
-          <button class="btn-primary" @click="fileInput?.click()">导入照片</button>
+          <button class="btn-primary" @click="onImportClick">导入照片</button>
         </div>
         <input ref="fileInput" type="file" accept="image/*" multiple hidden @change="onPick" />
       </div>
 
       <template v-else>
         <div class="lib-toolbar">
-          <button class="btn" @click="fileInput?.click()">＋ 导入</button>
+          <button class="btn" @click="onImportClick">＋ 导入</button>
           <span class="count">共 {{ library.items.length }} 张 · 已选 {{ selectedCount }}</span>
           <span class="spacer" />
           <button class="btn" :disabled="!selectedCount" title="仅从图库移除，不删除磁盘原文件" @click="askRemoveSelected">移除选中</button>

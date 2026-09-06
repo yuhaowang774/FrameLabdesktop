@@ -49,6 +49,32 @@ export async function listDirImages(dir: string, recursive: boolean): Promise<Lo
   return tauriInvoke<LocalImageEntry[]>('list_dir_images', { dir, recursive })
 }
 
+/**
+ * 桌面端：监听窗口文件拖放（Tauri 原生事件，需 WebviewWindow drag_and_drop 开启）。
+ * 拖入的是真实磁盘路径 → 调用方走 addLocalEntries 导入（进 catalog 持久化，重启可还原），
+ * 与菜单「导入照片…」同链路；拖入非图片文件（含文件夹）自动过滤。
+ * 返回取消监听函数；网页端不应调用。
+ */
+export async function onDropImageFiles(
+  onHover: (over: boolean) => void,
+  onDropEntries: (entries: LocalImageEntry[]) => void,
+): Promise<() => void> {
+  const { getCurrentWebview } = await import('@tauri-apps/api/webview')
+  return getCurrentWebview().onDragDropEvent((event) => {
+    if (event.payload.type === 'enter' || event.payload.type === 'over') {
+      onHover(true)
+    } else if (event.payload.type === 'leave') {
+      onHover(false)
+    } else if (event.payload.type === 'drop') {
+      onHover(false)
+      const entries = event.payload.paths
+        .filter(isImagePath)
+        .map((p) => ({ path: p, name: p.split(/[\\/]/).pop() || p }))
+      if (entries.length) onDropEntries(entries)
+    }
+  })
+}
+
 // ===== 桌面端：字节读取（EXIF / 自定义背景） =====
 
 export function base64ToBytes(b64: string): Uint8Array {
@@ -72,6 +98,14 @@ const MIME: Record<string, string> = {
   gif: 'image/gif',
   bmp: 'image/bmp',
   avif: 'image/avif',
+}
+
+/** 支持的图片扩展名集合（与 Rust 端 IMAGE_EXTS 对齐） */
+const IMAGE_EXT_SET: ReadonlySet<string> = new Set(Object.keys(MIME))
+
+/** 路径扩展名是否为支持的图片（拖放导入过滤用） */
+export function isImagePath(p: string): boolean {
+  return IMAGE_EXT_SET.has(extOf(p))
 }
 
 /** 桌面端：读取本地文件全部内容（base64） */

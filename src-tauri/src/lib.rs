@@ -952,7 +952,9 @@ pub fn run() {
                 .additional_browser_args(
                     "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --ignore-gpu-blocklist --enable-gpu-rasterization",
                 )
-                .drag_and_drop(false);
+                // 拖放保持 Tauri 原生处理：前端经 onDragDropEvent 拿到拖入文件的真实磁盘路径，
+                // 走 addLocalEntries 导入（进 catalog 持久化，重启可还原）；网页端 HTML5 拖放不受影响。
+                .drag_and_drop(true);
             if cfg!(debug_assertions) {
                 let dir = app
                     .path()
