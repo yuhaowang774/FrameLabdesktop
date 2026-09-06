@@ -124,8 +124,22 @@ onBeforeUnmount(() => {
               <div class="guide-h">格式与隐私</div>
               <p>支持导入 JPG/PNG/WebP/GIF/BMP/AVIF（HEIC/RAW 请先转格式）；导出 PNG 无损 / JPG 高画质，按原始像素合成。所有处理均在本地完成，原图不上传。</p>
             </div>
+            <div class="guide-sec">
+              <div class="guide-h">意见反馈</div>
+              <p>
+                遇到问题或有功能建议，欢迎通过邮箱
+                <a class="fb-link" href="mailto:1726168641@qq.com?subject=FrameLab%20意见反馈">1726168641@qq.com</a>
+                联系我们，或到
+                <a class="fb-link" href="https://github.com/yuhaowang774/FrameLabdesktop/issues/new" target="_blank" rel="noopener">GitHub 提 Issue</a>。
+              </p>
+            </div>
           </div>
           <div class="guide-foot">
+            <a
+              class="guide-mail"
+              title="点击打开邮件客户端反馈"
+              href="mailto:1726168641@qq.com?subject=FrameLab%20%E6%84%8F%E8%A7%81%E5%8F%8D%E9%A6%88"
+            >反馈邮箱：<b>1726168641@qq.com</b></a>
             <button class="guide-btn" @click="guideOpen = false">开始使用</button>
           </div>
         </div>
@@ -351,5 +365,28 @@ onBeforeUnmount(() => {
 }
 .guide-btn:hover {
   background: var(--hover);
+}
+/* 反馈链接（使用指南 → 意见反馈区块） */
+.fb-link {
+  color: var(--accent);
+  text-decoration: underline;
+  word-break: break-all;
+}
+.fb-link:hover {
+  filter: brightness(1.15);
+}
+/* 使用指南底部常驻反馈邮箱 */
+.guide-mail {
+  margin-right: auto;
+  font-size: 12px;
+  color: var(--text-dim);
+  text-decoration: none;
+}
+.guide-mail b {
+  color: var(--accent);
+  font-weight: 500;
+}
+.guide-mail:hover b {
+  text-decoration: underline;
 }
 </style>

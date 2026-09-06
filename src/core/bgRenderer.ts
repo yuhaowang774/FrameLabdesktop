@@ -265,31 +265,44 @@ export function drawGrain(
   seed = 1,
 ): void {
   if (strength <= 0) return
-  const count = Math.floor((w * h) / 4) * strength
-  const c = createOffscreen(w, h)
-  const cx = (c as any).getContext('2d') as CanvasRenderingContext2D
-  if (!cx) return
-  const img = cx.createImageData(w, h)
-  const d = img.data
-  let s = seed * 9301 + 49297
-  const rnd = () => {
-    s = (s * 9301 + 49297) % 233280
-    return s / 233280
+  // 噪点离屏缓存：同尺寸同强度（seed 默认恒定）的噪点内容不变，
+  // 重建 ImageData 是 w*h/4 次随机采样，缓存后滑块拖动仅一次 drawImage。
+  const key = `${w}x${h}:${strength}:${seed}`
+  let c = grainCache.get(key)
+  if (!c) {
+    const count = Math.floor((w * h) / 4) * strength
+    c = createOffscreen(w, h)
+    const cx = (c as any).getContext('2d') as CanvasRenderingContext2D
+    if (!cx) return
+    const img = cx.createImageData(w, h)
+    const d = img.data
+    let s = seed * 9301 + 49297
+    const rnd = () => {
+      s = (s * 9301 + 49297) % 233280
+      return s / 233280
+    }
+    const alpha = Math.round(0.06 * strength * 255)
+    for (let i = 0; i < count; i++) {
+      const x = Math.floor(rnd() * w)
+      const y = Math.floor(rnd() * h)
+      const v = rnd() > 0.5 ? 255 : 0
+      const p = (y * w + x) * 4
+      d[p] = v
+      d[p + 1] = v
+      d[p + 2] = v
+      d[p + 3] = alpha
+    }
+    cx.putImageData(img, 0, 0)
+    grainCache.set(key, c)
+    // 防膨胀：只保留最近 4 张噪点
+    if (grainCache.size > 4) {
+      const first = grainCache.keys().next().value
+      if (first !== undefined) grainCache.delete(first)
+    }
   }
-  const alpha = Math.round(0.06 * strength * 255)
-  for (let i = 0; i < count; i++) {
-    const x = Math.floor(rnd() * w)
-    const y = Math.floor(rnd() * h)
-    const v = rnd() > 0.5 ? 255 : 0
-    const p = (y * w + x) * 4
-    d[p] = v
-    d[p + 1] = v
-    d[p + 2] = v
-    d[p + 3] = alpha
-  }
-  cx.putImageData(img, 0, 0)
   ctx.drawImage(c as CanvasImageSource, 0, 0)
 }
+const grainCache = new Map<string, HTMLCanvasElement | OffscreenCanvas>()
 
 /**
  * 绘制水印（文本/图片，单一或平铺）。

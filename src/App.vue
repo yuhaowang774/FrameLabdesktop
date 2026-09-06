@@ -71,6 +71,8 @@ async function loadActive() {
     const im = await loadImage(active.url)
     if (seq !== switchSeq) return // 已切换到其他照片，丢弃本次结果
     // 2) 恢复该照片历史链当前步骤的参数
+    //    先落盘待提交历史（此刻 state 仍是旧照片参数），避免切图后惰性快照误拍新照片参数
+    await history.flushPending()
     await history.ensureChain(active.id)
     if (seq !== switchSeq) return
     // 3) 原子切换：图源、背景、历史参数在同一同步块内更新 → 单次渲染、单次 fit

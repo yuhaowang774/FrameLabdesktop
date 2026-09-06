@@ -5,9 +5,7 @@
 import { useAppState } from '../../composables/useAppState'
 import { useLibrary } from '../../composables/useLibrary'
 import { useFrameConfig } from '../../composables/useFrameConfig'
-import type { FrameConfig } from '../../core/types'
 import CollapsiblePanel from '../common/CollapsiblePanel.vue'
-import Switch from '../common/Switch.vue'
 import Icon from '../common/Icon.vue'
 import ImageLayout from '../controls/ImageLayout.vue'
 import BackgroundMode from '../controls/BackgroundMode.vue'
@@ -16,23 +14,11 @@ import InfoLayerPanel from '../controls/InfoLayerPanel.vue'
 
 const app = useAppState()
 const library = useLibrary()
-const { state, reset, patch } = useFrameConfig()
+const { reset, patch } = useFrameConfig()
 const P = app.state.rightPanels
 
 function isOpen(id: 'photo' | 'background' | 'border' | 'info'): boolean {
   return P[id]
-}
-
-/** 三栏显示开关联动：切层显隐 + 折叠面板跟随；切「开」时额外确保整个右栏可见，
- *  避免「面板已展开但右栏整体被收起（rightOpen=false）」时看不到展开的例外。 */
-function onShowToggle(
-  key: 'showBackground' | 'showBorder' | 'showInfo',
-  panel: 'background' | 'border' | 'info',
-  v: boolean,
-) {
-  patch({ [key]: v } as Partial<FrameConfig>)
-  app.setPanel('right', panel, v)
-  if (v) app.state.rightOpen = true
 }
 
 /** 顶部工具栏：全部折叠 / 全部展开 */
@@ -48,7 +34,7 @@ const DEFAULT = {
   // 照片
   shadow: 0.5,
   photoRadius: 0,
-  photoRotation: 0 as 0 | 90 | 180 | 270,
+  photoRotation: 0,
   photoCrop: { x: 0, y: 0, w: 1, h: 1 },
   photoX: null as number | null,
   photoY: null as number | null,
@@ -208,7 +194,6 @@ function onResizeUp() {
       >
         <template #icon><Icon name="background" /></template>
         <template #actions>
-          <Switch :model-value="state.showBackground" title="显示/隐藏背景层" @update:model-value="(v: boolean) => onShowToggle('showBackground', 'background', v)" />
           <button title="复位背景参数" @click="resetBackground()">复位</button>
         </template>
         <BackgroundMode />
@@ -222,7 +207,6 @@ function onResizeUp() {
       >
         <template #icon><Icon name="border" /></template>
         <template #actions>
-          <Switch :model-value="state.showBorder" title="显示/隐藏边框层" @update:model-value="(v: boolean) => onShowToggle('showBorder', 'border', v)" />
           <button title="复位边框参数" @click="resetBorder()">复位</button>
         </template>
         <BorderSettings />
@@ -236,7 +220,6 @@ function onResizeUp() {
       >
         <template #icon><Icon name="info" /></template>
         <template #actions>
-          <Switch :model-value="state.showInfo" title="显示/隐藏 INFO 信息" @update:model-value="(v: boolean) => onShowToggle('showInfo', 'info', v)" />
           <button title="复位 INFO 参数" @click="resetInfo()">复位</button>
         </template>
         <InfoLayerPanel />

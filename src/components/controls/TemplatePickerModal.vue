@@ -11,9 +11,17 @@ import { useFrameConfig } from '../../composables/useFrameConfig'
 import { templateThumbDataUrl, renderTemplateThumbDataUrl, type ThumbInfoOverride } from '../../core/templateThumb'
 import GlassModal from '../common/GlassModal.vue'
 
-const props = withDefaults(defineProps<{ modelValue: boolean; category?: 'frame' | 'all' }>(), {
-  category: 'frame',
-})
+const props = withDefaults(
+  defineProps<{
+    modelValue: boolean
+    category?: 'frame' | 'all'
+    /** 仅显示「我的模板」（自定义模板）分组：左栏「我的模板」入口使用，附保存当前配置表单 */
+    customOnly?: boolean
+    /** 弹窗标题（默认「相框模板库」；我的模板入口传「我的模板」） */
+    title?: string
+  }>(),
+  { category: 'frame', customOnly: false, title: '' },
+)
 const emit = defineEmits<{ 'update:modelValue': [value: boolean] }>()
 
 const templates = useTemplates()
@@ -21,16 +29,37 @@ const app = useAppState()
 const library = useLibrary()
 const { state } = useFrameConfig()
 
-const list = computed(() =>
-  props.category === 'frame'
+const list = computed(() => {
+  if (props.customOnly) return templates.templates.filter((t) => !t.builtin)
+  return props.category === 'frame'
     ? templates.templates.filter((t) => t.category === 'frame' || t.category === 'all')
-    : templates.templates.filter((t) => t.category === props.category),
-)
+    : templates.templates.filter((t) => t.category === props.category)
+})
+
+// ===== 保存当前配置为模板（customOnly 模式：保存表单内嵌弹窗顶部） =====
+const saveName = ref('')
+const savedTip = ref('')
+let tipTimer: ReturnType<typeof setTimeout> | undefined
+function onSaveCurrent() {
+  const now = new Date()
+  // 留空自动命名「我的模板 M.D」，多次保存也可区分
+  const trimmed = saveName.value.trim() || `我的模板 ${now.getMonth() + 1}.${now.getDate()}`
+  templates.saveCurrent(trimmed, state, 'all')
+  saveName.value = ''
+  savedTip.value = `已保存「${trimmed}」，点击卡片即可应用`
+  clearTimeout(tipTimer)
+  tipTimer = setTimeout(() => (savedTip.value = ''), 2500)
+}
 const builtinList = computed(() => list.value.filter((t) => t.builtin))
 const customList = computed(() => list.value.filter((t) => !t.builtin))
 
 const selectedId = ref<string | null>(null)
-const selected = computed(() => list.value.find((t) => t.id === selectedId.value) ?? builtinList.value[0] ?? null)
+const selected = computed(
+  () =>
+    list.value.find((t) => t.id === selectedId.value) ??
+    (props.customOnly ? null : builtinList.value[0]) ??
+    null,
+)
 // desc 字段由后续任务加入 FrameTemplate；此处防御式读取避免类型错误
 const selectedDesc = computed(() => {
   const raw = (selected.value as { desc?: string } | null)?.desc
@@ -180,6 +209,20 @@ function removeCustom(t: { id: string }) {
   if (selectedId.value === t.id) selectedId.value = null
 }
 
+// ===== 重命名自定义模板 =====
+const renameOpen = ref(false)
+const renameId = ref('')
+const renameValue = ref('')
+function askRename(t: { id: string; name: string }) {
+  renameId.value = t.id
+  renameValue.value = t.name
+  renameOpen.value = true
+}
+function doRename(newName: string) {
+  if (renameId.value) templates.rename(renameId.value, newName)
+  renameOpen.value = false
+}
+
 // 关闭
 function close() {
   emit('update:modelValue', false)
@@ -188,7 +231,10 @@ function onKeydown(e: KeyboardEvent) {
   if (e.key === 'Escape') close()
 }
 onMounted(() => window.addEventListener('keydown', onKeydown))
-onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', onKeydown)
+  clearTimeout(tipTimer)
+})
 </script>
 
 <template>
@@ -196,7 +242,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
     <div v-if="modelValue" class="tp-mask" @click.self="close">
       <div class="tp-modal">
         <div class="tp-head">
-          <span class="tp-title">相框模板库</span>
+          <span class="tp-title">{{ props.title || '相框模板库' }}</span>
           <span class="tp-count" v-if="list.length">共 {{ list.length }} 套</span>
           <button class="tp-close" title="关闭 (Esc)" @click="close">✕</button>
         </div>
@@ -204,9 +250,23 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
         <div class="tp-body">
           <!-- 左：模板网格 -->
           <div class="tp-col tp-grid-col">
-            <p v-if="list.length === 0" class="tp-empty">暂无模板。</p>
+            <!-- 我的模板模式：顶部内嵌「保存当前配置」表单 -->
+            <div v-if="customOnly" class="tp-save">
+              <input
+                v-model="saveName"
+                class="tp-save-inp"
+                placeholder="模板名称（留空自动命名）"
+                maxlength="30"
+                @keydown.enter="onSaveCurrent"
+              />
+              <button class="tp-save-btn" @click="onSaveCurrent">保存当前配置</button>
+            </div>
+            <p v-if="customOnly && savedTip" class="tp-save-tip">{{ savedTip }}</p>
+            <p v-if="list.length === 0" class="tp-empty">
+              {{ customOnly ? '还没有自定义模板。调好样式后点上方按钮保存。' : '暂无模板。' }}
+            </p>
             <template v-else>
-              <h4 class="tp-group" v-if="builtinList.length">内置模板（{{ builtinList.length }}）</h4>
+              <h4 class="tp-group" v-if="!customOnly && builtinList.length">内置模板（{{ builtinList.length }}）</h4>
               <div class="tp-grid">
                 <div
                   v-for="t in builtinList"
@@ -236,6 +296,7 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
                   <div class="tp-card-meta">
                     <span class="tp-card-name">{{ t.name }}</span>
                     <span class="tp-card-desc tp-card-desc-custom">自定义模板</span>
+                    <span class="tp-card-ren" title="重命名" @click.stop="askRename(t)">✎</span>
                     <span class="tp-card-del" title="删除该模板" @click.stop="removeCustom(t)">✕</span>
                   </div>
                 </div>
@@ -270,6 +331,18 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
   </Teleport>
 
   <GlassModal v-model="missingOpen" title="INFO 信息缺失提示" :message="missingMsg" confirm-text="知道了" />
+
+  <!-- 重命名模板 -->
+  <GlassModal
+    v-model="renameOpen"
+    title="重命名模板"
+    message="输入新的模板名称："
+    input-mode
+    :input-value="renameValue"
+    input-placeholder="模板名称"
+    confirm-text="确定"
+    @confirm="doRename"
+  />
 </template>
 
 <style scoped>
@@ -323,9 +396,28 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
   cursor: pointer; color: var(--text-dim); font-size: 13px;
   background: rgba(0, 0, 0, 0.35); border: 1px solid transparent;
 }
-.tp-card-batch:hover, .tp-card-del:hover { color: var(--text); background: rgba(0, 0, 0, 0.6); border-color: var(--border); }
+.tp-card-batch:hover, .tp-card-del:hover, .tp-card-ren:hover { color: var(--text); background: rgba(0, 0, 0, 0.6); border-color: var(--border); }
 .tp-card-del { right: 30px; }
+.tp-card-ren { right: 54px; }
 .tp-empty { color: var(--text-dim); font-size: 12px; }
+/* 我的模板模式：顶部保存当前配置表单 */
+.tp-save { display: flex; gap: 6px; }
+.tp-save-inp {
+  flex: 1; min-width: 0; height: 26px; padding: 0 8px;
+  border: 1px solid var(--border); background: var(--panel-2);
+  color: var(--text); font-size: 12px; font-family: inherit;
+}
+.tp-save-inp:focus { outline: none; border-color: var(--accent); }
+.tp-save-inp::placeholder { color: var(--text-dim); }
+.tp-save-btn {
+  flex: none; height: 26px; padding: 0 12px;
+  border: 1px solid var(--accent); background: var(--accent);
+  color: var(--text); font-size: 12px; line-height: 16px;
+  cursor: pointer; font-family: inherit;
+}
+.tp-save-btn:hover { filter: brightness(1.08); }
+.tp-save-btn:active { background: var(--pressed); }
+.tp-save-tip { font-size: 11px; color: var(--text); }
 .tp-preview-col { display: flex; flex-direction: column; align-items: stretch; gap: 10px; }
 .tp-preview-box {
   flex: 1; display: flex; align-items: center; justify-content: center;

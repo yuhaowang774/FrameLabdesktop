@@ -1,7 +1,8 @@
 /** 背景模式：背景模糊 | 纯色 | 照片填充 */
 export type BgMode = 'blur' | 'solid' | 'photo'
 export type OverlayAlign = 'left' | 'center' | 'right'
-export type PhotoRotation = 0 | 90 | 180 | 270
+/** 照片旋转角度（度，顺时针，任意角度；0/90/180/270 为正交特例） */
+export type PhotoRotation = number
 
 /**
  * 图层标识。相框由下至上叠放 4 个图层，符合 PS 图层叠加编辑逻辑：
@@ -228,7 +229,8 @@ export const defaultFrameConfig: FrameConfig = {
   showInfo: true,
 
   blur: 40,
-  padding: 0,
+  // 默认 60：新照片自带可见边框（此前默认 0，用户必须手动调大才能看到边框）
+  padding: 60,
   borderRatio: 0,
   borderColor: '#000000',
   borderRadius: 0,

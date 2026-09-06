@@ -4,6 +4,8 @@
 // 展开本面板时画布上的三个元素可拖拽微调位置；收起后固定显示（打印态）。
 import { computed, ref } from 'vue'
 import { useFrameConfig } from '../../composables/useFrameConfig'
+import { useAppState } from '../../composables/useAppState'
+import { infoCenterRequest } from '../../composables/useUi'
 import { BRANDS, PHONE_BRANDS, RANGES, MAX_CUSTOM_LOGOS, CROP_FACTORS, BRAND_LOGO_COLORS, phoneBrandOf } from '../../core/constants'
 import { buildExifText, formatDate, parseDisplayDate, parseExif, cleanLens, type DateFormat } from '../../composables/useExif'
 import { footerTextColor } from '../../core/colorUtils'
@@ -19,7 +21,8 @@ import type { FrameConfig } from '../../core/types'
 
 const { state, patch } = useFrameConfig()
 const r = RANGES
-const { listCustomLogos, uploadCustomLogo, removeCustomLogo } = useLogoStore()
+const app = useAppState()
+const { listCustomLogos, uploadCustomLogo, addTextLogo, removeCustomLogo } = useLogoStore()
 
 // ===== 品牌选项 =====
 const brandOptions = BRANDS.map((b) => ({ value: b.id, label: b.name }))
@@ -30,7 +33,14 @@ const customBrandOptions = computed(() =>
 )
 
 // ===== Logo 颜色：白 / 黑 / 品牌主色（官方原色，仅收录了品牌色的品牌出现）/ 自定义色 =====
-const brandHex = computed(() => BRAND_LOGO_COLORS[state.brand])
+// 品牌主色：相机品牌取 BRAND_LOGO_COLORS，手机品牌取 accent（官方近似的品牌识别色）
+const brandHex = computed(() => BRAND_LOGO_COLORS[state.brand] ?? phoneBrandOf(state.brand)?.accent)
+// 切换品牌时自动套用该品牌的官方主色（手机品牌图形 Logo 默认即品牌主色）；
+// 相机品牌仅在收录了官方主色时联动，未收录保持当前色。
+function onBrandChange() {
+  const accent = BRAND_LOGO_COLORS[state.brand] ?? phoneBrandOf(state.brand)?.accent
+  if (accent && state.logoColor !== accent) patch({ logoColor: accent })
+}
 // card 联名标块默认配色（当前品牌无标块时为 null，不显示调节项）
 const badgeDefault = computed(() => {
   if (!phoneBrandOf(state.brand)?.badge.text) return null
@@ -166,6 +176,30 @@ async function onDeleteCustom(id: string) {
   }
   refreshCustom()
 }
+
+// ===== 文本生成 Logo：直接打字生成文字标（与上传 Logo 同链路持久化） =====
+const textLogoContent = ref('')
+const textLogoColor = ref('#ffffff')
+const creatingText = ref(false)
+async function onCreateTextLogo() {
+  if (atLimit.value) {
+    failMsg.value = `自定义 Logo 已达上限（${MAX_CUSTOM_LOGOS} 个）`
+    failOpen.value = true
+    return
+  }
+  creatingText.value = true
+  try {
+    const id = await addTextLogo(textLogoContent.value, { color: textLogoColor.value })
+    refreshCustom()
+    patch({ brand: `${CUSTOM_PREFIX}${id}`, showLogo: true })
+    textLogoContent.value = ''
+  } catch (err) {
+    failMsg.value = (err as Error).message || '生成失败'
+    failOpen.value = true
+  } finally {
+    creatingText.value = false
+  }
+}
 </script>
 
 <template>
@@ -183,6 +217,17 @@ async function onDeleteCustom(id: string) {
         <option value="card">手机白底卡</option>
         <option value="magazine">杂志编辑</option>
       </select>
+    </div>
+    <!-- INFO 编排工具：组合拖动 + 整体居中 -->
+    <div class="field group-tools">
+      <label class="show-switch" title="开启后拖拽任一 INFO 元素，全部元素保持相对位置整体移动">
+        <input type="checkbox" v-model="app.state.infoGroupDrag" />
+        <span class="box" />
+        <span class="sw-tag">组合拖动</span>
+      </label>
+      <button class="mini-btn" title="按全部 INFO 元素的包围盒整体水平居中" @click="infoCenterRequest++">
+        整体居中
+      </button>
     </div>
     <!-- magazine 模式专属：顶部标题文本 / 取色色卡开关（提示调大上边留白以容纳标题区） -->
     <template v-if="state.infoLayout === 'magazine'">
@@ -273,7 +318,7 @@ async function onDeleteCustom(id: string) {
       </label>
       <div class="field">
         <label>品牌</label>
-        <select v-model="state.brand" class="select">
+        <select v-model="state.brand" class="select" @change="onBrandChange">
           <optgroup label="相机">
             <option v-for="o in brandOptions" :key="o.value" :value="o.value">{{ o.label }}</option>
           </optgroup>
@@ -287,6 +332,7 @@ async function onDeleteCustom(id: string) {
       </div>
       <RangeSlider v-model="state.logoSize" :min="r.logoSize.min" :max="r.logoSize.max" :step="r.logoSize.step" label="Logo 大小" />
       <RangeSlider v-model="state.logoOpacity" :min="r.logoOpacity.min" :max="r.logoOpacity.max" :step="r.logoOpacity.step" label="Logo 透明度" />
+      <!-- 「型号距 Logo」间距项已移除：多数布局下无可见效果，布局间距由布局引擎统一决定 -->
       <div class="field">
         <label>Logo 颜色</label>
         <ColorField
@@ -296,11 +342,25 @@ async function onDeleteCustom(id: string) {
           @update:model-value="(v: string | null) => patch({ logoColor: v ?? '#ffffff' })"
         />
       </div>
-      <!-- 自定义 Logo：上传 + 列表 -->
+      <!-- 自定义 Logo：上传 / 文本生成 + 列表 -->
       <div class="custom-logo">
         <button class="mini-btn" :disabled="uploading || atLimit" @click="pickLogo">
           {{ uploading ? '上传中…' : atLimit ? `已达上限 ${MAX_CUSTOM_LOGOS}` : '+ 上传自定义 Logo' }}
         </button>
+        <!-- 文本生成 Logo：输入文字直接生成文字标（免做图） -->
+        <div class="text-logo-row">
+          <input
+            v-model="textLogoContent"
+            class="text-input"
+            placeholder="输入文字生成 Logo，如 © JOHN"
+            maxlength="24"
+            @keydown.enter="onCreateTextLogo"
+          />
+          <ColorField v-model="textLogoColor" :auto="false" />
+          <button class="mini-btn" :disabled="creatingText || !textLogoContent.trim()" @click="onCreateTextLogo">
+            {{ creatingText ? '生成中…' : '生成' }}
+          </button>
+        </div>
         <ul v-if="customLogos.length" class="logo-list">
           <li v-for="c in customLogos" :key="c.id" :class="{ active: state.brand === CUSTOM_PREFIX + c.id }">
             <button class="logo-thumb" :title="c.name" @click="patch({ brand: CUSTOM_PREFIX + c.id, showLogo: true })">
@@ -659,6 +719,26 @@ async function onDeleteCustom(id: string) {
   gap: 6px;
   padding: 6px;
   border: 1px dashed var(--border);
+}
+/* 文本生成 Logo 行：输入 + 颜色 + 生成按钮 */
+.text-logo-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.text-logo-row .text-input {
+  flex: 1;
+  min-width: 0;
+}
+.text-logo-row :deep(.color-field) {
+  flex: none;
+}
+/* INFO 编排工具行：组合拖动开关 + 整体居中按钮 */
+.group-tools {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
 }
 .logo-list {
   list-style: none;

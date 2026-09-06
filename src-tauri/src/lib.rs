@@ -25,6 +25,8 @@ const SCAN_MAX_ENTRIES: usize = 2000;
 const READ_MAX_BYTES: u64 = 256 * 1024 * 1024;
 /// 项目 GitHub 仓库地址（帮助菜单 → GitHub 项目主页）
 const GITHUB_REPO_URL: &str = "https://github.com/yuhaowang774/FrameLabdesktop";
+/// 意见反馈：GitHub 新建 Issue（帮助菜单 → 意见反馈；邮箱直接显示在菜单中）
+const GITHUB_ISSUES_URL: &str = "https://github.com/yuhaowang774/FrameLabdesktop/issues/new";
 
 #[derive(Serialize, Clone)]
 pub struct ImageEntry {
@@ -286,8 +288,20 @@ fn build_menu(app: &AppHandle) -> tauri::Result<()> {
     let show_help = MenuItem::with_id(app, "show_help", "使用帮助", true, None::<&str>)?;
     let open_github =
         MenuItem::with_id(app, "open_github", "GitHub 项目主页", true, None::<&str>)?;
+    let open_feedback = MenuItem::with_id(app, "open_feedback", "意见反馈…", true, None::<&str>)?;
+    // 反馈邮箱：enabled=false 的纯展示菜单项，直接显示邮箱地址，点击无动作
+    let mail_feedback = MenuItem::with_id(
+        app,
+        "mail_feedback",
+        "反馈邮箱：1726168641@qq.com",
+        false,
+        None::<&str>,
+    )?;
     let help_menu = SubmenuBuilder::new(app, "帮助")
         .item(&show_help)
+        .separator()
+        .item(&mail_feedback)
+        .item(&open_feedback)
         .item(&open_github)
         .build()?;
 
@@ -924,6 +938,16 @@ pub fn run() {
                 #[cfg(windows)]
                 {
                     if let Err(e) = shell_open(GITHUB_REPO_URL) {
+                        let _ = app.emit("framelab://menu-error", e);
+                    }
+                }
+                return;
+            }
+            // 帮助 → 意见反馈：打开 GitHub 新建 Issue 页面
+            if id == "open_feedback" {
+                #[cfg(windows)]
+                {
+                    if let Err(e) = shell_open(GITHUB_ISSUES_URL) {
                         let _ = app.emit("framelab://menu-error", e);
                     }
                 }

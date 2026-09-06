@@ -3,6 +3,7 @@ import {
   rotatedSize,
   clampCrop,
   cropToSourceRect,
+  drawRotatedCropped,
   FULL_CROP,
   type Rotation,
   type CropRect,
@@ -16,6 +17,95 @@ describe('rotatedSize', () => {
   it('90/270 交换宽高', () => {
     expect(rotatedSize(800, 600, 90)).toEqual({ w: 600, h: 800 })
     expect(rotatedSize(800, 600, 270)).toEqual({ w: 600, h: 800 })
+  })
+  it('任意角度返回外接矩形（45° 时 800×600 → 约 990×990）', () => {
+    const r = rotatedSize(800, 600, 45)
+    expect(r.w).toBeCloseTo(800 * Math.SQRT1_2 + 600 * Math.SQRT1_2, 3)
+    expect(r.h).toBeCloseTo(r.w, 6)
+  })
+})
+
+// ===== drawRotatedCropped 几何回归：源图四角必须精确映射到输出画布四角 =====
+// （此前裁剪中心坐标基准写错，图像整体偏移半画布、只有四分之一落在输出内）
+describe('drawRotatedCropped 变换几何（满帧裁剪）', () => {
+  interface M { a: number; b: number; c: number; d: number; e: number; f: number }
+  function makeFakeCtx() {
+    let m: M = { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 }
+    const mul = (n: M) => {
+      m = {
+        a: m.a * n.a + m.c * n.b,
+        b: m.b * n.a + m.d * n.b,
+        c: m.a * n.c + m.c * n.d,
+        d: m.b * n.c + m.d * n.d,
+        e: m.a * n.e + m.c * n.f + m.e,
+        f: m.b * n.e + m.d * n.f + m.f,
+      }
+    }
+    return {
+      ctx: {
+        save() {},
+        restore() {},
+        translate(x: number, y: number) { mul({ a: 1, b: 0, c: 0, d: 1, e: x, f: y }) },
+        scale(x: number, y: number) { mul({ a: x, b: 0, c: 0, d: y, e: 0, f: 0 }) },
+        rotate(r: number) {
+          const c = Math.cos(r)
+          const s = Math.sin(r)
+          mul({ a: c, b: s, c: -s, d: c, e: 0, f: 0 })
+        },
+        drawImage() {},
+      } as unknown as CanvasRenderingContext2D,
+      apply(x: number, y: number): { x: number; y: number } {
+        return { x: m.a * x + m.c * y + m.e, y: m.b * x + m.d * y + m.f }
+      },
+    }
+  }
+
+  // 注意：绘制空间中源图以中心为原点（drawImage(-W/2,-H/2)），故源像素 (x,y)
+  // 对应绘制坐标 (x - srcW/2, y - srcH/2)，apply 时先做该转换。
+  it('rotation=0：源图四角 → 输出四角（无偏移、无裁切）', () => {
+    const { ctx, apply } = makeFakeCtx()
+    drawRotatedCropped(ctx, null as unknown as CanvasImageSource, 800, 600, 0, FULL_CROP, 400, 300)
+    const corners: [number, number][] = [[0, 0], [800, 0], [800, 600], [0, 600]]
+    const expectOut: [number, number][] = [[0, 0], [400, 0], [400, 300], [0, 300]]
+    corners.forEach(([x, y], i) => {
+      const p = apply(x - 400, y - 300)
+      expect(p.x).toBeCloseTo(expectOut[i][0], 4)
+      expect(p.y).toBeCloseTo(expectOut[i][1], 4)
+    })
+  })
+
+  it('rotation=90：源图左上角 → 输出右上角（顺时针旋转后恰好铺满）', () => {
+    const { ctx, apply } = makeFakeCtx()
+    drawRotatedCropped(ctx, null as unknown as CanvasImageSource, 800, 600, 90, FULL_CROP, 300, 400)
+    const cases: { src: [number, number]; out: [number, number] }[] = [
+      { src: [0, 0], out: [300, 0] },
+      { src: [800, 0], out: [300, 400] },
+      { src: [800, 600], out: [0, 400] },
+      { src: [0, 600], out: [0, 0] },
+    ]
+    for (const c of cases) {
+      const p = apply(c.src[0] - 400, c.src[1] - 300)
+      expect(p.x).toBeCloseTo(c.out[0], 4)
+      expect(p.y).toBeCloseTo(c.out[1], 4)
+    }
+  })
+
+  it('任意角度 30°：源图中心 → 输出中心（不偏移）', () => {
+    const { ctx, apply } = makeFakeCtx()
+    drawRotatedCropped(ctx, null as unknown as CanvasImageSource, 800, 600, 30, FULL_CROP, 400, 300)
+    const p = apply(0, 0)
+    expect(p.x).toBeCloseTo(200, 4)
+    expect(p.y).toBeCloseTo(150, 4)
+  })
+
+  it('非满帧裁剪：裁剪区左上角 → 输出左上角', () => {
+    const { ctx, apply } = makeFakeCtx()
+    const crop: CropRect = { x: 0.25, y: 0.25, w: 0.5, h: 0.5 }
+    drawRotatedCropped(ctx, null as unknown as CanvasImageSource, 800, 600, 0, crop, 400, 300)
+    // 裁剪区（显示空间）左上角 = 源像素 (200,150) → 绘制坐标 (-200,-150)
+    const p = apply(-200, -150)
+    expect(p.x).toBeCloseTo(0, 4)
+    expect(p.y).toBeCloseTo(0, 4)
   })
 })
 

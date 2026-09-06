@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // 顶层效果叠加画布：暗角 + 颗粒 + 水印（与导出 exporter 一致，受 layerVisible.info 控制）。
-import { onMounted, ref, watch, nextTick } from 'vue'
+import { onMounted, onBeforeUnmount, ref, watch, nextTick } from 'vue'
 import {
   drawVignette,
   drawGrain,
@@ -65,6 +65,22 @@ function render() {
 }
 
 onMounted(render)
+// rAF 合帧：颗粒 drawGrain 每次重建全画布 ImageData（数十万次随机采样），
+// 水印/暗角滑块高频拖动时逐事件重绘代价高；合帧后每帧至多一次。
+let renderRaf = 0
+function scheduleRender() {
+  if (renderRaf) return
+  renderRaf = requestAnimationFrame(() => {
+    renderRaf = 0
+    void (async () => {
+      await ensureWmImage()
+      nextTick(render)
+    })()
+  })
+}
+onBeforeUnmount(() => {
+  if (renderRaf) cancelAnimationFrame(renderRaf)
+})
 watch(
   () => [
     props.containerH,
@@ -81,10 +97,7 @@ watch(
     state.watermarkBottom,
     state.layerVisible.info,
   ],
-  async () => {
-    await ensureWmImage()
-    nextTick(render)
-  },
+  scheduleRender,
   { deep: true },
 )
 </script>

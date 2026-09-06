@@ -3,11 +3,24 @@
 // 在预览与导出中按比例套用，保证两者一致。
 
 export type { PhotoCrop, PhotoRotation } from '../core/types'
-export type Rotation = 0 | 90 | 180 | 270
+/** 旋转角度（度，顺时针，任意角度；0/90/180/270 为正交特例） */
+export type Rotation = number
 
-/** 旋转后图像尺寸（90/270 交换宽高） */
+/**
+ * 旋转后图像的外接矩形尺寸（显示空间）。
+ * - 0/90/180/270 正交角：精确返回原尺寸 / 交换宽高（避免三角函数浮点噪声）；
+ * - 任意角度：外接矩形 = |w·cosθ|+|h·sinθ| × |w·sinθ|+|h·cosθ|（角度越大空角越多）。
+ */
 export function rotatedSize(w: number, h: number, rotation: Rotation): { w: number; h: number } {
-  return rotation === 90 || rotation === 270 ? { w: h, h: w } : { w, h }
+  const norm = ((rotation % 360) + 360) % 360
+  const quarter = Math.round(norm / 90) * 90
+  if (Math.abs(norm - quarter) < 1e-6) {
+    return quarter % 180 === 90 ? { w: h, h: w } : { w, h }
+  }
+  const r = (norm * Math.PI) / 180
+  const c = Math.abs(Math.cos(r))
+  const s = Math.abs(Math.sin(r))
+  return { w: w * c + h * s, h: w * s + h * c }
 }
 
 /** 归一化裁剪矩形（0..1，相对旋转后图像）。默认满框。 */
@@ -85,7 +98,14 @@ export function cropToSourceRect(
 
 /**
  * 把旋转+裁剪后的结果绘制到目标 canvas（outW×outH，目标显示/导出像素）。
- * 处理旋转变换（translate+rotate），使最终图像为正向。
+ *
+ * 统一管线（支持任意角度）：裁剪矩形定义在「旋转后显示空间」（外接矩形 rotatedSize），
+ * 绘制时通过画布变换把显示空间中的裁剪区映射到输出画布：
+ *   源像素 → rotate(θ)（居中旋转到显示空间）→ 平移到裁剪区中心 → 缩放 → 输出中心。
+ * 正交角（0/90/180/270）与任意角度走同一套数学，预览与导出结果必然一致，
+ * 且 90/270 不再出现「CSS/object-fit 先裁剪再旋转」的比例失真问题。
+ *
+ * 注意：outW/outH 的比例必须等于「旋转后裁剪区域」的比例（调用方保证）。
  */
 export function drawRotatedCropped(
   ctx: CanvasRenderingContext2D,
@@ -97,19 +117,22 @@ export function drawRotatedCropped(
   outW: number,
   outH: number,
 ): void {
-  const { sx, sy, sw, sh } = cropToSourceRect(srcW, srcH, rotation, crop)
+  const rSize = rotatedSize(srcW, srcH, rotation)
+  const cw = crop.w * rSize.w
+  const ch = crop.h * rSize.h
+  if (cw <= 0 || ch <= 0) return
+  // 裁剪区中心（显示空间坐标，原点=显示空间左上角）→ 转为相对显示中心的偏移。
+  // 变换链中图像以显示中心为原点绘制（rotate 后 drawImage(-W/2,-H/2)），
+  // 因此平移量必须是「裁剪区中心 − 显示空间中心」，否则图像整体偏移半个画布，
+  // 只有四分之一落在输出内（照片显示不完整的根因）。
+  const ccx = crop.x * rSize.w + cw / 2 - rSize.w / 2
+  const ccy = crop.y * rSize.h + ch / 2 - rSize.h / 2
+  const s = outW / cw // 裁剪区铺满输出的缩放系数
   ctx.save()
   ctx.translate(outW / 2, outH / 2)
+  ctx.scale(s, s)
+  ctx.translate(-ccx, -ccy)
   ctx.rotate((rotation * Math.PI) / 180)
-  // 目标矩形需在「旋转后坐标系」中与画布同向：0/180 用 outW×outH；
-  // 90/270 时局部矩形旋转 90° 后覆盖区域会交换宽高，若不交换目标矩形宽高，
-  // 图像将溢出画布（被裁剪）且另一侧留白。因此 90/270 时交换目标宽高，
-  // 使旋转后的图像恰好填满 outW×outH 画布（预览与导出一致）。
-  const swap = rotation === 90 || rotation === 270
-  const dw = swap ? outH : outW
-  const dh = swap ? outW : outH
-  // 把旋转+裁剪后的源区域缩放铺满画布，保证完整显示（预览/导出一致）。
-  // 注意：outW/outH 的比例必须等于"旋转后裁剪区域"的比例（调用方保证）。
-  ctx.drawImage(source, sx, sy, sw, sh, -dw / 2, -dh / 2, dw, dh)
+  ctx.drawImage(source, -srcW / 2, -srcH / 2, srcW, srcH)
   ctx.restore()
 }

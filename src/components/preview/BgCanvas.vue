@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // 模糊背景画布：使用 bgRenderer 的 cover + 模糊算法，与导出保持一致
-import { onMounted, ref, watch } from 'vue'
+import { onMounted, onBeforeUnmount, ref, watch } from 'vue'
 import { drawBlurredBackground } from '../../core/bgRenderer'
 import { useFrameConfig } from '../../composables/useFrameConfig'
 
@@ -68,6 +68,19 @@ function render() {
 }
 
 onMounted(render)
+// rAF 合帧：模糊背景是全尺寸离屏重建 + filter:blur 重绘（单次数 ms~数十 ms），
+// 滑块/拖拽高频触发时逐事件重绘必然卡顿；合帧后每帧至多重绘一次。
+let renderRaf = 0
+function scheduleRender() {
+  if (renderRaf) return
+  renderRaf = requestAnimationFrame(() => {
+    renderRaf = 0
+    render()
+  })
+}
+onBeforeUnmount(() => {
+  if (renderRaf) cancelAnimationFrame(renderRaf)
+})
 watch(
   () => [
     props.image,
@@ -80,7 +93,7 @@ watch(
     state.bgOffsetX,
     state.bgOffsetY,
   ],
-  render,
+  scheduleRender,
   { deep: true },
 )
 </script>

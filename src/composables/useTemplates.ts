@@ -609,6 +609,17 @@ export function useTemplates() {
     }
   }
 
+  /** 重命名自定义模板（内置模板不可改）；空名 / 同名直接忽略 */
+  function rename(id: string, name: string): boolean {
+    const t = templates.find((x) => x.id === id)
+    if (!t || t.builtin) return false
+    const trimmed = name.trim()
+    if (!trimmed || trimmed === t.name) return false
+    t.name = trimmed
+    persist()
+    return true
+  }
+
   function exportJson(id: string): string {
     const t = templates.find((x) => x.id === id)
     if (!t) return ''
@@ -647,6 +658,7 @@ export function useTemplates() {
     templates,
     saveCurrent,
     remove,
+    rename,
     exportJson,
     importJson,
     toTemplateConfig,

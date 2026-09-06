@@ -27,6 +27,7 @@ import {
 import { logoAutoColor, footerTextColor } from '../../core/colorUtils'
 import { modelAlias } from '../../core/modelAlias'
 import { paletteFor, paletteVersion } from '../../core/photoPalette'
+import { infoCenterRequest } from '../../composables/useUi'
 
 type ItemKey = 'logo' | 'model' | 'exif' | 'date' | 'lens'
 
@@ -58,14 +59,14 @@ const modelTransform = computed(() => {
   return 'translate(var(--camera-model-offset-x), var(--camera-model-offset-y))'
 })
 
-// Logo 由 useLogoStore 渲染内置品牌官方 SVG / 自定义 Logo
-const logoSrc = computed(() =>
-  state.showLogo ? resolveLogoDataURL(state.brand, logoColor.value) : '',
-)
+// Logo 由 useLogoStore 渲染内置品牌官方 SVG / 自定义 Logo。
+// dataURL 已在 useLogoStore 内缓存（PNG 编码昂贵），此处 URL 与比例共用一次求值。
+const logoUrl = computed(() => resolveLogoDataURL(state.brand, logoColor.value))
+const logoSrc = computed(() => (state.showLogo ? logoUrl.value : ''))
 
-// Logo 宽高比（duo/inline 默认排版需要；读取 logoSrc 建立异步加载后的响应式依赖）
+// Logo 宽高比（duo/inline 默认排版需要；读取 logoUrl 建立异步加载后的响应式依赖）
 const logoRatio = computed(() => {
-  void (state.showLogo ? resolveLogoDataURL(state.brand, logoColor.value) : '')
+  void logoUrl.value
   const c = resolveLogo(state.brand, logoColor.value)
   return c.height > 0 ? c.width / c.height : 2.6
 })
@@ -77,6 +78,110 @@ const start = ref({ x: 0, y: 0 })
 const dragEl = ref<HTMLElement | null>(null)
 const dragPointerId = ref(-1)
 const footerLayer = ref<HTMLElement | null>(null)
+
+// ===== 组合拖动：INFO 多元素成组整体移动 =====
+// 开启后拖拽任一 INFO 元素（Logo/型号/EXIF/日期/镜头），其余可见元素保持相对
+// 位置随之整体平移（首次被拖动的元素坐标物化写入）。便于把整组信息一次挪到位。
+const groupDragOn = computed(() => useAppState().state.infoGroupDrag === true)
+interface GroupItem { key: ItemKey; x: number; y: number; w: number; h: number }
+const groupStart = ref<GroupItem[]>([])
+// 按下瞬间的整组视觉包围盒中心（内容区坐标）：拖动中据此做组级居中吸附与参考线
+const groupBBox0 = ref<{ cx: number; cy: number } | null>(null)
+
+/** 实测当前 INFO 元素组的视觉包围盒中心（内容区坐标系，含锚点平移等一切视觉变换） */
+function measureGroupBBox(): { cx: number; cy: number } | null {
+  const layer = footerLayer.value
+  if (!layer) return null
+  const els = Array.from(layer.querySelectorAll<HTMLElement>('.drag-item[data-item]'))
+  if (!els.length) return null
+  const lr = layer.getBoundingClientRect()
+  const scale = lr.width / canvasW.value
+  if (!scale || !isFinite(scale)) return null
+  let minX = Infinity
+  let maxX = -Infinity
+  let minY = Infinity
+  let maxY = -Infinity
+  for (const el of els) {
+    const r = el.getBoundingClientRect()
+    minX = Math.min(minX, (r.left - lr.left) / scale)
+    maxX = Math.max(maxX, (r.right - lr.left) / scale)
+    minY = Math.min(minY, (r.top - lr.top) / scale)
+    maxY = Math.max(maxY, (r.bottom - lr.top) / scale)
+  }
+  if (!isFinite(minX) || !isFinite(minY)) return null
+  const inset = pad.value + bgExpand.value
+  return { cx: (minX + maxX) / 2 - inset, cy: (minY + maxY) / 2 - inset }
+}
+
+/** 元素水平锚点语义（与 absStyle 渲染一致）：classic 整行 center/right 平移，inline 镜头行居中 */
+function anchorOf(key: ItemKey): 'left' | 'center' | 'right' {
+  if (state.infoLayout === 'classic') {
+    return state.overlayAlign === 'right' ? 'right' : state.overlayAlign === 'center' ? 'center' : 'left'
+  }
+  if (state.infoLayout === 'inline' && key === 'lens') return 'center'
+  return 'left'
+}
+
+/** 收集当前画布上可见（已渲染）的全部 INFO 元素及其当前位置（null 物化为默认布局坐标） */
+function collectGroupItems(): GroupItem[] {
+  const out: GroupItem[] = []
+  if (!footerLayer.value) return out
+  footerLayer.value.querySelectorAll<HTMLElement>('.drag-item[data-item]').forEach((el) => {
+    const key = el.dataset.item as ItemKey
+    let x = state[(key + 'X') as 'logoX']
+    let y = state[(key + 'Y') as 'logoY']
+    if (x == null || y == null) {
+      const d = defaultPos(key)
+      x = d.x
+      y = d.y
+    }
+    out.push({ key, x, y, w: el.offsetWidth, h: el.offsetHeight })
+  })
+  return out
+}
+
+/** INFO 整体水平居中：按全部可见元素的「实测视觉包围盒」中心对齐画布中轴（纵向不动）。
+ *  用 getBoundingClientRect 实测（含锚点 translate / 型号偏移等一切视觉平移），
+ *  避免按锚点语义重建几何时的偏差 —— 包围盒是「整组」的真实左右边界，而非单元素。 */
+function centerInfoGroup(): void {
+  const layer = footerLayer.value
+  if (!layer) return
+  const els = Array.from(layer.querySelectorAll<HTMLElement>('.drag-item[data-item]'))
+  if (!els.length) return
+  const lr = layer.getBoundingClientRect()
+  const scale = lr.width / canvasW.value
+  if (!scale || !isFinite(scale)) return
+  // 实测视觉包围盒（画板坐标系，设计 px）。layer 覆盖整个画板，左缘 = 内容区 x = -(pad+bgExpand)
+  const inset = pad.value + bgExpand.value
+  let minB = Infinity
+  let maxB = -Infinity
+  for (const el of els) {
+    const r = el.getBoundingClientRect()
+    minB = Math.min(minB, (r.left - lr.left) / scale)
+    maxB = Math.max(maxB, (r.right - lr.left) / scale)
+  }
+  if (!isFinite(minB) || !isFinite(maxB)) return
+  // 转内容区坐标后求组中心 → 目标 = 内容区中轴
+  const dx = DESIGN_CONTAINER / 2 - (minB - inset + (maxB - minB) / 2)
+  if (Math.abs(dx) < 0.5) return
+  const next: Record<string, number> = {}
+  for (const el of els) {
+    const key = el.dataset.item as ItemKey
+    let x = state[(key + 'X') as 'logoX']
+    let y = state[(key + 'Y') as 'logoY']
+    if (x == null || y == null) {
+      const d = defaultPos(key)
+      x = d.x
+      y = d.y
+    }
+    next[key + 'X'] = clampInfoX(x + dx, el.offsetWidth, pad.value, bgExpand.value, canvasW.value, anchorOf(key))
+    next[key + 'Y'] = y // 物化默认坐标，避免悬停重算漂移
+  }
+  patch(next as Record<string, never>)
+}
+watch(infoCenterRequest, () => {
+  if (infoEditing.value) centerInfoGroup()
+})
 
 // ===== 边缘自动平移（auto-pan）=====
 // 画布缩放后画板可能溢出舞台（stage），元素拖到画板顶/底/左/右时鼠标会先碰到窗口边缘，
@@ -135,6 +240,9 @@ function onPointerDown(e: PointerEvent, key: ItemKey) {
   start.value = { x: e.clientX, y: e.clientY }
   lastMouse.value = { x: e.clientX, y: e.clientY }
   panStart.value = { x: viewer.panX.value, y: viewer.panY.value }
+  // 组合拖动：按下瞬间快照全部可见元素位置与整组包围盒中心，拖动时整体平移 + 组级居中吸附
+  groupStart.value = groupDragOn.value ? collectGroupItems() : []
+  groupBBox0.value = groupDragOn.value ? measureGroupBBox() : null
   dragging.value = key
   // 捕获指针：画布缩放后画板可能溢出舞台，logo 拖到画板顶/底需要鼠标移出窗口；
   // 不捕获会导致 pointermove 在窗口边缘中断，logo 拖不到画板边界。
@@ -218,9 +326,42 @@ function updatePosition(mx: number, my: number) {
   })()
   nx = clampInfoX(nx, elemW, pad.value, bgExpand.value, canvasW.value, classicAnchor)
   ny = Math.max(-(pad.value + bgExpand.value), Math.min(canvasH - pad.value - bgExpand.value - elemH, ny))
-  // ===== 居中辅助线：元素中心接近画板中心时吸附并高亮 =====
-  const snapped = applyCenterSnap(nx, ny, classicAnchor)
   const k = dragging.value
+  // 组合拖动：以被抓取元素的位移量为增量，其余元素保持相对位置整体平移；
+  // 整组包围盒中心接近画布中轴 / 水平中线时做组级吸附并高亮居中参考线（手感与单元素一致）
+  if (groupDragOn.value && groupStart.value.length > 1) {
+    let dx = nx - origin.value.x
+    let dy = ny - origin.value.y
+    const g0 = groupBBox0.value
+    if (g0) {
+      const T = 10 // 吸附阈值（设计 px），与单元素拖拽一致
+      const center = canvasCenterInContent()
+      const gcx = g0.cx + dx
+      const gcy = g0.cy + dy
+      guideV.value = Math.abs(gcx - center.x) < T
+      guideH.value = Math.abs(gcy - center.y) < T
+      if (guideV.value) dx += center.x - gcx
+      if (guideH.value) dy += center.y - gcy
+    }
+    const boardTop = -(pad.value + bgExpand.value)
+    const next: Record<string, number> = {}
+    for (const g of groupStart.value) {
+      if (g.key === k) {
+        next[k + 'X'] = origin.value.x + dx
+        next[k + 'Y'] = origin.value.y + dy
+        continue
+      }
+      let gx = g.x + dx
+      const gy = Math.max(boardTop, Math.min(canvasH - pad.value - bgExpand.value - g.h, g.y + dy))
+      gx = clampInfoX(gx, g.w, pad.value, bgExpand.value, canvasW.value, anchorOf(g.key))
+      next[g.key + 'X'] = gx
+      next[g.key + 'Y'] = gy
+    }
+    patch(next as Record<string, never>)
+    return
+  }
+  // ===== 单元素拖拽：元素中心接近画板中心时吸附并高亮 =====
+  const snapped = applyCenterSnap(nx, ny, classicAnchor)
   patch({
     [k + 'X']: snapped.x,
     [k + 'Y']: snapped.y,
@@ -303,6 +444,7 @@ function onPointerMove(e: PointerEvent) {
 
 function onPointerUp() {
   dragging.value = null
+  groupBBox0.value = null
   cancelAnimationFrame(autoPanRaf)
   if (dragEl.value && dragPointerId.value >= 0) {
     try {

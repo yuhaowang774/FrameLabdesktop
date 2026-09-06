@@ -25,7 +25,7 @@ import { reactive, computed, ref } from 'vue'
 import type { FrameConfig } from '../core/types'
 import { MAX_HISTORY, HISTORY_DEBOUNCE_MS } from '../core/constants'
 import { getHistoryLimitPref } from './usePrefs'
-import { useFrameConfig, registerCommit } from './useFrameConfig'
+import { useFrameConfig, registerCommit, isCommitSuspended } from './useFrameConfig'
 import { backfillInfoFromRaw, isInfoMissing, INFO_PLACEHOLDER, parseDisplayDate, formatDate } from './useExif'
 import { recalcCanvasHAfterTemplate } from './useTemplates'
 import { hexLuminance } from '../core/colorUtils'
@@ -208,22 +208,33 @@ export function loadCursorFor(photoId: string): void {
 
 // ===== 自动记录（防抖提交）：一次"操作"合并为一条完整参数快照 =====
 // 用户调整滑块等操作期间，patch 会被连续调用（input/pointermove…）。
-// 这里只更新"待提交快照"并重置防抖定时器；操作停顿（松开鼠标）DEBOUNCE 后才
-// 真正追加一条历史节点 —— 因此每次操作仅产生一条记录，且记录的是操作结束后的
-// 完整参数快照（非每步增量）。
+// 这里只登记"待提交目标"并重置防抖定时器；真正的高成本全量深拷贝按 rAF 合帧
+// （每帧至多一次，且仅拷贝最终态），操作停顿 DEBOUNCE 后才真正追加历史节点。
 let debounceTimer: ReturnType<typeof setTimeout> | null = null
 let pendingCommit: { photoId: string; state: FrameConfig; name: string } | null = null
+// 惰性快照：commitHistory 只登记目标，快照推迟到 rAF 回调 / flushPending 时拍
+let pendingKey: { photoId: string; name: string } | null = null
+let snapshotRaf = 0
+
+function snapshotNow(photoId: string, name: string): void {
+  const { state } = useFrameConfig()
+  pendingCommit = { photoId, state: JSON.parse(JSON.stringify(state)) as FrameConfig, name }
+}
 
 function commitHistory(key = ''): void {
   if (restoring) return
   if (key === 'photoSrc') return // 切换照片不入历史
   const target = currentTarget()
   if (!target) return
-  const { state } = useFrameConfig()
-  pendingCommit = {
-    photoId: target.id,
-    state: JSON.parse(JSON.stringify(state)) as FrameConfig,
-    name: describe(key),
+  pendingKey = { photoId: target.id, name: describe(key) }
+  // rAF 合帧拍快照：同一帧内的多次 patch（多键 patch / 高频 input）只深拷贝一次。
+  // 挂起（切图/导入）或恢复期间不拍，由 flushPending 在安全时机兜底。
+  if (!snapshotRaf) {
+    snapshotRaf = requestAnimationFrame(() => {
+      snapshotRaf = 0
+      if (!pendingKey || restoring || isCommitSuspended()) return
+      snapshotNow(pendingKey.photoId, pendingKey.name)
+    })
   }
   if (debounceTimer) clearTimeout(debounceTimer)
   debounceTimer = setTimeout(() => { void flushPending() }, HISTORY_DEBOUNCE_MS)
@@ -236,15 +247,28 @@ export async function flushPending(): Promise<void> {
     clearTimeout(debounceTimer)
     debounceTimer = null
   }
+  // 取消挂起的 rAF 快照：此刻 state 仍是提交目标照片的参数（flush 调用点均在
+  // 切图/恢复等改写 state 之前），直接在此拍快照，保证语义与旧实现一致。
+  if (snapshotRaf) {
+    cancelAnimationFrame(snapshotRaf)
+    snapshotRaf = 0
+  }
+  // pendingKey 比已拍快照更新（rAF 未及触发）时重拍：flush 调用点均先于任何
+  // 参数改写，此刻的 state 即该照片最终编辑态。
+  if (pendingKey && !restoring && !isCommitSuspended()) {
+    snapshotNow(pendingKey.photoId, pendingKey.name)
+  }
+  pendingKey = null
   const p = pendingCommit
   pendingCommit = null
   if (!p) return
   await ensureChain(p.photoId) // 保证链表已从 DB 载入，避免覆盖丢失
-  recordEdit(p.photoId, p.state, p.name)
+  recordEdit(p.photoId, p.state, p.name, true) // state 已是独立快照，免二次深拷贝
 }
 
-/** 在链表头部追加一条新节点；若当前不在顶部则先截断其上分支 */
-export function recordEdit(photoId: string, state: FrameConfig, name: string): void {
+/** 在链表头部追加一条新节点；若当前不在顶部则先截断其上分支。
+ *  skipCopy=true 时直接接管传入的 state（调用方保证其为独立快照，如 flushPending）。 */
+export function recordEdit(photoId: string, state: FrameConfig, name: string, skipCopy = false): void {
   const chain = chainOf(photoId)
   const cur = cursors[photoId] ?? -1
   let removed: HistoryNodeRecord[] = []
@@ -257,7 +281,7 @@ export function recordEdit(photoId: string, state: FrameConfig, name: string): v
     name,
     ts: Date.now(),
     seq: nextSeq(),
-    state: JSON.parse(JSON.stringify(state)) as FrameConfig,
+    state: skipCopy ? state : (JSON.parse(JSON.stringify(state)) as FrameConfig),
   }
   chain.push(node)
   let overflow: HistoryNodeRecord[] = []

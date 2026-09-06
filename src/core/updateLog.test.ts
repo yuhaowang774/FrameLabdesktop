@@ -2,7 +2,7 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { UPDATE_LOG, compareVersions, findUpdateEntry, IMPORTANCE_LABELS } from './updateLog'
+import { UPDATE_LOG, RELEASE_TIMES, compareVersions, findUpdateEntry, IMPORTANCE_LABELS } from './updateLog'
 import { detectUpdate, getLastVersion } from '../composables/useUpdateLog'
 
 describe('compareVersions 版本比较', () => {
@@ -46,6 +46,13 @@ describe('UPDATE_LOG 数据完整性', () => {
         (e.groups.fixed?.length ?? 0) +
         (e.groups.known?.length ?? 0)
       expect(total).toBeGreaterThan(0)
+    }
+  })
+
+  it('发布时刻表（RELEASE_TIMES）覆盖除 0.1.0 外全部版本且格式合法', () => {
+    for (const e of UPDATE_LOG) {
+      if (e.version === '0.1.0') continue // 早期版本 git 历史无精确时刻
+      expect(RELEASE_TIMES[e.version]).toMatch(/^\d{2}:\d{2}$/)
     }
   })
 })

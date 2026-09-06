@@ -1,14 +1,21 @@
 <script setup lang="ts">
-import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
+import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
 import { useFrameConfig } from '../../composables/useFrameConfig'
 import { editingPhoto, photoImage } from '../../composables/useUi'
-import { rotatedSize, clampCrop, type PhotoCrop, type PhotoRotation } from '../../core/photoEdit'
+import { rotatedSize, clampCrop, drawRotatedCropped, FULL_CROP, type PhotoCrop } from '../../core/photoEdit'
+import RangeSlider from './RangeSlider.vue'
 
 const { state, patch } = useFrameConfig()
 const emit = defineEmits<{ (e: 'close'): void }>()
 
-// 本地编辑副本：旋转 + 裁剪（确认时写回 config）
-const rotation = ref<PhotoRotation>(state.photoRotation)
+// 角度归一化到 (-180, 180]
+function normAngle(a: number): number {
+  const n = ((a % 360) + 540) % 360 - 180
+  return n === -180 ? 180 : n
+}
+
+// 本地编辑副本：旋转（任意角度）+ 裁剪（确认时写回 config）
+const rotation = ref<number>(normAngle(state.photoRotation))
 const crop = ref<PhotoCrop>({ ...state.photoCrop })
 
 const stage = ref<HTMLElement | null>(null)
@@ -22,32 +29,33 @@ imgEl.onload = () => {
   natural.value = { w: imgEl.naturalWidth, h: imgEl.naturalHeight }
 }
 
-const photoSrc = computed(() => (photoImage.value ? photoImage.value.src : ''))
-
-// 旋转后尺寸（stage 即按此比例铺满）
+// 旋转后外接尺寸（stage 即按此比例铺满；与预览/导出的 drawRotatedCropped 同一套几何）
 const rotated = computed(() => rotatedSize(natural.value.w, natural.value.h, rotation.value))
 const stageAspect = computed(() => (rotated.value.h > 0 ? rotated.value.w / rotated.value.h : 1))
 
-// 背景旋转显示：把源图以"旋转后"的姿态铺满 stage（cover）
-function bgTransform(): string {
-  // stage 比例 = 旋转后比例，故直接 rotate 即可铺满（contain=fill）
-  return `rotate(${rotation.value}deg)`
+// ===== 背景渲染：直接用 drawRotatedCropped 画到 canvas（与预览/导出完全同源）=====
+// 此前用 CSS rotate + object-fit:cover：90° 时 stage 比例与图源比例不匹配导致先裁剪
+// 再旋转，照片比例明显失真。canvas 方案对任意角度都正确。
+const bgCanvas = ref<HTMLCanvasElement | null>(null)
+function renderBg() {
+  const c = bgCanvas.value
+  if (!c || !natural.value.w || !imgEl.naturalWidth) return
+  const rect = c.getBoundingClientRect()
+  if (!rect.width || !rect.height) return
+  const dpr = Math.min(window.devicePixelRatio || 1, 2)
+  const w = Math.max(1, Math.round(rect.width * dpr))
+  const h = Math.max(1, Math.round(rect.height * dpr))
+  if (c.width !== w) c.width = w
+  if (c.height !== h) c.height = h
+  const ctx = c.getContext('2d')
+  if (!ctx) return
+  ctx.clearRect(0, 0, w, h)
+  drawRotatedCropped(ctx, imgEl, natural.value.w, natural.value.h, rotation.value, FULL_CROP, w, h)
 }
-
-// 旋转后背景尺寸（CSS 用绝对铺满 stage，因 stage 已是旋转后比例）
-const bgStyle = computed(() => ({
-  position: 'absolute' as const,
-  inset: '0',
-  width: '100%',
-  height: '100%',
-  objectFit: 'cover' as const,
-  transform: bgTransform(),
-  transformOrigin: 'center center',
-  // cover 在 rotate 后可能漏角，放大到 1.42 避免（避免白边）
-  // 实际用 100% 即可，因为 stage 比例=旋转后比例，cover 与 fill 等价
-  userSelect: 'none' as const,
-  pointerEvents: 'none' as const,
-}))
+watch([rotation, natural], () => nextTick(renderBg))
+function onStageResize() {
+  renderBg()
+}
 
 // ===== 裁剪框交互（归一化坐标，相对 rotated 照片） =====
 const dragging = ref<null | { mode: string; sx: number; sy: number; start: PhotoCrop }>(null)
@@ -99,11 +107,17 @@ function onPointerUp(e: PointerEvent) {
   }
 }
 
+// 自由旋转滑杆（-180..180，任意角度微调；与旋转按钮共用同一状态）
+const freeAngle = computed({
+  get: () => rotation.value,
+  set: (v: number) => {
+    rotation.value = v
+  },
+})
+
 // 旋转按钮：顺时针/逆时针 90°，并重置裁剪为满框（便于重新选择）
 function rotate(dir: 1 | -1) {
-  const map: Record<PhotoRotation, PhotoRotation> = { 0: 90, 90: 180, 180: 270, 270: 0 }
-  const mapR: Record<PhotoRotation, PhotoRotation> = { 0: 270, 90: 0, 180: 90, 270: 180 }
-  rotation.value = dir === 1 ? map[rotation.value] : mapR[rotation.value]
+  rotation.value = normAngle(rotation.value + dir * 90)
   crop.value = { x: 0, y: 0, w: 1, h: 1 }
 }
 
@@ -162,12 +176,22 @@ watch(
   { immediate: true },
 )
 
+let stageRo: ResizeObserver | null = null
 onMounted(() => {
   const im = photoImage.value
   if (im && im.src) imgEl.src = im.src
+  window.addEventListener('resize', onStageResize)
+  if (stage.value && 'ResizeObserver' in window) {
+    stageRo = new ResizeObserver(onStageResize)
+    stageRo.observe(stage.value)
+  }
+  nextTick(renderBg)
 })
 onBeforeUnmount(() => {
   imgEl.onload = null
+  window.removeEventListener('resize', onStageResize)
+  stageRo?.disconnect()
+  stageRo = null
 })
 </script>
 
@@ -181,7 +205,7 @@ onBeforeUnmount(() => {
 
       <div class="canvas-area">
         <div class="stage" ref="stage" :style="{ aspectRatio: stageAspect }">
-          <img v-if="photoSrc" :src="photoSrc" :style="bgStyle" alt="" />
+          <canvas ref="bgCanvas" class="bg-canvas" aria-hidden="true"></canvas>
           <!-- 裁剪框 -->
           <div class="crop" :style="cropStyle" @pointerdown="onPointerDown('move', $event)" @pointermove="onPointerMove" @pointerup="onPointerUp">
             <div class="grid"></div>
@@ -202,6 +226,14 @@ onBeforeUnmount(() => {
         <button class="tool" @click="rotate(1)">右转 ↻</button>
         <button class="tool" @click="reset">重置</button>
       </div>
+      <!-- 自由旋转：任意角度（含 0.5° 细步），拉直地平线 / 倾斜构图 -->
+      <RangeSlider
+        v-model="freeAngle"
+        :min="-180"
+        :max="180"
+        :step="0.5"
+        label="自由旋转（度）"
+      />
       <div class="presets">
         <button
           v-for="p in presets"
@@ -280,6 +312,14 @@ onBeforeUnmount(() => {
   box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.5);
   cursor: move;
   touch-action: none;
+}
+.bg-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  pointer-events: none;
 }
 .grid {
   position: absolute;

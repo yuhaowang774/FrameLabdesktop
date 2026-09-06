@@ -128,8 +128,12 @@ onBeforeUnmount(() => {
 })
 
 watch(() => props.src, load)
+// photoX/photoY 仅由外层容器 CSS 定位（SelectableBox），不影响画布像素内容，
+// 不在此监听 —— 否则拖动照片每次 pointermove 都触发全画布重绘。
+// scale 变化会引起容器尺寸变化，由 ResizeObserver 兜底重绘，此处保留以兜住
+// 容器尺寸未变但内容比例需要刷新的边界（如 frameRatio 切换）。
 watch(
-  () => [props.rotation, props.crop, state.scale, state.photoX, state.photoY],
+  () => [props.rotation, props.crop, state.scale],
   () => render(),
 )
 </script>

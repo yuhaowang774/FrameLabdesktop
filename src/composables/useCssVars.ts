@@ -120,11 +120,13 @@ export function useCssVars(getConfig: () => FrameConfig) {
   // 立即写入一次
   applyVars(getConfig(), root)
 
-  // 深度 watch，任一字段变化即更新
+  // 深度 watch，任一字段变化即更新。
+  // flush:'pre'（而非 'sync'）：一次多键 patch 会同步触发多次回调，'pre' 让同一
+  // 组件更新周期内的多次变更合并为一次求值；变量写入本就带差分，实时性不受影响。
   const stop = watch(
     getConfig as WatchSource<FrameConfig>,
     (cfg) => applyVars(cfg, root),
-    { deep: true, flush: 'sync' },
+    { deep: true, flush: 'pre' },
   )
 
   // 悬停预览变化（字体值或目标字段任一变化）：重算变量（差分写入，未变化的变量不写）

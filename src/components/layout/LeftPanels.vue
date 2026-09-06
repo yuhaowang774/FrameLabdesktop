@@ -1,27 +1,26 @@
 <script setup lang="ts">
-// 左侧可折叠面板组：我的素材 / 基础信息 / 相框模板库入口 / 我的模板 / 撤销重做。
+// 左侧可折叠面板组：我的素材 / 基础信息 / 相框模板库入口 / 我的模板入口。
 // 各面板相互独立展开/收起，互不影响；支持拖拽调宽。
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import { useAppState } from '../../composables/useAppState'
 import { useLibrary } from '../../composables/useLibrary'
-import { useHistory } from '../../composables/useHistory'
 import { useTemplates } from '../../composables/useTemplates'
 import CollapsiblePanel from '../common/CollapsiblePanel.vue'
 import Icon from '../common/Icon.vue'
 import LeftLibraryPanel from './LeftLibraryPanel.vue'
 import MediaInfoPanel from './MediaInfoPanel.vue'
-import MyTemplatesPanel from './MyTemplatesPanel.vue'
 import TemplatePickerModal from '../controls/TemplatePickerModal.vue'
 
 const app = useAppState()
 const library = useLibrary()
-const { undo, redo, canUndo, canRedo } = useHistory()
 const templates = useTemplates()
 
 const P = app.state.leftPanels
 
-// 模板库入口弹窗显隐
+// 模板库 / 我的模板 入口弹窗显隐
 const pickerOpen = ref(false)
+const mineOpen = ref(false)
+const customCount = computed(() => templates.templates.filter((t) => !t.builtin).length)
 
 // ===== 右边缘拖拽调整宽度（持久化到 useAppState.setLeftWidth） =====
 let startX = 0
@@ -72,29 +71,16 @@ function onResizeUp() {
       <span class="tpl-entry-arrow">▸</span>
     </button>
 
-    <!-- 我的模板：保存当前编辑配置为自定义模板，并应用 / 删除已存模板 -->
-    <CollapsiblePanel
-      title="我的模板"
-      :open="P.myTemplates"
-      :badge="templates.templates.filter((t) => !t.builtin).length"
-      @toggle="app.togglePanel('left', 'myTemplates')"
-    >
-      <MyTemplatesPanel />
-    </CollapsiblePanel>
-
-    <!-- 撤销 / 重做：原「修改历史记录」面板位置，保留快捷键 Ctrl+Z / Ctrl+Shift+Z -->
-    <CollapsiblePanel
-      title="撤销 / 重做"
-      :open="P.undoRedo"
-      @toggle="app.togglePanel('left', 'undoRedo')"
-    >
-      <div class="undo-redo">
-        <button class="tool" :disabled="!canUndo" title="撤销 (Ctrl+Z)" @click="undo">↶ 撤销</button>
-        <button class="tool" :disabled="!canRedo" title="重做 (Ctrl+Shift+Z)" @click="redo">↷ 重做</button>
-      </div>
-    </CollapsiblePanel>
+    <!-- 我的模板：与相框模板库同构的入口卡片，点击弹出「我的模板」弹窗（保存 / 应用 / 删除） -->
+    <button class="tpl-entry" title="打开我的模板" @click="mineOpen = true">
+      <span class="tpl-entry-icon"><Icon name="brand" /></span>
+      <span class="tpl-entry-label">我的模板</span>
+      <span class="tpl-entry-count">{{ customCount }} 套自定义</span>
+      <span class="tpl-entry-arrow">▸</span>
+    </button>
   </aside>
   <TemplatePickerModal v-model="pickerOpen" category="frame" />
+  <TemplatePickerModal v-model="mineOpen" custom-only title="我的模板" />
 </template>
 
 <style scoped>
@@ -174,33 +160,4 @@ function onResizeUp() {
   color: var(--text);
   font-size: 12px;
 }
-/* 撤销 / 重做按钮行：沿用底部工具栏按钮样式 */
-.undo-redo {
-  display: flex;
-  gap: 6px;
-  padding: 8px 12px;
-}
-.tool {
-  flex: 1;
-  background: var(--panel-2);
-  color: var(--text);
-  border: 1px solid var(--border);
-  border-radius: 0;
-  padding: 0 8px;
-  height: 22px;
-  font-size: 12px;
-  font-weight: 400;
-  line-height: 16px;
-  cursor: pointer;
-}
-.tool:hover {
-  background: var(--hover);
-  color: var(--text-normal);
-}
-.tool:active { background: var(--pressed); }
-.tool:disabled {
-  opacity: 0.35;
-  cursor: not-allowed;
-}
-
 </style>

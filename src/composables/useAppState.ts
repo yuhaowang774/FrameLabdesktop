@@ -26,6 +26,8 @@ interface LayoutState {
   leftPanels: Record<string, boolean>
   // 右侧面板组：照片 / 背景 / 边框 / INFO信息设置
   rightPanels: Record<string, boolean>
+  // INFO 组合拖动：开启后拖拽任一 INFO 元素时全部元素成组整体移动
+  infoGroupDrag: boolean
   // 底部胶片窗格 Filmstrip：可见性 + 高度（可拖拽调整）
   filmstripVisible: boolean
   filmstripHeight: number
@@ -40,8 +42,6 @@ const defaults: LayoutState = {
     library: true,
     mediaInfo: true,
     frameTemplates: true,
-    myTemplates: true,
-    undoRedo: true,
   },
   rightPanels: {
     photo: false,
@@ -49,6 +49,7 @@ const defaults: LayoutState = {
     border: false,
     info: false,
   },
+  infoGroupDrag: false,
   filmstripVisible: true,
   filmstripHeight: 78,
 }

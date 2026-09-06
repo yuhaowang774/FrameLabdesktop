@@ -19,6 +19,10 @@ export function suspendCommit(suspend: boolean): void {
   if (suspend) suspendDepth++
   else if (suspendDepth > 0) suspendDepth--
 }
+/** 提交当前是否被挂起（供历史惰性快照在 rAF 回调中自检，避免切图期间误拍快照） */
+export function isCommitSuspended(): boolean {
+  return suspendDepth > 0
+}
 
 export function useFrameConfig() {
   /** 整体替换（用于历史恢复 / 预设应用），保留未列出的默认字段 */

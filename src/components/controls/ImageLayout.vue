@@ -10,7 +10,7 @@ const { state, patch } = useFrameConfig()
 const r = RANGES
 
 function rotate() {
-  const next = ((state.photoRotation + 90) % 360) as 0 | 90 | 180 | 270
+  const next = (state.photoRotation + 90) % 360
   // photoCrop 是「相对旋转后图像」的归一化矩形，旋转角度改变后旧 crop 会取到错误区域，
   // 故旋转时重置为满框（与 PhotoEditor 行为一致）；同时恢复自动居中/贴顶布局，避免宽高交换错位。
   patch({

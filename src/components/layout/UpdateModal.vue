@@ -7,6 +7,7 @@ import {
   UPDATE_GROUP_LABELS,
   IMPORTANCE_LABELS,
   compareVersions,
+  formatReleaseTime,
   type UpdateImportance,
 } from '../../core/updateLog'
 import type { UpdateHit } from '../../composables/useUpdateLog'
@@ -64,7 +65,7 @@ const importanceClass = (i: UpdateImportance) => `imp-${i}`
           >
             <header class="item-head">
               <span class="item-ver">v{{ e.version }}</span>
-              <span class="item-date">{{ e.date }}</span>
+              <span class="item-date">{{ formatReleaseTime(e.version, e.date) }}</span>
               <span class="imp" :class="importanceClass(e.importance)">
                 {{ IMPORTANCE_LABELS[e.importance] }}
               </span>
