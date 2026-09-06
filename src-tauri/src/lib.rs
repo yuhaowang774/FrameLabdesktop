@@ -946,7 +946,8 @@ pub fn run() {
             // 窗口改为 Rust 侧创建：开发版需要指定独立 WebView2 数据目录
             // （此前开发/正式版共用 EBWebView 目录，并行启动会因目录被占用而白屏）。
             let mut win = tauri::WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::App("index.html".into()))
-                .title("FrameLab · 照片相框 & 背景合成")
+                // 窗口标题：名字后跟当前版本号（随发版自动更新）
+                .title(format!("FrameLab v{}", app.package_info().version))
                 .inner_size(1360.0, 860.0)
                 .min_inner_size(1024.0, 660.0)
                 .additional_browser_args(
