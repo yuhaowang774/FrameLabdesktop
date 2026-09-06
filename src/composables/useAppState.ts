@@ -41,7 +41,7 @@ const defaults: LayoutState = {
     mediaInfo: true,
     frameTemplates: true,
     myTemplates: true,
-    snapshots: false,
+    undoRedo: true,
   },
   rightPanels: {
     photo: false,

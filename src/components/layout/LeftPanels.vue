@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// 左侧可折叠面板组：我的素材 / 相框模板库 / 修改历史记录。
+// 左侧可折叠面板组：我的素材 / 基础信息 / 相框模板库入口 / 我的模板 / 撤销重做。
 // 各面板相互独立展开/收起，互不影响；支持拖拽调宽。
 import { ref } from 'vue'
 import { useAppState } from '../../composables/useAppState'
@@ -12,11 +12,10 @@ import LeftLibraryPanel from './LeftLibraryPanel.vue'
 import MediaInfoPanel from './MediaInfoPanel.vue'
 import MyTemplatesPanel from './MyTemplatesPanel.vue'
 import TemplatePickerModal from '../controls/TemplatePickerModal.vue'
-import HistoryPanel from './HistoryPanel.vue'
 
 const app = useAppState()
 const library = useLibrary()
-const history = useHistory()
+const { undo, redo, canUndo, canRedo } = useHistory()
 const templates = useTemplates()
 
 const P = app.state.leftPanels
@@ -83,13 +82,16 @@ function onResizeUp() {
       <MyTemplatesPanel />
     </CollapsiblePanel>
 
+    <!-- 撤销 / 重做：原「修改历史记录」面板位置，保留快捷键 Ctrl+Z / Ctrl+Shift+Z -->
     <CollapsiblePanel
-      title="修改历史记录"
-      :open="P.snapshots"
-      :badge="history.records.value.length"
-      @toggle="app.togglePanel('left', 'snapshots')"
+      title="撤销 / 重做"
+      :open="P.undoRedo"
+      @toggle="app.togglePanel('left', 'undoRedo')"
     >
-      <HistoryPanel />
+      <div class="undo-redo">
+        <button class="tool" :disabled="!canUndo" title="撤销 (Ctrl+Z)" @click="undo">↶ 撤销</button>
+        <button class="tool" :disabled="!canRedo" title="重做 (Ctrl+Shift+Z)" @click="redo">↷ 重做</button>
+      </div>
     </CollapsiblePanel>
   </aside>
   <TemplatePickerModal v-model="pickerOpen" category="frame" />
@@ -172,4 +174,33 @@ function onResizeUp() {
   color: var(--text);
   font-size: 12px;
 }
+/* 撤销 / 重做按钮行：沿用底部工具栏按钮样式 */
+.undo-redo {
+  display: flex;
+  gap: 6px;
+  padding: 8px 12px;
+}
+.tool {
+  flex: 1;
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 0;
+  padding: 0 8px;
+  height: 22px;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 16px;
+  cursor: pointer;
+}
+.tool:hover {
+  background: var(--hover);
+  color: var(--text-normal);
+}
+.tool:active { background: var(--pressed); }
+.tool:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
 </style>

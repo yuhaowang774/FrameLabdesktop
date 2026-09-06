@@ -10,9 +10,13 @@ import {
   addLocalEntries,
   restoreLibrary,
 } from './fs'
+import { ensureCatalogLoaded } from './catalog'
 
 export async function setupDesktopShell(): Promise<void> {
   const { listen } = await import('@tauri-apps/api/event')
+  // 先从 AppData JSON 载入图库目录（含旧 localStorage 数据一次性迁移），
+  // 保证后续 restoreLibrary / restoreActive 读到权威目录（文件不怕更新重启丢数据）
+  await ensureCatalogLoaded()
   const app = useAppState()
   const history = useHistory()
   const library = useLibrary()

@@ -7,7 +7,7 @@ import { useFrameConfig, suspendCommit } from './useFrameConfig'
 import { importPhoto, removePhotoHistory } from './useHistory'
 import { parseExif, buildExifText, formatDate, type ExifParseResult } from './useExif'
 import { isTauri } from '../platform/env'
-import { catalogAdd, catalogClear, catalogRemove } from '../platform/catalog'
+import { catalogAdd, catalogClear, catalogRemove, catalogSetActive, loadCatalog } from '../platform/catalog'
 
 /** 桌面端本地图片条目（磁盘绝对路径） */
 export interface LocalImageEntry {
@@ -90,29 +90,35 @@ function removeSelected(): void {
 }
 
 // ===== 当前选中照片持久化：刷新后恢复选中态（历史链在 IndexedDB，选中后参数自动回放） =====
+// 桌面端选中态随目录文件持久化（catalogSetActive，AppData JSON，不怕 WebView 数据丢失）；
+// localStorage 键保留为网页端主存储 + 桌面端旧版兜底。
 const ACTIVE_KEY = 'frame-active-photo'
 watch(activeId, () => {
+  const it = items.find((i) => i.id === activeId.value)
+  catalogSetActive(it?.path ?? null)
   try {
-    const it = items.find((i) => i.id === activeId.value)
     localStorage.setItem(ACTIVE_KEY, JSON.stringify(it ? { id: it.id, path: it.path ?? null } : null))
   } catch {
     /* ignore */
   }
 })
 
-/** 启动时恢复上次选中照片：ID 直接命中（种子图等稳定 ID）；否则按桌面端磁盘路径匹配
- *  （桌面端启动按目录还原图库后 ID 会重新生成）。找不到则不动作。 */
+/** 启动时恢复上次选中照片：ID 直接命中（种子图等稳定 ID）；其次按桌面端磁盘路径匹配
+ *  （桌面端启动按目录还原图库后 ID 会重新生成）；最后按目录文件记录的 activePath 匹配。
+ *  找不到则不动作。 */
 export function restoreActive(): void {
   let rec: { id?: string | null; path?: string | null } = {}
   try {
     const raw = localStorage.getItem(ACTIVE_KEY)
     if (raw) rec = JSON.parse(raw) as { id?: string | null; path?: string | null }
   } catch {
-    return
+    /* ignore：旧键损坏不阻断，目录文件里的 activePath 仍可恢复 */
   }
+  const catActive = loadCatalog().activePath ?? null
   const hit =
     (rec.id ? items.find((i) => i.id === rec.id) : undefined) ??
-    (rec.path ? items.find((i) => i.path === rec.path) : undefined)
+    (rec.path ? items.find((i) => i.path === rec.path) : undefined) ??
+    (catActive ? items.find((i) => i.path === catActive) : undefined)
   if (hit && hit.id !== activeId.value) {
     // 与 select() 相同的选中语义（select 定义在 useLibrary 内部，此处直接实现）
     items.forEach((i) => (i.selected = false))

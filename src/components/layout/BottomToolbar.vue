@@ -1,10 +1,8 @@
 <script setup lang="ts">
-// 底部上层工具栏：缩放、撤销/重做。
+// 底部上层工具栏：缩放（撤销/重做已移至左栏「撤销 / 重做」面板）。
 import { useViewer } from '../../composables/useViewer'
-import { useHistory } from '../../composables/useHistory'
 
 const viewer = useViewer()
-const { undo, redo, canUndo, canRedo } = useHistory()
 
 function zoomIn() {
   viewer.zoomBy(0.2)
@@ -19,11 +17,6 @@ function fitView() {
 
 <template>
   <div class="bottom-bar">
-    <div class="group">
-      <button class="tool" :disabled="!canUndo" title="撤销 (Ctrl+Z)" @click="undo">↶ 撤销</button>
-      <button class="tool" :disabled="!canRedo" title="重做 (Ctrl+Shift+Z)" @click="redo">↷ 重做</button>
-    </div>
-
     <div class="group">
       <span class="lbl">缩放</span>
       <button class="tool" @click="zoomOut">−</button>
