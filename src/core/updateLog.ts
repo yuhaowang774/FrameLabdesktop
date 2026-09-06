@@ -44,6 +44,21 @@ export const IMPORTANCE_LABELS: Record<UpdateImportance, string> = {
 // ===== 更新日志（新版本追加在最上方）=====
 export const UPDATE_LOG: UpdateEntry[] = [
   {
+    version: '0.1.30',
+    date: '2026-09-06',
+    importance: 'normal',
+    groups: {
+      improved: [
+        '移除「修改历史记录」面板：撤销 / 重做按钮移至编辑页左栏原位置（Ctrl+Z / Ctrl+Shift+Z 快捷键与菜单不变）',
+        '窗口标题改为显示当前版本号（FrameLab vX.X.X）',
+      ],
+      fixed: [
+        '修复软件更新后图库照片全部丢失的问题：图库目录与选中照片改为随应用数据文件持久化，更新 / 重装后自动还原（旧数据首次启动自动迁移，无需任何操作）',
+        '修复拖拽或点击「导入」按钮导入的照片重启软件后不保留的问题：桌面端拖拽与导入现均按磁盘路径记录，与菜单「导入照片…」一致',
+      ],
+    },
+  },
+  {
     version: '0.1.29',
     date: '2026-09-06',
     importance: 'normal',
