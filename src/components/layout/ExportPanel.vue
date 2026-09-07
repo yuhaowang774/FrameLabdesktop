@@ -360,108 +360,111 @@ function onThumbClick(item: { id: string }, e: MouseEvent) {
       <p class="sub">配置成品输出参数，支持单张 / 批量导出。所有处理在本地完成。</p>
     </header>
 
-    <!-- 导出文件夹（桌面端）：导出前必须先选定，置顶显眼展示 -->
-    <section v-if="isTauri" class="card folder-card" :class="{ missing: !exportFolder }">
-      <div class="group-head">
-        <Icon name="folder" />
-        <h3>导出文件夹</h3>
-        <span class="head-hint">{{ exportFolder ? '导出将直接写入此文件夹（重名自动加序号）' : '导出前必须先选定' }}</span>
-      </div>
-      <div class="row folder-row">
-        <span class="folder-path" :title="exportFolder || ''">{{ exportFolder || '未选择 — 请点击「选择文件夹」指定导出位置' }}</span>
-        <button class="btn" :class="{ primary: !exportFolder }" @click="chooseExportFolder">选择文件夹</button>
-        <button v-if="exportFolder" class="btn dim" @click="clearExportFolder">清除</button>
-      </div>
-    </section>
+    <!-- 双栏自适应布局：≥1100px 左（配置）/ 右（选片），窄屏自动堆叠 -->
+    <div class="layout">
+      <div class="col side">
+        <!-- 导出文件夹（桌面端）：导出前必须先选定，置顶显眼展示 -->
+        <section v-if="isTauri" class="card folder-card" :class="{ missing: !exportFolder }">
+          <div class="group-head">
+            <Icon name="folder" />
+            <h3>导出文件夹</h3>
+            <span class="head-hint">{{ exportFolder ? '导出将直接写入此文件夹' : '导出前必须先选定' }}</span>
+          </div>
+          <div class="row folder-row">
+            <span class="folder-path" :title="exportFolder || ''">{{ exportFolder || '未选择 — 请点击「选择文件夹」指定导出位置' }}</span>
+            <button class="btn" :class="{ primary: !exportFolder }" @click="chooseExportFolder">选择文件夹</button>
+            <button v-if="exportFolder" class="btn dim" @click="clearExportFolder">清除</button>
+          </div>
+        </section>
 
-    <div class="cards">
-      <!-- 输出设置 -->
-      <section class="card">
+        <!-- 输出设置 -->
+        <section class="card">
+          <div class="group-head">
+            <Icon name="photo" />
+            <h3>输出设置</h3>
+            <span class="head-hint">格式 · 画质 · 尺寸</span>
+          </div>
+          <div class="row">
+            <label>格式</label>
+            <div class="seg">
+              <button :class="{ on: format === 'png' }" @click="format = 'png'">PNG 无损</button>
+              <button :class="{ on: format === 'jpg' }" @click="format = 'jpg'">JPG 高画质</button>
+            </div>
+          </div>
+          <div v-if="format === 'jpg'" class="row">
+            <label>画质</label>
+            <RangeSlider v-model="jpgQuality" :min="0.5" :max="1" :step="0.01" />
+          </div>
+          <div class="row">
+            <label title="导出时先把画布放大到目标尺寸的 N 倍渲染，再把文字 / Logo / 模糊背景等装饰以更高精度绘制后缩回，成片装饰层更锐利（照片本身始终是原生分辨率）。倍率越高导出越慢、内存占用越大，日常导出 1x 已足够清晰。">超采样</label>
+            <div class="seg">
+              <button :class="{ on: supersample === 1 }" @click="supersample = 1">1x</button>
+              <button :class="{ on: supersample === 2 }" @click="supersample = 2">2x</button>
+              <button :class="{ on: supersample === 3 }" @click="supersample = 3">3x</button>
+            </div>
+          </div>
+          <p class="hint">渲染倍率：倍率越高，文字 / Logo / 模糊背景越锐利，导出越慢；1x 日常已足够。</p>
+          <div class="divider" />
+          <div class="row">
+            <label title="批量导出时每张照片使用自己导入时解析出的 EXIF 参数、拍摄日期、相机型号与品牌 Logo（而不是全部套用当前编辑器里的文本），适合索尼 / 无人机 / 手机等不同来源的照片混批导出；无 EXIF 的照片对应文本置空。">批量回填</label>
+            <label class="check" title="开启后批量导出的每张照片使用各自导入时解析的 EXIF、相机型号与品牌 Logo">
+              <input type="checkbox" v-model="backfillExif" />
+              <span>每张照片使用自身 EXIF / 型号 / 品牌</span>
+            </label>
+          </div>
+          <div class="row">
+            <label title="批量回填导出时，按你写的规则批量替换每张照片的 EXIF 文本 / 相机型号 / 镜头型号。每行一条规则，格式为「查找 => 替换」，多条规则按从上到下顺序依次生效。适合统一不同相机对同一镜头的命名等场景，例如：腾龙28-200 E A071 => 腾龙 28-200。规则会自动保存，下次打开仍在。">文本映射</label>
+            <label class="check" title="批量导出时按规则替换各照片的 EXIF 文本 / 相机型号 / 镜头型号（仅影响批量回填）">
+              <input type="checkbox" v-model="rulesEnabled" />
+              <span>启用批量文本映射</span>
+            </label>
+          </div>
+          <div v-if="rulesEnabled" class="row">
+            <textarea
+              v-model="rulesText"
+              class="rules-area"
+              rows="3"
+              spellcheck="false"
+              placeholder="每行一条：查找 => 替换&#10;如 腾龙28-200 E A071 => 腾龙 28-200"
+            ></textarea>
+          </div>
+        </section>
+      </div>
+
+      <!-- 照片选择（网格） -->
+      <section class="card select">
         <div class="group-head">
           <Icon name="photo" />
-          <h3>输出设置</h3>
-          <span class="head-hint">格式 · 画质 · 尺寸</span>
+          <h3>选择要导出的照片</h3>
+          <span class="count">已选 {{ selectedCount }} / {{ library.items.length }} 张</span>
         </div>
-        <div class="row">
-          <label>格式</label>
-          <div class="seg">
-            <button :class="{ on: format === 'png' }" @click="format = 'png'">PNG 无损</button>
-            <button :class="{ on: format === 'jpg' }" @click="format = 'jpg'">JPG 高画质</button>
+        <div class="row tools">
+          <button class="btn" :disabled="!library.items.length" @click="library.selectAll()">全选</button>
+          <button class="btn" :disabled="!selectedCount" @click="library.selectNone()">取消全选</button>
+          <span class="hint-inline">点击预览该照片 · 右上角圆圈勾选导出 · Shift+点击范围多选</span>
+        </div>
+        <div v-if="library.items.length === 0" class="hint">图库暂无照片，请先在图库模块导入。</div>
+        <div v-else class="thumb-grid">
+          <div
+            v-for="item in library.items"
+            :key="item.id"
+            class="thumb"
+            :class="{ selected: item.selected, active: item.id === library.activeId.value }"
+            :title="`${item.name}${item.selected ? '（已选中）' : ''}`"
+            @click="onThumbClick(item, $event)"
+          >
+            <img :src="item.thumbUrl || item.url" :alt="item.name" loading="lazy" />
+            <span class="thumb-name">{{ item.name }}</span>
+            <span
+              class="select-dot"
+              :class="{ on: item.selected }"
+              :title="item.selected ? '取消选择该照片' : '选择该照片'"
+              @click.stop="library.toggleSelect(item.id)"
+            ></span>
           </div>
-        </div>
-        <div v-if="format === 'jpg'" class="row">
-          <label>画质</label>
-          <RangeSlider v-model="jpgQuality" :min="0.5" :max="1" :step="0.01" />
-        </div>
-        <div class="row">
-          <label title="导出时先把画布放大到目标尺寸的 N 倍渲染，再把文字 / Logo / 模糊背景等装饰以更高精度绘制后缩回，成片装饰层更锐利（照片本身始终是原生分辨率）。倍率越高导出越慢、内存占用越大，日常导出 1x 已足够清晰。">超采样</label>
-          <div class="seg">
-            <button :class="{ on: supersample === 1 }" @click="supersample = 1">1x</button>
-            <button :class="{ on: supersample === 2 }" @click="supersample = 2">2x</button>
-            <button :class="{ on: supersample === 3 }" @click="supersample = 3">3x</button>
-          </div>
-        </div>
-        <p class="hint">渲染倍率：倍率越高，文字 / Logo / 模糊背景越锐利，导出越慢；1x 日常已足够。</p>
-        <div class="divider" />
-        <div class="row">
-          <label title="批量导出时每张照片使用自己导入时解析出的 EXIF 参数、拍摄日期、相机型号与品牌 Logo（而不是全部套用当前编辑器里的文本），适合索尼 / 无人机 / 手机等不同来源的照片混批导出；无 EXIF 的照片对应文本置空。">批量回填</label>
-          <label class="check" title="开启后批量导出的每张照片使用各自导入时解析的 EXIF、相机型号与品牌 Logo">
-            <input type="checkbox" v-model="backfillExif" />
-            <span>每张照片使用自身 EXIF / 型号 / 品牌</span>
-          </label>
-        </div>
-        <div class="row">
-          <label title="批量回填导出时，按你写的规则批量替换每张照片的 EXIF 文本 / 相机型号 / 镜头型号。每行一条规则，格式为「查找 => 替换」，多条规则按从上到下顺序依次生效。适合统一不同相机对同一镜头的命名等场景，例如：腾龙28-200 E A071 => 腾龙 28-200。规则会自动保存，下次打开仍在。">文本映射</label>
-          <label class="check" title="批量导出时按规则替换各照片的 EXIF 文本 / 相机型号 / 镜头型号（仅影响批量回填）">
-            <input type="checkbox" v-model="rulesEnabled" />
-            <span>启用批量文本映射</span>
-          </label>
-        </div>
-        <div v-if="rulesEnabled" class="row">
-          <textarea
-            v-model="rulesText"
-            class="rules-area"
-            rows="3"
-            spellcheck="false"
-            placeholder="每行一条：查找 => 替换&#10;如 腾龙28-200 E A071 => 腾龙 28-200"
-          ></textarea>
         </div>
       </section>
     </div>
-
-    <!-- 照片选择（网格） -->
-    <section class="card select">
-      <div class="group-head">
-        <Icon name="photo" />
-        <h3>选择要导出的照片</h3>
-        <span class="count">已选 {{ selectedCount }} / {{ library.items.length }} 张</span>
-      </div>
-      <div class="row tools">
-        <button class="btn" :disabled="!library.items.length" @click="library.selectAll()">全选</button>
-        <button class="btn" :disabled="!selectedCount" @click="library.selectNone()">取消全选</button>
-        <span class="hint-inline">点击预览该照片 · 右上角圆圈勾选导出 · Shift+点击范围多选</span>
-      </div>
-      <div v-if="library.items.length === 0" class="hint">图库暂无照片，请先在图库模块导入。</div>
-      <div v-else class="thumb-grid">
-        <div
-          v-for="item in library.items"
-          :key="item.id"
-          class="thumb"
-          :class="{ selected: item.selected, active: item.id === library.activeId.value }"
-          :title="`${item.name}${item.selected ? '（已选中）' : ''}`"
-          @click="onThumbClick(item, $event)"
-        >
-          <img :src="item.thumbUrl || item.url" :alt="item.name" loading="lazy" />
-          <span class="thumb-name">{{ item.name }}</span>
-          <span
-            class="select-dot"
-            :class="{ on: item.selected }"
-            :title="item.selected ? '取消选择该照片' : '选择该照片'"
-            @click.stop="library.toggleSelect(item.id)"
-          ></span>
-        </div>
-      </div>
-    </section>
 
     <!-- 吸底任务卡 -->
     <section class="card taskbar">
@@ -529,15 +532,16 @@ function onThumbClick(item: { id: string }, e: MouseEvent) {
 </template>
 
 <style scoped>
+/* ===== 页面容器：流式宽度 + 流式内边距，窄到宽全程自适应 ===== */
 .export-view {
   height: 100%;
   overflow: auto;
-  padding: 16px 20px 12px;
+  padding: clamp(10px, 1.6vh, 20px) clamp(14px, 2.4vw, 32px) 12px;
   background: var(--shell);
-  max-width: 960px;
+  max-width: 1220px;
   margin: 0 auto;
 }
-.page-head { margin-bottom: 12px; }
+.page-head { margin-bottom: clamp(8px, 1.2vh, 14px); }
 .title {
   font-size: 13px;
   font-weight: 400;
@@ -552,11 +556,34 @@ function onThumbClick(item: { id: string }, e: MouseEvent) {
   line-height: 16px;
   margin: 0;
 }
-.cards {
+/* ===== 双栏自适应布局：≥1100px 左（配置列，定宽）/ 右（选片列，弹性）；
+   窄屏自动回落为单列堆叠，配置卡片在前、选片在后 ===== */
+.layout {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1fr;
   gap: 12px;
   margin-bottom: 12px;
+}
+@media (min-width: 1100px) {
+  .layout {
+    grid-template-columns: minmax(330px, 400px) minmax(0, 1fr);
+    align-items: start;
+  }
+  .col.side {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    min-width: 0;
+  }
+  /* 宽屏下选片区与左栏等高铺满，缩略图区随视口高度伸缩 */
+  .select .thumb-grid {
+    max-height: clamp(240px, calc(100vh - 420px), 560px);
+  }
+}
+/* 中等宽度以下：工具行允许换行，提示语独占一行 */
+@media (max-width: 860px) {
+  .row.tools { flex-wrap: wrap; row-gap: 4px; }
+  .row.tools .hint-inline { flex-basis: 100%; margin-left: 0; }
 }
 .card {
   background: var(--panel);
@@ -672,9 +699,11 @@ function onThumbClick(item: { id: string }, e: MouseEvent) {
 }
 .thumb-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
+  /* 缩略图宽度随容器伸缩：宽屏自动放大、窄屏保持可点尺寸 */
+  grid-template-columns: repeat(auto-fill, minmax(clamp(96px, 12vw, 132px), 1fr));
   gap: 8px;
-  max-height: 260px;
+  /* 纵向高度随视口伸缩（窄屏矮一些，宽屏高一些），超出滚动 */
+  max-height: clamp(200px, 34vh, 400px);
   overflow-y: auto;
   padding: 2px;
 }
@@ -807,7 +836,7 @@ function onThumbClick(item: { id: string }, e: MouseEvent) {
   text-align: left;
 }
 
-/* 吸底任务卡 */
+/* 吸底任务卡：宽屏单行三段（预估/进度/按钮），窄屏纵向堆叠 */
 .taskbar {
   position: sticky;
   bottom: 0;
@@ -818,6 +847,16 @@ function onThumbClick(item: { id: string }, e: MouseEvent) {
   border-top: 1px solid var(--border);
   background: var(--panel);
   box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.18);
+  padding: 10px 14px;
+}
+@media (max-width: 900px) {
+  .taskbar {
+    flex-wrap: wrap;
+    row-gap: 8px;
+  }
+  .estimate { flex: 1 1 auto; }
+  .btns { flex: 1 1 100%; }
+  .btns .btn { flex: 1; min-width: 0; padding: 0 8px; }
 }
 .estimate { display: flex; align-items: baseline; gap: 8px; flex: none; }
 .est-title { font-size: 11px; color: var(--text-dim); }
@@ -846,8 +885,9 @@ function onThumbClick(item: { id: string }, e: MouseEvent) {
   z-index: 1000;
 }
 .preview-box {
-  max-width: 70vw;
-  max-height: 85vh;
+  /* 弹窗宽度：大屏封顶 1100px，小屏占满 92vw，全尺寸下图片区域最大化 */
+  width: min(1100px, 92vw);
+  max-height: 88vh;
   display: flex;
   flex-direction: column;
   background: var(--panel);
@@ -894,7 +934,8 @@ function onThumbClick(item: { id: string }, e: MouseEvent) {
 .preview-img {
   display: block;
   max-width: 100%;
-  max-height: 60vh;
+  /* 图片高度随弹窗可用空间伸缩（弹窗 88vh 减去头/脚约 100px） */
+  max-height: calc(88vh - 110px);
   object-fit: contain;
   margin: 0 auto;
 }
@@ -902,7 +943,8 @@ function onThumbClick(item: { id: string }, e: MouseEvent) {
 .preview-foot {
   display: flex;
   align-items: center;
-  gap: 12px;
+  flex-wrap: wrap;
+  gap: 6px 12px;
   min-height: 36px;
   padding: 4px 12px;
   border-top: 1px solid var(--border);
@@ -921,8 +963,15 @@ function onThumbClick(item: { id: string }, e: MouseEvent) {
 }
 .preview-meta { font-size: 11px; color: var(--text-dim); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .preview-saved { font-size: 11px; color: var(--text); white-space: nowrap; }
-@media (max-width: 860px) {
-  .cards { grid-template-columns: 1fr; }
-  .taskbar { flex-wrap: wrap; }
+/* 预览弹窗窄屏：文件名独占一行，元信息与按钮自动换行 */
+@media (max-width: 700px) {
+  .preview-name { max-width: 100%; flex-basis: 100%; }
+  .preview-foot .btn { margin-left: auto; }
+}
+/* 导出文件夹行：窄屏换行（路径独占一行，按钮随行） */
+@media (max-width: 620px) {
+  .folder-row { flex-wrap: wrap; }
+  .folder-card .folder-path { flex-basis: 100%; }
+  .head-hint { display: none; }
 }
 </style>

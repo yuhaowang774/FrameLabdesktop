@@ -44,6 +44,19 @@ export const IMPORTANCE_LABELS: Record<UpdateImportance, string> = {
 // ===== 更新日志（新版本追加在最上方）=====
 export const UPDATE_LOG: UpdateEntry[] = [
   {
+    version: '0.2.0',
+    date: '2026-09-08',
+    importance: 'normal',
+    groups: {
+      improved: [
+        '导出界面全面适配不同屏幕尺寸：宽屏采用「左配置 / 右选片」双栏布局，空间利用更充分；窗口拖窄时自动堆叠为单列',
+        '导出页缩略图网格随窗口大小伸缩（列宽与高度自适应），吸底任务卡在窄窗口下自动堆叠、按钮等宽排列',
+        '导出预览弹窗升级：大屏图片区域更大（宽度封顶 1100px），图片高度随弹窗自适应，窄窗口下文件名与按钮自动换行',
+        '新增项目 README 与仓库简介',
+      ],
+    },
+  },
+  {
     version: '0.1.31',
     date: '2026-09-07',
     importance: 'major',
@@ -456,6 +469,7 @@ export const UPDATE_LOG: UpdateEntry[] = [
  * 数据来源：git 提交历史中「版本 X.X.X」发版提交的时间；缺省（如 0.1.0 早期）不显示时刻。
  */
 export const RELEASE_TIMES: Record<string, string> = {
+  '0.2.0': '00:58',
   '0.1.31': '01:50',
   '0.1.30': '18:06',
   '0.1.29': '12:00',
