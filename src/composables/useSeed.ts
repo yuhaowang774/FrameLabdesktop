@@ -1,5 +1,6 @@
 // 开发调试专用：启动时把种子照片内置到图库（便于联调基础信息面板/EXIF 流程）。
 // 仅在 DEV 构建下由 main.ts 动态 import；生产构建经死代码消除后本模块与种子图片均不会进入产物。
+import { reactive } from 'vue'
 import { suspendCommit, useFrameConfig } from './useFrameConfig'
 import { importPhoto } from './useHistory'
 import { loadPhotoNodes } from './useHistoryDB'
@@ -42,7 +43,8 @@ export async function seedBuiltin(): Promise<void> {
     // 重复启动防护（热重载会重新执行）：同名种子已在图库则跳过
     if (lib.items.some((i) => i.id === id)) continue
     const { width, height } = await readSizeFromUrl(s.url)
-    const item: LibraryItem = {
+    // 同 useLibrary.addFiles：先 reactive 化再 push，异步缩略图/EXIF 赋值才触发渲染
+    const item = reactive<LibraryItem>({
       id,
       name: s.name,
       url: s.url,
@@ -52,7 +54,7 @@ export async function seedBuiltin(): Promise<void> {
       size: blob.size,
       exif: null,
       selected: false,
-    }
+    })
     lib.items.push(item)
     // 异步缩略图：胶片条/图库用小图，避免为 88px 缩略图解码 96MP 原图
     void makeThumbUrl(s.url, width, height).then((t) => {

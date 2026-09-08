@@ -275,7 +275,10 @@ export function useLibrary() {
       const url = URL.createObjectURL(file)
       const id = makeId()
       if (firstNewId === null) firstNewId = id
-      const item: LibraryItem = {
+      // 必须先 reactive 化再 push：后续异步回调对 item 的赋值（thumbUrl/exif）才能
+      // 走 proxy set 触发渲染；对 raw 对象直写不通知依赖，缩略图要等其它状态
+      // 变更引发重渲染才显示（用户表现为「点击后缩略图才陆续出现」）
+      const item = reactive<LibraryItem>({
         id,
         name: file.name,
         url,
@@ -285,7 +288,7 @@ export function useLibrary() {
         size: file.size,
         exif: null,
         selected: false,
-      }
+      })
       items.push(item)
       // 异步生成缩略图（就绪后 reactive 自动更新列表 UI）
       void makeThumbUrl(url, width, height).then((t) => {
@@ -371,7 +374,8 @@ export function useLibrary() {
       const { width, height } = await readSizeFromUrl(url)
       const id = makeId()
       if (firstNewId === null) firstNewId = id
-      const item: LibraryItem = {
+      // 同 addFiles：先 reactive 化再 push，异步缩略图/EXIF 赋值才触发渲染
+      const item = reactive<LibraryItem>({
         id,
         name: e.name,
         url,
@@ -382,7 +386,7 @@ export function useLibrary() {
         exif: null,
         path: e.path,
         selected: false,
-      }
+      })
       items.push(item)
       added.push(item)
       known.add(e.path)
