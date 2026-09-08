@@ -43,6 +43,16 @@ export function drawImageProp(
 }
 
 /**
+ * 清空模糊背景的模块级渲染缓存（blur 结果缓存 + 降采样源缓存）。
+ * 照片切换时必须调用：两个缓存以「图像引用相等」为命中条件，但旧条目会一直
+ * 持有上一张照片的图像源（ImageBitmap/HTMLImageElement），阻止其被回收。
+ */
+export function resetBlurCaches(): void {
+  blurCache = null
+  blurSourceCache = null
+}
+
+/**
  * 绘制模糊背景。基于 cover 计算出基准缩放，再乘以 zoom 实现自由缩放，
  * 并以 (offsetX, offsetY) 平移（设计/画布像素），模拟 Word 式拖拽背景。
  * @param dim 亮度系数，默认 1（不压暗——评论区「模糊后偏暗/不艳」修正；

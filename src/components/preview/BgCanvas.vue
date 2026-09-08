@@ -5,7 +5,7 @@ import { drawBlurredBackground } from '../../core/bgRenderer'
 import { useFrameConfig } from '../../composables/useFrameConfig'
 
 const props = defineProps<{
-  image: HTMLImageElement | HTMLCanvasElement | null
+  image: ImageBitmap | HTMLImageElement | HTMLCanvasElement | null
   blur: number
   /** 画板（容器）设计宽，用于把 bgOffset 设计坐标换算为像素 */
   containerW: number

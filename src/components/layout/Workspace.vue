@@ -8,7 +8,7 @@ import { DESIGN_CONTAINER } from '../../core/constants'
 
 defineProps<{
   photoSrc: string | null
-  bgImage: HTMLImageElement | null
+  bgImage: ImageBitmap | HTMLImageElement | HTMLCanvasElement | null
 }>()
 
 // 自由拖拽模式启用画布内拖拽交互，简易模式隐藏控制点

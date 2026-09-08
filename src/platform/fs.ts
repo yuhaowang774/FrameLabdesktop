@@ -113,10 +113,17 @@ export async function readLocalBase64(path: string): Promise<string> {
   return tauriInvoke<string>('read_file_base64', { path })
 }
 
-/** 桌面端：读取本地图片字节（EXIF 解析用） */
+/**
+ * 桌面端：读取本地文件原始字节（二进制 IPC）。
+ * 走 read_file_bytes（tauri::ipc::Response 二进制通道）：80MB 照片不再经历
+ * base64 编码（+33%）与 JSON 字符串序列化的多份副本，IPC 瞬时内存降到单份数据本体。
+ * read_file_base64 版本保留给确需字符串的场景（dataURL 持久化等）。
+ */
 export async function readLocalBytes(path: string): Promise<ArrayBuffer> {
-  const b64 = await readLocalBase64(path)
-  const u8 = base64ToBytes(b64)
+  const buf = await tauriInvoke<ArrayBuffer>('read_file_bytes', { path })
+  if (buf instanceof ArrayBuffer) return buf
+  // 兜底：某些宿主版本返回 Uint8Array 视图
+  const u8 = buf as unknown as Uint8Array
   const ab = new ArrayBuffer(u8.byteLength)
   new Uint8Array(ab).set(u8)
   return ab
@@ -130,14 +137,38 @@ export async function readLocalDataURL(path: string): Promise<string> {
 }
 
 /** 桌面端：读取本地图片为同源 Blob（带正确 MIME），供 createImageBitmap 解码。
- *  相比 dataURL 少一份大 base64 字符串；Blob 由解码器流式消费。 */
+ *  走二进制 IPC（readLocalBytes）：Blob 由解码器流式消费，无 base64 中间副本。 */
 export async function readLocalBlob(path: string): Promise<Blob> {
-  const b64 = await readLocalBase64(path)
-  const bytes = base64ToBytes(b64)
+  const ab = await readLocalBytes(path)
   const mime = MIME[extOf(path)] || 'image/png'
-  const ab = new ArrayBuffer(bytes.byteLength)
-  new Uint8Array(ab).set(bytes)
   return new Blob([ab], { type: mime })
+}
+
+/**
+ * 桌面端：读取 JPEG 并由 Rust 在解码阶段直接缩放（DCT 1/2·1/4·1/8），返回同源 canvas。
+ * 内存关键路径：渲染进程里 createImageBitmap(blob, resize) 对 96MP JPEG 会产生 ~3.9GB
+ * 瞬时分配（全尺寸位图 + 缩放中间缓冲），是「进入编辑模式提交内存冲上 5GB / 渲染进程
+ * OOM 崩溃」的根因。Rust 侧缩放解码后跨 IPC 只有缩放后 RGBA（96MP@1/4 ≈ 24MB）。
+ * 非 JPEG / CMYK 等解码失败时返回 null，调用方回退 createImageBitmap 路径。
+ */
+export async function readPreviewCanvas(path: string, longMax: number): Promise<HTMLCanvasElement | null> {
+  try {
+    const buf = await tauriInvoke<ArrayBuffer>('read_preview_bytes', { path, longMax })
+    const view = new DataView(buf)
+    const w = view.getUint32(0, true)
+    const h = view.getUint32(4, true)
+    if (!w || !h) return null
+    const rgba = new Uint8ClampedArray(buf, 8, w * h * 4)
+    const canvas = document.createElement('canvas')
+    canvas.width = w
+    canvas.height = h
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return null
+    ctx.putImageData(new ImageData(rgba, w, h), 0, 0)
+    return canvas
+  } catch {
+    return null
+  }
 }
 
 /** asset 协议 URL 判定（Tauri convertFileSrc 在 Windows 生成 http://asset.localhost/<encoded-path>） */

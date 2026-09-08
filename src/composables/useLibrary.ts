@@ -188,34 +188,49 @@ function releaseThumbSlot(): void {
 }
 
 /** 生成缩略图 objectURL（长边 ≤320，JPEG 0.8）。
- *  内存关键路径（此前两版实现的教训）：
- *  - 桌面端 asset URL 直接绘制会因跨域污染 canvas 失败 → 必须先读盘转同源数据；
+ *  内存关键路径（此前三版实现的教训）：
+ *  - 桌面端 asset URL 直接绘制会因跨域污染 canvas 失败 → 必须先取同源数据；
  *  - 用 Image 元素 + drawImage 解码：Chromium 图像缓存会按 URL 滞留整张全尺寸
  *    解码位图（96MP ≈ 400MB/张），几张就把渲染进程推到 2GB+；
- *  - 现改用 createImageBitmap(blob, { resize })：JPEG 在解码阶段降采样（DCT
- *    scaling），不再物化全尺寸位图，且 bitmap.close() 确定性立即释放。
+ *  - createImageBitmap(blob, resize) 在渲染进程内对 96MP 仍有 ~3.9GB 瞬时分配
+ *    （全尺寸位图 + 缩放中间缓冲），批量导入/启动还原时 OOM 崩溃；
+ *  - 现桌面端走 Rust DCT 缩放解码（readPreviewCanvas，跨 IPC 仅缩放后 RGBA），
+ *    网页端保留 createImageBitmap(blob, { resize })（JPEG 解码阶段降采样）。
  *  全局限流（并发 2）防止批量导入时解码峰值叠加。失败返回 null（UI 显示占位）。 */
 export async function makeThumbUrl(url: string, w: number, h: number): Promise<string | null> {
   if (!w || !h) return null
   await acquireThumbSlot()
   try {
-    // 统一取同源 Blob：桌面端 asset URL 读盘（带正确 MIME），网页端 fetch
-    let blob: Blob
+    const f = Math.min(1, 320 / Math.max(w, h))
+    const tw = Math.max(1, Math.round(w * f))
+    const th = Math.max(1, Math.round(h * f))
+    // 桌面端 asset 协议：Rust 侧 DCT 缩放解码（96MP@1/8 档 ≈ 6MB RGBA）
     const assetHit = url.match(/^(?:https?:\/\/asset\.localhost|asset:\/\/localhost)\/(.+)$/)
     if (assetHit) {
       try {
-        const { readLocalBlob } = await import('../platform/fs')
-        blob = await readLocalBlob(decodeURIComponent(assetHit[1]))
+        const { readPreviewCanvas } = await import('../platform/fs')
+        const src = await readPreviewCanvas(decodeURIComponent(assetHit[1]), 320)
+        if (src) {
+          const c = document.createElement('canvas')
+          c.width = tw
+          c.height = th
+          const cx = c.getContext('2d')
+          if (cx) {
+            cx.drawImage(src, 0, 0, tw, th)
+            const out = await new Promise<Blob | null>((res) => c.toBlob(res, 'image/jpeg', 0.8))
+            return out ? URL.createObjectURL(out) : null
+          }
+        }
       } catch {
-        return null // 读盘失败（文件被移动等）：无缩略图，UI 显示占位而非原图
+        /* 读盘失败：无缩略图，UI 显示占位而非原图 */
       }
-    } else {
-      blob = await (await fetch(url)).blob()
+      return null
     }
-    const f = Math.min(1, 320 / Math.max(w, h))
+    // 网页端：统一取同源 Blob 后解码期降采样
+    const blob = await (await fetch(url)).blob()
     const bmp = await createImageBitmap(blob, {
-      resizeWidth: Math.max(1, Math.round(w * f)),
-      resizeHeight: Math.max(1, Math.round(h * f)),
+      resizeWidth: tw,
+      resizeHeight: th,
       resizeQuality: 'medium',
     })
     const c = document.createElement('canvas')

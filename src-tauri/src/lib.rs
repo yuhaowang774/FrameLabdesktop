@@ -100,6 +100,95 @@ fn read_file_base64(path: String) -> Result<String, String> {
     Ok(base64::engine::general_purpose::STANDARD.encode(buf))
 }
 
+/// 读取本地文件原始字节（二进制 IPC 通道，直接返回 ArrayBuffer）。
+/// 与 read_file_base64 相比：不走 base64 编码与 JSON 字符串序列化，
+/// 80MB 照片的 IPC 瞬时内存从 ~1GB 级多副本降到单份 80MB（大图加载/导出主路径）。
+#[tauri::command]
+fn read_file_bytes(path: String) -> Result<tauri::ipc::Response, String> {
+    let meta = fs::metadata(&path).map_err(|e| format!("读取文件信息失败: {e}"))?;
+    if meta.len() > READ_MAX_BYTES {
+        return Err("文件过大（超过 256MB）".into());
+    }
+    let bytes = fs::read(&path).map_err(|e| format!("读取文件失败: {e}"))?;
+    Ok(tauri::ipc::Response::new(bytes))
+}
+
+/// 读取 JPEG 并在解码阶段直接缩放（DCT 1/2·1/4·1/8），返回 RGBA 位图。
+/// 二进制格式：前 8 字节 = 缩放后宽/高（u32 LE），其余为 RGBA 像素。
+///
+/// 内存关键路径（实测归因）：WebView 渲染进程里 createImageBitmap(blob, resize)
+/// 对 96MP JPEG 的解码+缩放会产生 ~3.9GB 瞬时分配（全尺寸位图 + 多级缩放中间缓冲），
+/// 导致渲染进程 OOM 崩溃/多秒冻结、整机提交内存冲上 5GB。改为 Rust 侧 DCT 缩放解码后，
+/// 跨 IPC 的只有缩放后的 RGBA（96MP@1/4 ≈ 24MB），渲染进程全程不物化全尺寸位图。
+/// 非 JPEG（PNG/WebP/CMYK 等）返回 Err，由前端回退到 createImageBitmap 路径。
+#[tauri::command]
+fn read_preview_bytes(path: String, long_max: u32) -> Result<tauri::ipc::Response, String> {
+    use std::io::BufReader;
+    // 扩展名预检：jpeg-decoder 只支持 JPEG，其余格式直接走前端回退
+    let ext_ok = Path::new(&path)
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| matches!(e.to_ascii_lowercase().as_str(), "jpg" | "jpeg" | "jfif"))
+        .unwrap_or(false);
+    if !ext_ok {
+        return Err("非 JPEG 格式，走前端解码".into());
+    }
+    let file = fs::File::open(&path).map_err(|e| format!("打开文件失败: {e}"))?;
+    let mut decoder = jpeg_decoder::Decoder::new(BufReader::new(file));
+    decoder
+        .read_info()
+        .map_err(|e| format!("读取 JPEG 元数据失败: {e}"))?;
+    let info = decoder.info().ok_or_else(|| "无法读取 JPEG 元数据".to_string())?;
+    let (w0, h0) = (info.width as u32, info.height as u32);
+    if w0 == 0 || h0 == 0 {
+        return Err("JPEG 尺寸无效".into());
+    }
+    // 等比目标尺寸：长边压到 long_max 内（不放大）
+    let long = w0.max(h0);
+    let (tw, th) = if long > long_max {
+        let f = long_max as f64 / long as f64;
+        (
+            ((w0 as f64 * f).round() as u32).max(1),
+            ((h0 as f64 * f).round() as u32).max(1),
+        )
+    } else {
+        (w0, h0)
+    };
+    // DCT 缩放解码：按需选 1/1、1/2、1/4、1/8（内部取「能覆盖目标尺寸的最小缩放档」）
+    decoder
+        .scale(tw as u16, th as u16)
+        .map_err(|e| format!("JPEG 缩放配置失败: {e}"))?;
+    let pixels = decoder
+        .decode()
+        .map_err(|e| format!("JPEG 解码失败: {e}"))?;
+    // 缩放后的实际尺寸（档位取整，如 12000×8000@1/4 → 3000×2000）
+    let out_info = decoder.info().ok_or_else(|| "无法读取解码信息".to_string())?;
+    let rgba: Vec<u8> = match out_info.pixel_format {
+        jpeg_decoder::PixelFormat::RGB24 => {
+            let n = pixels.len() / 3;
+            let mut out = Vec::with_capacity(n * 4);
+            for px in pixels.chunks_exact(3) {
+                out.extend_from_slice(&[px[0], px[1], px[2], 255]);
+            }
+            out
+        }
+        jpeg_decoder::PixelFormat::L8 => {
+            let mut out = Vec::with_capacity(pixels.len() * 4);
+            for v in &pixels {
+                out.extend_from_slice(&[*v, *v, *v, 255]);
+            }
+            out
+        }
+        // CMYK / 16bit 灰度等罕见格式：交给前端 Chromium 解码
+        _ => return Err("JPEG 像素格式不支持缩放解码，走前端解码".into()),
+    };
+    let mut out = Vec::with_capacity(8 + rgba.len());
+    out.extend_from_slice(&(out_info.width as u32).to_le_bytes());
+    out.extend_from_slice(&(out_info.height as u32).to_le_bytes());
+    out.extend_from_slice(&rgba);
+    Ok(tauri::ipc::Response::new(out))
+}
+
 /// 判断路径是否已存在（导出重名检测用）
 #[tauri::command]
 async fn path_exists(path: String) -> Result<bool, String> {
@@ -1110,6 +1199,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             list_dir_images,
             read_file_base64,
+            read_file_bytes,
+            read_preview_bytes,
             write_file_base64,
             path_exists,
             write_text_file,

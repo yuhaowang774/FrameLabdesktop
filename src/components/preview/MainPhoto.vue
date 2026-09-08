@@ -1,13 +1,13 @@
 <script setup lang="ts">
 import { ref, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useFrameConfig } from '../../composables/useFrameConfig'
-import { drawRotatedCropped } from '../../core/photoEdit'
+import { drawRotatedCropped, sourceSize } from '../../core/photoEdit'
 import type { PhotoCrop, PhotoRotation } from '../../core/types'
 
 const props = defineProps<{
   src: string
-  /** 已解码的源图（复用 App 传入的 Image，避免超大图二次解码）；未提供时内部按 src 加载 */
-  image?: HTMLImageElement | null
+  /** 已解码的预览源图（App 传入的 Rust 缩放 canvas / 降采样 ImageBitmap / 兜底 Image），避免大图重复解码 */
+  image?: ImageBitmap | HTMLImageElement | HTMLCanvasElement | null
   rotation: PhotoRotation
   crop: PhotoCrop
 }>()
@@ -18,8 +18,8 @@ const canvas = ref<HTMLCanvasElement | null>(null)
 const fallbackImg = new Image()
 fallbackImg.crossOrigin = 'anonymous'
 
-/** 当前源图：优先复用外部传入的已解码 Image，否则用内部加载的 fallback */
-function currentImg(): HTMLImageElement {
+/** 当前源图：优先复用外部传入的已解码图源，否则用内部加载的 fallback */
+function currentImg(): ImageBitmap | HTMLImageElement | HTMLCanvasElement {
   return props.image ?? fallbackImg
 }
 
@@ -27,19 +27,17 @@ let naturalW = 0
 let naturalH = 0
 
 // ===== 大图预览降采样 =====
-// 超大源图（如 12000×8000）每帧参与 drawImage 全图重采样是拖拽/缩放卡顿主因。
-// 加载时一次性降到长边上限内再供渲染（等比缩放，几何/裁剪数学完全等价）。
+// App 已在解码阶段把预览源降到长边 ≤2560（ImageBitmap），此处直接复用；
+// 仅当兜底路径传入超大 HTMLImageElement 时才二次降采样（等比，几何/裁剪数学完全等价）。
 // 仅预览路径使用；导出 exporter 仍以原始全分辨率图排版，成品质量不受影响。
-// 4096：预览画布位图 ≈ 45MB（6144 时 ≈ 100MB）；4096 已覆盖 4K 显示尺寸。
-const PREVIEW_LONG_MAX = 4096
-let drawSrc: HTMLImageElement | HTMLCanvasElement | null = null
+const PREVIEW_LONG_MAX = 2560
+let drawSrc: ImageBitmap | HTMLImageElement | HTMLCanvasElement | null = null
 let drawW = 0
 let drawH = 0
 
 function refreshDrawSource() {
   const im = currentImg()
-  const iw = im.naturalWidth
-  const ih = im.naturalHeight
+  const { w: iw, h: ih } = sourceSize(im)
   naturalW = iw
   naturalH = ih
   const long = Math.max(iw, ih)
@@ -105,12 +103,13 @@ function load() {
     render()
     return
   }
-  im.onload = () => {
+  const el = im as HTMLImageElement // 兜底路径的源必为内部加载的 Image
+  el.onload = () => {
     refreshDrawSource()
     maybeEmitReady()
     render()
   }
-  im.src = props.src
+  el.src = props.src
 }
 
 onMounted(() => {

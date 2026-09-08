@@ -16,16 +16,20 @@ import { applyShowToggles } from '../../core/showToggles'
 const props = defineProps<{
   /** 主照片 src（dataURL 或 objectURL） */
   photoSrc: string | null
-  /** 背景图元素（原图或自定义图），供 BgCanvas 绘制 */
-  bgImage: HTMLImageElement | HTMLCanvasElement | null
+  /** 预览图源（降采样 ImageBitmap / 兜底 Image / 自定义图 canvas），供 BgCanvas/MainPhoto 绘制 */
+  bgImage: ImageBitmap | HTMLImageElement | HTMLCanvasElement | null
   /** 是否启用画布拖拽交互：自由拖拽模式=true；简易模式=false（隐藏拖拽控制点/选择框） */
   interactive?: boolean
 }>()
 const interactive = computed(() => props.interactive !== false)
 
-// 复用已解码的背景图（HTMLImageElement）供 MainPhoto 显示，避免超大图二次解码
-const photoImg = computed<HTMLImageElement | null>(() =>
-  props.bgImage instanceof HTMLImageElement ? props.bgImage : null,
+// 复用已解码的预览源（Rust 缩放 canvas / 降采样 ImageBitmap / 兜底 Image）供 MainPhoto 显示，避免大图重复解码
+const photoImg = computed<ImageBitmap | HTMLImageElement | HTMLCanvasElement | null>(() =>
+  props.bgImage instanceof HTMLImageElement ||
+  (typeof ImageBitmap !== 'undefined' && props.bgImage instanceof ImageBitmap) ||
+  props.bgImage instanceof HTMLCanvasElement
+    ? props.bgImage
+    : null,
 )
 
 const { state, patch } = useFrameConfig()

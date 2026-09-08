@@ -9,6 +9,8 @@ import { useAppState } from '../../composables/useAppState'
 import { useLibrary } from '../../composables/useLibrary'
 import { useFrameConfig } from '../../composables/useFrameConfig'
 import { templateThumbDataUrl, renderTemplateThumbDataUrl, type ThumbInfoOverride } from '../../core/templateThumb'
+import type { ImgSource } from '../../core/bgRenderer'
+import { photoImage } from '../../composables/useUi'
 import GlassModal from '../common/GlassModal.vue'
 
 const props = withDefaults(
@@ -77,17 +79,23 @@ let thumbSeq = 0
 
 // 桌面端照片 src 是 Tauri asset 协议 URL（http://asset.localhost/...）：该来源绘制到 canvas
 // 会因 CORS 污染画布，导致 exportFrame → toBlob 抛 SecurityError，缩略图合成失败回退 SVG（看不到照片）。
-// 统一经 platform/fs.toDrawableUrl 读盘转 dataURL（同源可绘制）并缓存；网页端原样返回。
+// 内存关键路径：此前经 toDrawableUrl 读盘转 dataURL（96MP = 107MB base64 字符串）再由
+// loadImageElement 全尺寸解码——打开模板库即产生 GB 级瞬时分配。现直接复用 App 已解码的
+// 预览图源（photoImage，长边 ≤2560 的工作副本，与预览同一对象），零解码零大字符串；
+// 预览源未就绪时兜底走 Rust DCT 缩放解码（readPreviewCanvas）。
 // 非 asset URL（blob:/data:）先短路，避免网页端/测试环境加载桌面端 fs 模块链。
-let drawableCache: { src: string; dataUrl: string } | null = null
-async function photoDrawableSrc(src: string | null): Promise<string | undefined> {
+async function photoDrawableSrc(src: string | null): Promise<string | ImgSource | undefined> {
   if (!src) return undefined
   if (!/^(?:https?:\/\/asset\.localhost|asset:\/\/localhost)\//.test(src)) return src
-  if (drawableCache?.src === src) return drawableCache.dataUrl
-  const { toDrawableUrl } = await import('../../platform/fs')
-  const u = await toDrawableUrl(src)
-  drawableCache = { src, dataUrl: u }
-  return u
+  if (photoImage.value) return photoImage.value
+  try {
+    const { readPreviewCanvas } = await import('../../platform/fs')
+    const canvas = await readPreviewCanvas(decodeURIComponent(src.replace(/^(?:https?:\/\/asset\.localhost|asset:\/\/localhost)\//, '')), 1280)
+    if (canvas) return canvas
+  } catch {
+    /* 读盘失败走 undefined，由调用方回退 SVG */
+  }
+  return undefined
 }
 
 // 当前照片的真实 INFO（exifText/dateText/cameraModel/lensText/brand，可留空）：
@@ -115,7 +123,6 @@ watch(
     prevThumbSrc.value = src
     prevThumbInfo.value = info
     const seq = ++thumbSeq
-    drawableCache = null // 照片切换后缓存失效
     for (const t of list.value) {
       const cachedReal = thumbs[t.id] && !thumbs[t.id].startsWith('data:image/svg')
       if (!ctxChanged && cachedReal) continue

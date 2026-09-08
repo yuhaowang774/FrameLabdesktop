@@ -3,8 +3,13 @@ import { ref } from 'vue'
 /** 全局 UI 状态 */
 export const editingPhoto = ref(false)
 
-/** 当前主照片的源 <img> 元素（由 App 在图片加载后写入），供照片编辑器读取 */
-export const photoImage = ref<HTMLImageElement | null>(null)
+/**
+ * 当前主照片的预览图源（由 App 在图片加载后写入），供照片编辑器/模板库读取。
+ * 桌面端为 Rust DCT 缩放解码的 canvas、网页端为解码阶段降采样的 ImageBitmap
+ * （长边 ≤2560，恒定内存），也兼容 HTMLImageElement（兜底路径）。
+ * crop/rotation 为归一化参数，与像素解耦。
+ */
+export const photoImage = ref<ImageBitmap | HTMLImageElement | HTMLCanvasElement | null>(null)
 
 /** INFO「整体居中」请求计数器：InfoLayerPanel 按钮自增，FooterInfo watch 后执行居中 */
 export const infoCenterRequest = ref(0)

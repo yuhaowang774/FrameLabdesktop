@@ -7,6 +7,17 @@ export type { PhotoCrop, PhotoRotation } from '../core/types'
 export type Rotation = number
 
 /**
+ * 统一读取图像源的像素尺寸。
+ * HTMLImageElement 用 naturalWidth/naturalHeight，ImageBitmap / canvas 用 width/height；
+ * 预览源可能是其中任意一种（App 以解码阶段降采样的 ImageBitmap 作为预览工作副本）。
+ */
+export function sourceSize(src: CanvasImageSource): { w: number; h: number } {
+  if (src instanceof HTMLImageElement) return { w: src.naturalWidth, h: src.naturalHeight }
+  const anySrc = src as { width?: number; height?: number }
+  return { w: anySrc.width ?? 0, h: anySrc.height ?? 0 }
+}
+
+/**
  * 旋转后图像的外接矩形尺寸（显示空间）。
  * - 0/90/180/270 正交角：精确返回原尺寸 / 交换宽高（避免三角函数浮点噪声）；
  * - 任意角度：外接矩形 = |w·cosθ|+|h·sinθ| × |w·sinθ|+|h·cosθ|（角度越大空角越多）。

@@ -2,7 +2,7 @@
 import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
 import { useFrameConfig } from '../../composables/useFrameConfig'
 import { editingPhoto, photoImage } from '../../composables/useUi'
-import { rotatedSize, clampCrop, drawRotatedCropped, FULL_CROP, type PhotoCrop } from '../../core/photoEdit'
+import { rotatedSize, clampCrop, drawRotatedCropped, sourceSize, FULL_CROP, type PhotoCrop } from '../../core/photoEdit'
 import RangeSlider from './RangeSlider.vue'
 
 const { state, patch } = useFrameConfig()
@@ -20,13 +20,122 @@ const crop = ref<PhotoCrop>({ ...state.photoCrop })
 
 const stage = ref<HTMLElement | null>(null)
 
-// 源图尺寸
+// ===== 源图：复用 App 已解码的 HTMLImageElement，编辑期间只持有降采样工作副本 =====
+// 此前 new Image() + imgEl.src = im.src 对全尺寸原图二次解码：dev 下 Vite HTTP 缓存可复用
+// 同一 URL 的解码结果，而安装包的 Tauri asset 协议响应无缓存头 → 独立再解码一份全尺寸
+// 位图（24MP ≈ 96MB、96MP ≈ 366MB）并产生独立 GPU 纹理，是「进入编辑模式内存暴涨/崩溃」
+// 的根因。编辑器面板最大 ~520 CSS px × dpr2 ≈ 1040 物理像素，长边 2048 的工作副本已含
+// 2x 超采样余量；crop/rotation 为归一化参数（photoEdit.ts），退出后套用到全分辨率原图
+// 导出，成品精度零损失。
+const EDITOR_LONG_MAX = 2048
+// 源图尺寸（原图或等比副本，仅用于几何计算）
 const natural = ref<{ w: number; h: number }>({ w: 1, h: 1 })
-const imgEl = new Image()
-imgEl.crossOrigin = 'anonymous'
+let workSrc: ImageBitmap | HTMLCanvasElement | HTMLImageElement | null = null
+let workW = 0
+let workH = 0
+// workSrc 为 ImageBitmap 时的显式引用（close() 可立即释放，不等 GC）
+let workBitmap: ImageBitmap | null = null
+// 构建序号：异步缩放期间源图切换/组件卸载时丢弃过期结果
+let buildSeq = 0
 
-imgEl.onload = () => {
-  natural.value = { w: imgEl.naturalWidth, h: imgEl.naturalHeight }
+function disposeWorkSource() {
+  if (workBitmap) {
+    try {
+      workBitmap.close()
+    } catch {}
+    workBitmap = null
+  }
+  workSrc = null
+  workW = 0
+  workH = 0
+}
+
+/** 逐级减半缩小（每步 ≤2x）：单步大比例双线性插值会丢高频细节（混叠），分级质量显著更好 */
+function downscaleCanvas(im: ImageBitmap | HTMLImageElement | HTMLCanvasElement, tw: number, th: number): HTMLCanvasElement {
+  let cur: ImageBitmap | HTMLImageElement | HTMLCanvasElement = im
+  const sz = sourceSize(im)
+  let cw = sz.w
+  let ch = sz.h
+  while (cw > tw * 2 && ch > th * 2) {
+    const nw = Math.max(tw, Math.round(cw / 2))
+    const nh = Math.max(th, Math.round(ch / 2))
+    const c = document.createElement('canvas')
+    c.width = nw
+    c.height = nh
+    const cx = c.getContext('2d')
+    if (!cx) break
+    cx.imageSmoothingEnabled = true
+    cx.imageSmoothingQuality = 'high'
+    cx.drawImage(cur, 0, 0, nw, nh)
+    cur = c
+    cw = nw
+    ch = nh
+  }
+  if (cur instanceof HTMLCanvasElement && cw === tw && ch === th) return cur
+  const out = document.createElement('canvas')
+  out.width = tw
+  out.height = th
+  const ox = out.getContext('2d')
+  if (ox) {
+    ox.imageSmoothingEnabled = true
+    ox.imageSmoothingQuality = 'high'
+    ox.drawImage(cur, 0, 0, tw, th)
+  }
+  return out
+}
+
+async function buildWorkSource(im: ImageBitmap | HTMLImageElement | HTMLCanvasElement | null) {
+  const seq = ++buildSeq
+  disposeWorkSource()
+  // 源图通常已是 App 的预览副本（长边 ≤2560 的工作副本），从它再降到编辑上限开销极小
+  const { w: iw0, h: ih0 } = im ? sourceSize(im) : { w: 0, h: 0 }
+  if (!im || !iw0 || !ih0) {
+    natural.value = { w: 1, h: 1 }
+    return
+  }
+  const iw = iw0
+  const ih = ih0
+  const long = Math.max(iw, ih)
+  // 小图（≤ 上限）：直接复用已解码原图，零额外拷贝
+  if (long <= EDITOR_LONG_MAX) {
+    workSrc = im
+    workW = iw
+    workH = ih
+    natural.value = { w: iw, h: ih }
+    return
+  }
+  const f = EDITOR_LONG_MAX / long
+  const tw = Math.max(1, Math.round(iw * f))
+  const th = Math.max(1, Math.round(ih * f))
+  // 优先 createImageBitmap：原生一次性高质量缩小，产物可 close() 立即释放
+  if (typeof createImageBitmap === 'function') {
+    try {
+      const bmp = await createImageBitmap(im, {
+        resizeWidth: tw,
+        resizeHeight: th,
+        resizeQuality: 'high',
+      })
+      if (seq !== buildSeq) {
+        bmp.close()
+        return
+      }
+      workSrc = bmp
+      workBitmap = bmp
+      workW = bmp.width
+      workH = bmp.height
+      natural.value = { w: iw, h: ih }
+      return
+    } catch {
+      /* 环境不支持时降级到 canvas 缩小 */
+    }
+  }
+  if (seq !== buildSeq) return
+  const c = downscaleCanvas(im, tw, th)
+  if (seq !== buildSeq) return
+  workSrc = c
+  workW = c.width
+  workH = c.height
+  natural.value = { w: iw, h: ih }
 }
 
 // 旋转后外接尺寸（stage 即按此比例铺满；与预览/导出的 drawRotatedCropped 同一套几何）
@@ -39,7 +148,7 @@ const stageAspect = computed(() => (rotated.value.h > 0 ? rotated.value.w / rota
 const bgCanvas = ref<HTMLCanvasElement | null>(null)
 function renderBg() {
   const c = bgCanvas.value
-  if (!c || !natural.value.w || !imgEl.naturalWidth) return
+  if (!c || !workSrc || !workW) return
   const rect = c.getBoundingClientRect()
   if (!rect.width || !rect.height) return
   const dpr = Math.min(window.devicePixelRatio || 1, 2)
@@ -50,7 +159,7 @@ function renderBg() {
   const ctx = c.getContext('2d')
   if (!ctx) return
   ctx.clearRect(0, 0, w, h)
-  drawRotatedCropped(ctx, imgEl, natural.value.w, natural.value.h, rotation.value, FULL_CROP, w, h)
+  drawRotatedCropped(ctx, workSrc, workW, workH, rotation.value, FULL_CROP, w, h)
 }
 watch([rotation, natural], () => nextTick(renderBg))
 function onStageResize() {
@@ -167,19 +276,17 @@ function confirm() {
   emit('close')
 }
 
-// 监听 photoImage 变化以刷新源尺寸
+// 监听 photoImage 变化：重建工作副本（编辑器打开期间切换照片的场景）
 watch(
   () => photoImage.value,
   (im) => {
-    if (im && im.src) imgEl.src = im.src
+    void buildWorkSource(im)
   },
   { immediate: true },
 )
 
 let stageRo: ResizeObserver | null = null
 onMounted(() => {
-  const im = photoImage.value
-  if (im && im.src) imgEl.src = im.src
   window.addEventListener('resize', onStageResize)
   if (stage.value && 'ResizeObserver' in window) {
     stageRo = new ResizeObserver(onStageResize)
@@ -188,7 +295,8 @@ onMounted(() => {
   nextTick(renderBg)
 })
 onBeforeUnmount(() => {
-  imgEl.onload = null
+  buildSeq++ // 异步缩放中的过期结果直接丢弃
+  disposeWorkSource()
   window.removeEventListener('resize', onStageResize)
   stageRo?.disconnect()
   stageRo = null

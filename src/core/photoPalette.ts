@@ -101,8 +101,10 @@ export const FALLBACK_PALETTE = ['#1d3a5f', '#2e5a8f', '#4a7fbd', '#8fa8b8', '#a
 /**
  * 预览端取色：按 photoSrc 异步加载照片并提取色卡（带缓存）。
  * 返回缓存的即时结果（可能为兜底色），完成后通过 paletteVersion 触发刷新。
- * 桌面端 photoSrc 是 asset 协议 URL：直接绘制 canvas 会污染（getImageData 抛错，
- * extractPalette 内部吞错回退兜底色）——先经 toDrawableUrl 读盘转 dataURL 再提取。
+ * 内存关键路径：桌面端 asset URL 若按「读盘转 dataURL → Image 全尺寸解码」取色，
+ * 96MP 照片会物化 107MB base64 + 384MB 全尺寸位图（仅为一枚 64px 色卡）。
+ * 现桌面端走 Rust DCT 缩放解码（readPreviewCanvas，长边 128）；网页端 blob:/data:
+ * URL 可直接绘制，仍走 Image（原图尺寸由浏览器惰性解码，色卡仅 64px 绘制）。
  */
 export function paletteFor(photoSrc: string | null): string[] {
   if (!photoSrc) return FALLBACK_PALETTE
@@ -112,18 +114,20 @@ export function paletteFor(photoSrc: string | null): string[] {
   cachePut(photoSrc, FALLBACK_PALETTE)
   void (async () => {
     try {
-      let src = photoSrc
+      let pal: string[] | null = null
       if (/^(?:https?:\/\/asset\.localhost|asset:\/\/localhost)\//.test(photoSrc)) {
-        const { toDrawableUrl } = await import('../platform/fs')
-        src = await toDrawableUrl(photoSrc)
+        const { readPreviewCanvas } = await import('../platform/fs')
+        const src = await readPreviewCanvas(decodeURIComponent(photoSrc.replace(/^(?:https?:\/\/asset\.localhost|asset:\/\/localhost)\//, '')), 128)
+        if (src) pal = extractPalette(src, src.width, src.height)
+      } else {
+        const img = new Image()
+        await new Promise<void>((res, rej) => {
+          img.onload = () => res()
+          img.onerror = () => rej(new Error('取色源加载失败'))
+          img.src = photoSrc
+        })
+        pal = extractPalette(img, img.naturalWidth, img.naturalHeight)
       }
-      const img = new Image()
-      await new Promise<void>((res, rej) => {
-        img.onload = () => res()
-        img.onerror = () => rej(new Error('取色源加载失败'))
-        img.src = src
-      })
-      const pal = extractPalette(img, img.naturalWidth, img.naturalHeight)
       if (pal) cachePut(photoSrc, pal)
     } catch {
       /* 提取失败保持兜底色 */

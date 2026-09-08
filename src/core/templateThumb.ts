@@ -12,6 +12,7 @@ import { computeFooterLayout, computeMagazineLayout, magazineTitleFontSize, meas
 import { footerTextColor, logoAutoColor, hexLuminance } from './colorUtils'
 import { exportFrame } from './exporter'
 import type { ImgSource } from './bgRenderer'
+import { sourceSize } from './photoEdit'
 import { resolveLogo, preloadBrandLogo } from '../composables/useLogoStore'
 import { FALLBACK_PALETTE } from './photoPalette'
 
@@ -258,17 +259,18 @@ function loadImageElement(src: string): Promise<HTMLImageElement> {
     im.onerror = () => reject(new Error(`缩略图底图加载失败: ${src}`))
     // 以 CORS 模式加载：同源 / dataURL / blob 不受影响；跨源资源（如桌面端 asset 协议
     // 配置了 CORS 头时）绘制 canvas 不污染。无 CORS 头的跨源图会 onerror，由调用方回退
-    //（TemplatePickerModal 已把 asset 图源读盘转 dataURL 传入，此处主要为网页直链兜底）。
+    //（TemplatePickerModal 已把 asset 图源读盘转同源数据传入，此处主要为网页直链兜底）。
     im.crossOrigin = 'anonymous'
     im.src = src
   })
 }
 
-function downscaleImage(img: HTMLImageElement, maxLongEdge: number): HTMLCanvasElement {
-  const long = Math.max(img.naturalWidth, img.naturalHeight)
+function downscaleImage(img: ImgSource, maxLongEdge: number): HTMLCanvasElement {
+  const { w: nw0, h: nh0 } = sourceSize(img)
+  const long = Math.max(nw0, nh0)
   const scale = Math.min(1, maxLongEdge / long)
-  const w = Math.round(img.naturalWidth * scale)
-  const h = Math.round(img.naturalHeight * scale)
+  const w = Math.max(1, Math.round(nw0 * scale))
+  const h = Math.max(1, Math.round(nh0 * scale))
   const c = document.createElement('canvas')
   c.width = w
   c.height = h
@@ -308,7 +310,7 @@ function blobToDataUrl(blob: Blob): Promise<string> {
 }
 
 // ===== 渲染缓存：模板库弹窗高频点击场景的换图提速 =====
-// 源图缓存：同一「图片 URL + 降采样上限」→ 已解码/已降采样的源图，
+// 源图缓存：同一「图片 URL/图源对象 + 降采样上限」→ 已解码/已降采样的源图，
 // 避免每次渲染都重新解码大照片（解码是缩略图管线里最重的步骤之一）。
 const sourceCache = new Map<string, ImgSource>()
 const SOURCE_CACHE_MAX = 6
@@ -318,6 +320,19 @@ const SOURCE_CACHE_MAX = 6
 const renderCache = new Map<string, string>()
 const RENDER_CACHE_MAX = 40
 
+// 非字符串图源（App 预览 canvas/ImageBitmap 复用）的稳定键：WeakMap 不阻止其回收
+const srcObjIds = new WeakMap<ImgSource, string>()
+let srcObjSeq = 0
+function sourceKeyOf(imageUrl: string | ImgSource): string {
+  if (typeof imageUrl === 'string') return imageUrl
+  let id = srcObjIds.get(imageUrl)
+  if (!id) {
+    id = `#src${++srcObjSeq}`
+    srcObjIds.set(imageUrl, id)
+  }
+  return id
+}
+
 /** Map 的 FIFO 淘汰：删除最早插入的键 */
 function evictOldest<K, V>(map: Map<K, V>): void {
   const first = map.keys().next()
@@ -326,31 +341,38 @@ function evictOldest<K, V>(map: Map<K, V>): void {
 
 /**
  * 用真实照片渲染模板缩略图。
- * 流程：加载源图（缓存）→ 必要时降采样（缓存）→ 用 exporter 完整合成 → 返回 JPG dataURL（缓存）。
+ * imageUrl：图片 URL（字符串，按需加载解码）或已解码图源对象（App 预览 canvas/ImageBitmap
+ * 直接复用，零解码——模板库打开/换图不再触发全尺寸解码）。
+ * 流程：取源图（缓存）→ 必要时降采样（缓存）→ 用 exporter 完整合成 → 返回 JPG dataURL（缓存）。
  * info：传入当前照片的真实 INFO（exifText/dateText/cameraModel/lensText/brand），
  * 缺省时使用示意文本。渲染失败则降级为程序化 SVG。
  */
 export async function renderTemplateThumbDataUrl(
   config: Partial<FrameConfig>,
-  imageUrl: string = DEMO_IMAGE_URL,
+  imageUrl: string | ImgSource = DEMO_IMAGE_URL,
   maxLongEdge: number = DEMO_MAX_LONG_EDGE,
   info?: ThumbInfoOverride,
 ): Promise<string> {
   try {
+    const srcKey0 = sourceKeyOf(imageUrl)
     // 结果缓存命中：直接返回已渲染的 dataURL（来回对比模板时瞬时换图）
-    const cacheKey = JSON.stringify([config, info ?? null, imageUrl, maxLongEdge])
+    const cacheKey = JSON.stringify([config, info ?? null, srcKey0, maxLongEdge])
     const cached = renderCache.get(cacheKey)
     if (cached) return cached
 
     // 源图缓存：解码 + 降采样只做一次，后续渲染复用
-    const srcKey = `${imageUrl}|${maxLongEdge}`
+    const srcKey = `${srcKey0}|${maxLongEdge}`
     let source = sourceCache.get(srcKey)
     if (!source) {
-      const img = await loadImageElement(imageUrl)
-      source =
-        img.naturalWidth > maxLongEdge || img.naturalHeight > maxLongEdge
-          ? downscaleImage(img, maxLongEdge)
-          : img
+      if (typeof imageUrl === 'string') {
+        const img = await loadImageElement(imageUrl)
+        source =
+          img.naturalWidth > maxLongEdge || img.naturalHeight > maxLongEdge
+            ? downscaleImage(img, maxLongEdge)
+            : img
+      } else {
+        source = downscaleImage(imageUrl, maxLongEdge)
+      }
       sourceCache.set(srcKey, source)
       if (sourceCache.size > SOURCE_CACHE_MAX) evictOldest(sourceCache)
     }
