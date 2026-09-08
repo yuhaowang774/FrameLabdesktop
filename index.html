@@ -8,6 +8,8 @@
   </head>
   <body>
     <div id="app"></div>
+    <!-- 启动看门狗：普通脚本先于模块执行，捕获启动错误并在白屏时渲染恢复界面 -->
+    <script src="/boot-watchdog.js"></script>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

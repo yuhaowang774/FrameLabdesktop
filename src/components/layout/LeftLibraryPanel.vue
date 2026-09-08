@@ -24,7 +24,8 @@ function enter(item: { id: string }) {
         :title="item.name"
         @click="enter(item)"
       >
-        <img :src="item.thumbUrl || item.url" :alt="item.name" loading="lazy" />
+        <img v-if="item.thumbUrl" :src="item.thumbUrl" :alt="item.name" loading="lazy" />
+        <div v-else class="thumb-placeholder" />
         <span class="tname">{{ item.name }}</span>
       </button>
     </div>
@@ -69,6 +70,12 @@ function enter(item: { id: string }) {
   height: 64px;
   object-fit: cover;
   display: block;
+  background: var(--checker);
+}
+/* 缩略图未就绪占位（不再回退原图，避免大图解码 OOM） */
+.thumb .thumb-placeholder {
+  width: 100%;
+  height: 64px;
   background: var(--checker);
 }
 .tname {

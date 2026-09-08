@@ -97,7 +97,8 @@ function onHandleUp() {
         :title="`${item.name}${item.selected ? '（已选中）' : ''}`"
         @click="onItem(item.id, $event)"
       >
-        <img :src="item.thumbUrl || item.url" :alt="item.name" loading="lazy" />
+        <img v-if="item.thumbUrl" :src="item.thumbUrl" :alt="item.name" loading="lazy" />
+        <div v-else class="thumb-placeholder" />
         <span v-if="item.selected" class="sel-dot" />
       </button>
     </div>
@@ -205,6 +206,12 @@ function onHandleUp() {
   height: 100%;
   object-fit: cover;
   display: block;
+}
+/* 缩略图未就绪占位（不再回退原图，避免大图解码 OOM） */
+.frame .thumb-placeholder {
+  width: 100%;
+  height: 100%;
+  background: var(--canvas-empty);
 }
 .sel-dot {
   position: absolute;

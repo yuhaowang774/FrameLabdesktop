@@ -145,6 +145,99 @@ fn data_file(app: &AppHandle, filename: &str) -> Result<PathBuf, String> {
     Ok(dir.join(format!("{safe}.json")))
 }
 
+// ===== 启动自愈（白屏恢复）=====
+// 前端启动看门狗（public/boot-watchdog.js）在 8 秒后仍未挂载成功时，
+// 会把捕获的错误经 write_boot_log 落盘，并展示恢复界面（清缓存重启 / 禁用 GPU 重启）。
+// 两个修复动作均以「标记文件 + 重启」实现：标记在下次启动的 setup 阶段（WebView2
+// 初始化之前）处理 —— 此时旧进程已退出、缓存文件未被锁定，删除必然成功。
+
+/// 启动错误日志：写入 AppData/logs/boot-<时间戳>.log，保留最近 10 个
+#[tauri::command]
+fn write_boot_log(app: AppHandle, content: String) -> Result<(), String> {
+    let dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("无法定位 AppData 目录: {e}"))?
+        .join("logs");
+    fs::create_dir_all(&dir).map_err(|e| format!("创建日志目录失败: {e}"))?;
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let ver = app.package_info().version.to_string();
+    fs::write(dir.join(format!("boot-{secs}.log")), format!("version={ver}\n{content}"))
+        .map_err(|e| format!("写入启动日志失败: {e}"))?;
+    // 裁剪：仅保留最近 10 个启动日志
+    if let Ok(entries) = fs::read_dir(&dir) {
+        let mut logs: Vec<PathBuf> = entries
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_name().to_string_lossy().starts_with("boot-"))
+            .map(|e| e.path())
+            .collect();
+        if logs.len() > 10 {
+            logs.sort();
+            for p in logs[..logs.len() - 10].to_vec() {
+                let _ = fs::remove_file(p);
+            }
+        }
+    }
+    Ok(())
+}
+
+/// 清理 WebView2 缓存目录（保留 Local Storage / IndexedDB 等用户数据）。
+/// 同时覆盖正式版默认目录（EBWebView）与开发版目录（webview-data-dev/EBWebView）。
+fn clean_webview_caches(local_dir: &Path) {
+    let roots = [
+        local_dir.join("EBWebView"),
+        local_dir.join("webview-data-dev").join("EBWebView"),
+    ];
+    for root in roots {
+        if !root.is_dir() {
+            continue;
+        }
+        // 缓存类子目录：删除安全，不触碰 Local Storage / IndexedDB / Session Storage
+        let subs = [
+            "Default/Cache",
+            "Default/Code Cache",
+            "Default/Service Worker",
+            "Default/GPUCache",
+            "GPUCache",
+            "GrShaderCache",
+            "ShaderCache",
+            "GraphiteDawnCache",
+        ];
+        for sub in subs {
+            let _ = fs::remove_dir_all(root.join(sub));
+        }
+    }
+}
+
+/// 排队「清除 WebView2 缓存」并重启：写标记 → 重启 → 下次启动 setup 中清理
+#[tauri::command]
+fn queue_webview_cache_clean(app: AppHandle) -> Result<(), String> {
+    let dir = app
+        .path()
+        .app_local_data_dir()
+        .map_err(|e| format!("无法定位数据目录: {e}"))?;
+    fs::create_dir_all(&dir).map_err(|e| format!("创建数据目录失败: {e}"))?;
+    fs::write(dir.join("clean-webview-cache.flag"), "1")
+        .map_err(|e| format!("写入清理标记失败: {e}"))?;
+    app.restart()
+}
+
+/// 排队「本次启动禁用 GPU 加速」并重启：写标记 → 重启 → 下次启动以 --disable-gpu 构建窗口。
+/// 用于 GPU 驱动 / 显卡缓存异常导致的白屏自救；flag 一次性消费，之后可到首选项调显卡。
+#[tauri::command]
+fn queue_disable_gpu(app: AppHandle) -> Result<(), String> {
+    let dir = app
+        .path()
+        .app_local_data_dir()
+        .map_err(|e| format!("无法定位数据目录: {e}"))?;
+    fs::create_dir_all(&dir).map_err(|e| format!("创建数据目录失败: {e}"))?;
+    fs::write(dir.join("disable-gpu.flag"), "1").map_err(|e| format!("写入标记失败: {e}"))?;
+    app.restart()
+}
+
 #[tauri::command]
 fn read_app_json(app: AppHandle, filename: String) -> Result<Option<String>, String> {
     let p = data_file(&app, &filename)?;
@@ -967,16 +1060,39 @@ pub fn run() {
                 let _ = std::fs::remove_file(exe.with_file_name("FrameLab.exe.old"));
                 let _ = std::fs::remove_file(exe.with_file_name("framelab-update.bat"));
             }
+            // ===== 启动自愈：处理前端看门狗排队的修复标记（须在 WebView2 初始化前）=====
+            let local_dir = app
+                .path()
+                .app_local_data_dir()
+                .map_err(|e| format!("无法定位数据目录: {e}"))?;
+            let mut disable_gpu = false;
+            let gpu_flag = local_dir.join("disable-gpu.flag");
+            if gpu_flag.exists() {
+                // 一次性消费：本次以 --disable-gpu 启动（用户进系统后可在首选项调显卡）
+                disable_gpu = true;
+                let _ = fs::remove_file(&gpu_flag);
+            }
+            let cache_flag = local_dir.join("clean-webview-cache.flag");
+            if cache_flag.exists() {
+                // 旧进程已退出、缓存文件未被锁定，此刻清理必然成功
+                clean_webview_caches(&local_dir);
+                let _ = fs::remove_file(&cache_flag);
+            }
+
             // 窗口改为 Rust 侧创建：开发版需要指定独立 WebView2 数据目录
             // （此前开发/正式版共用 EBWebView 目录，并行启动会因目录被占用而白屏）。
+            let browser_args = if disable_gpu {
+                // 安全模式：完全禁用 GPU 合成（白屏自救，进系统后可在首选项调显卡）
+                "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --disable-gpu"
+            } else {
+                "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --ignore-gpu-blocklist --enable-gpu-rasterization"
+            };
             let mut win = tauri::WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::App("index.html".into()))
                 // 窗口标题：名字后跟当前版本号（随发版自动更新）
                 .title(format!("FrameLab v{}", app.package_info().version))
                 .inner_size(1360.0, 860.0)
                 .min_inner_size(1024.0, 660.0)
-                .additional_browser_args(
-                    "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --ignore-gpu-blocklist --enable-gpu-rasterization",
-                )
+                .additional_browser_args(browser_args)
                 // 拖放保持 Tauri 原生处理：前端经 onDragDropEvent 拿到拖入文件的真实磁盘路径，
                 // 走 addLocalEntries 导入（进 catalog 持久化，重启可还原）；网页端 HTML5 拖放不受影响。
                 .drag_and_drop(true);
@@ -1011,6 +1127,9 @@ pub fn run() {
             reveal_path,
             restart_app,
             open_external,
+            write_boot_log,
+            queue_webview_cache_clean,
+            queue_disable_gpu,
             is_portable,
             green_update_check,
             green_update_download,

@@ -16,7 +16,7 @@ import { useAppState } from './composables/useAppState'
 import { useViewer } from './composables/useViewer'
 import { suspendCommit } from './composables/useFrameConfig'
 import { useHistory, registerActiveProvider } from './composables/useHistory'
-import { editingPhoto, photoImage } from './composables/useUi'
+import { editingPhoto, photoImage, runtimeError } from './composables/useUi'
 import { isTauri } from './platform/env'
 import UpdateModal from './components/layout/UpdateModal.vue'
 import { detectUpdate, type UpdateHit } from './composables/useUpdateLog'
@@ -134,6 +134,17 @@ onBeforeUnmount(() => window.removeEventListener('keydown', onKey))
 // 桌面端版本运行时读取 tauri.conf.json（updater 静默安装重启后即为新版本首次启动）；Web 端用构建时注入版本。
 const showUpdateModal = ref(false)
 const updateHit = ref<UpdateHit | null>(null)
+
+// ===== 运行时错误弹窗：复制详情到剪贴板 =====
+async function copyRuntimeError() {
+  if (!runtimeError.value) return
+  const text = `[${runtimeError.value.title}]\n${runtimeError.value.detail}\n版本: ${__APP_VERSION__}`
+  try {
+    await navigator.clipboard.writeText(text)
+  } catch {
+    /* 剪贴板不可用：用户仍可手动选中详情文本 */
+  }
+}
 onMounted(async () => {
   let ver = __APP_VERSION__ as string
   if (isTauri) {
@@ -191,6 +202,27 @@ document.body.classList.add('theme-dark')
 
     <!-- 更新完成弹窗：升级后首次启动自动弹出；也可从首选项「关于 → 更新记录」打开 -->
     <UpdateModal v-model="showUpdateModal" :update="updateHit" />
+
+    <!-- 运行时错误弹窗：报错可见、详情可复制（用户要求：报错必提醒、能定位问题） -->
+    <Teleport to="body">
+      <div v-if="runtimeError" class="rt-err-mask" @click.self="runtimeError = null">
+        <div class="rt-err-box">
+          <div class="rt-err-head">
+            <span class="rt-err-title">⚠ 发生错误（{{ runtimeError.count > 1 ? `已合并 ${runtimeError.count} 次同类错误` : '运行时' }}）</span>
+            <button class="rt-err-close" title="关闭" @click="runtimeError = null">×</button>
+          </div>
+          <div class="rt-err-body">
+            <div class="rt-err-kind">{{ runtimeError.title }}</div>
+            <pre class="rt-err-detail">{{ runtimeError.detail }}</pre>
+            <p class="rt-err-hint">错误详情已自动记录到本地日志（AppData/FrameLab/logs）。可复制以下信息反馈给开发者。</p>
+          </div>
+          <div class="rt-err-foot">
+            <button class="rt-err-btn" @click="copyRuntimeError">复制详情</button>
+            <button class="rt-err-btn primary" @click="runtimeError = null">知道了</button>
+          </div>
+        </div>
+      </div>
+    </Teleport>
   </div>
 </template>
 
@@ -225,5 +257,99 @@ document.body.classList.add('theme-dark')
 .rail:hover {
   color: var(--text);
   background: var(--hover);
+}
+
+/* ===== 运行时错误弹窗 ===== */
+.rt-err-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.rt-err-box {
+  width: min(560px, 90vw);
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.45);
+}
+.rt-err-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 34px;
+  padding: 0 8px 0 14px;
+  border-bottom: 1px solid var(--border);
+}
+.rt-err-title {
+  font-size: 13px;
+  color: var(--text);
+}
+.rt-err-close {
+  width: 22px;
+  height: 22px;
+  border: none;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+.rt-err-close:hover { background: var(--hover); color: var(--text); }
+.rt-err-body {
+  padding: 10px 14px;
+  overflow: auto;
+  min-height: 0;
+}
+.rt-err-kind {
+  font-size: 12px;
+  color: var(--text);
+  margin-bottom: 6px;
+}
+.rt-err-detail {
+  margin: 0;
+  max-height: 220px;
+  overflow: auto;
+  background: var(--panel-2, rgba(255, 255, 255, 0.04));
+  border: 1px solid var(--border);
+  padding: 8px 10px;
+  font-size: 11px;
+  line-height: 16px;
+  color: var(--text-dim);
+  white-space: pre-wrap;
+  word-break: break-all;
+  user-select: text;
+}
+.rt-err-hint {
+  margin: 8px 0 0;
+  font-size: 11px;
+  line-height: 16px;
+  color: var(--text-dim);
+}
+.rt-err-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 10px 14px;
+  border-top: 1px solid var(--border);
+}
+.rt-err-btn {
+  height: 26px;
+  padding: 0 14px;
+  background: var(--btn-bg);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-size: 12px;
+  cursor: pointer;
+}
+.rt-err-btn:hover { background: var(--hover); color: var(--text-normal); }
+.rt-err-btn.primary {
+  background: var(--accent);
+  border-color: var(--accent);
 }
 </style>

@@ -7,6 +7,7 @@ import { useHistory } from './composables/useHistory'
 import { initCustomLogos } from './composables/useLogoStore'
 import { isTauri } from './platform/env'
 import { getStartupTemplatePref } from './composables/usePrefs'
+import { reportRuntimeError } from './composables/useUi'
 
 const app = createApp(App)
 
@@ -36,7 +37,61 @@ if (isTauri) {
 const { restoreActive } = await import('./composables/useLibrary')
 restoreActive()
 
+// ===== 全局运行时错误捕获：弹窗提醒用户 + 详情落盘（用户要求：报错可见、可定位）=====
+// 注意：渲染进程 OOM 崩溃（WebView2 错误页）发生在进程层面，此处捕获不到；
+// 该场景由启动看门狗（public/boot-watchdog.js）与日志文件覆盖。
+{
+  const report = (title: string, detail: string) => {
+    reportRuntimeError(title, detail)
+    try {
+      void (window as unknown as { __TAURI__?: { core: { invoke: (c: string, a?: Record<string, unknown>) => Promise<void> } } })
+        .__TAURI__?.core.invoke('write_boot_log', { content: `${title}\n${detail}` })
+        .catch(() => {})
+    } catch {
+      /* 非桌面端静默 */
+    }
+  }
+  window.addEventListener('error', (e) => {
+    // 资源加载失败（缩略图/字体等）单独提示，避免与脚本错误混淆
+    if (e.target && (e.target as HTMLElement).tagName) {
+      const el = e.target as HTMLElement
+      if (el.tagName === 'SCRIPT' || el.tagName === 'LINK' || el.tagName === 'IMG') {
+        const src = (el as HTMLImageElement).src || ''
+        if (src.startsWith('blob:') || src.startsWith('data:')) return // 已失效的本地 blob 缩略图：无害，不弹窗
+        report('资源加载失败', `类型: ${el.tagName}\n地址: ${src}`)
+        return
+      }
+    }
+    report('脚本错误', (e.message || 'unknown error') + (e.filename ? `\n位置: ${e.filename}:${e.lineno}` : ''))
+  }, true)
+  window.addEventListener('unhandledrejection', (e) => {
+    const r = e.reason
+    const detail = (r && (r.stack || r.message)) || String(r)
+    report('异步操作错误', detail)
+  })
+
+  // Vue 组件树内的错误默认只打 console（生产不会抛到 window）：显式接管，同样弹窗+落盘
+  app.config.errorHandler = (err, _instance, info) => {
+    const detail = String((err as Error)?.stack || err) + `\n触发于: ${info}`
+    report('组件错误', detail)
+  }
+}
+
 app.mount('#app')
+
+// 启动看门狗解除：挂载成功，8 秒白屏检测不再触发
+;(window as unknown as { __MARK_BOOTED__?: () => void }).__MARK_BOOTED__?.()
+// 启动期间捕获到的非致命错误也落盘（成功挂载但带错误），供远程诊断
+try {
+  const bootErrors = (window as unknown as { __BOOT_ERRORS__?: string[] }).__BOOT_ERRORS__
+  if (bootErrors?.length) {
+    void (window as unknown as { __TAURI__?: { core: { invoke: (c: string, a?: Record<string, unknown>) => Promise<void> } } })
+      .__TAURI__?.core.invoke('write_boot_log', { content: bootErrors.join('\n') })
+      .catch(() => {})
+  }
+} catch {
+  /* 看门狗不存在（网页端老缓存）忽略 */
+}
 
 // 首选项「启动默认模板」：应用内置模板装饰参数（不覆盖已恢复照片的 EXIF/位置/变换）
 void (async () => {

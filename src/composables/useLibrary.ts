@@ -160,17 +160,48 @@ function releaseUrl(url?: string): void {
   if (url && url.startsWith('blob:')) URL.revokeObjectURL(url)
 }
 
-/** 生成缩略图 objectURL（长边 ≤320，JPEG 0.8）。失败（如 asset URL 跨域污染 canvas）
- *  返回 null，调用方回退使用原图 url。导出供 useSeed 等导入流程复用。 */
+// ===== 缩略图生成（全局限流）=====
+// 生成一张缩略图需要完整解码原图（96MP 位图 ≈ 数百 MB 峰值内存）。
+// 批量导入时几十张同时生成会瞬间耗尽 WebView2 渲染进程内存（OOM 白屏崩溃），
+// 故用全局限流队列：同时最多 2 张在解码，其余排队。
+let thumbActive = 0
+const thumbQueue: (() => void)[] = []
+function acquireThumbSlot(): Promise<void> {
+  if (thumbActive < 2) {
+    thumbActive++
+    return Promise.resolve()
+  }
+  return new Promise((res) => thumbQueue.push(res))
+}
+function releaseThumbSlot(): void {
+  const next = thumbQueue.shift()
+  if (next) next()
+  else thumbActive = Math.max(0, thumbActive - 1)
+}
+
+/** 生成缩略图 objectURL（长边 ≤320，JPEG 0.8）。
+ *  桌面端 asset 协议 URL 会因跨域污染 canvas 导致生成失败（此前全部回退原图，
+ *  是胶片条/导出页多选后 OOM 崩溃的根因）——现先经 toDrawableUrl 读盘转同源
+ *  dataURL 再绘制；全局限流防止并发解码大图撑爆内存。失败返回 null。 */
 export async function makeThumbUrl(url: string, w: number, h: number): Promise<string | null> {
   if (!w || !h) return null
+  await acquireThumbSlot()
   try {
+    let drawable = url
+    if (/^(?:https?:\/\/asset\.localhost|asset:\/\/localhost)\//.test(url)) {
+      try {
+        const { toDrawableUrl } = await import('../platform/fs')
+        drawable = await toDrawableUrl(url)
+      } catch {
+        return null // 读盘失败（文件被移动等）：无缩略图，UI 显示占位而非原图
+      }
+    }
     const im = new Image()
     im.crossOrigin = 'anonymous'
     await new Promise<void>((res, rej) => {
       im.onload = () => res()
       im.onerror = () => rej(new Error('缩略图源加载失败'))
-      im.src = url
+      im.src = drawable
     })
     const f = Math.min(1, 320 / Math.max(w, h))
     const tw = Math.max(1, Math.round(w * f))
@@ -186,6 +217,8 @@ export async function makeThumbUrl(url: string, w: number, h: number): Promise<s
     return blob ? URL.createObjectURL(blob) : null
   } catch {
     return null
+  } finally {
+    releaseThumbSlot()
   }
 }
 

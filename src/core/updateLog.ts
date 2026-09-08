@@ -44,6 +44,21 @@ export const IMPORTANCE_LABELS: Record<UpdateImportance, string> = {
 // ===== 更新日志（新版本追加在最上方）=====
 export const UPDATE_LOG: UpdateEntry[] = [
   {
+    version: '0.2.1',
+    date: '2026-09-08',
+    importance: 'patch',
+    groups: {
+      fixed: [
+        '修复胶片条 / 导出页多选照片后应用崩溃（Out of Memory 白屏错误页）的问题：桌面端缩略图此前一直生成失败并回退直接解码原图，多张大图同时解码耗尽内存——现缩略图真正生成成功（读盘转同源源图），且全局限流同时最多解码 2 张，批量导入也不会再撑爆内存',
+        '缩略图未就绪时显示占位底色，不再回退加载原图',
+      ],
+      added: [
+        '新增运行时错误弹窗：脚本错误 / 异步错误 / 组件错误 / 资源加载失败会弹窗提醒并展示详情，可一键复制反馈给开发者；错误详情自动记录到本地日志（AppData/FrameLab/logs）',
+        '新增启动看门狗（白屏自愈）：启动失败时显示恢复界面，支持「清除缓存并重启」「禁用 GPU 加速重启」一键自救，错误同样落盘便于定位',
+      ],
+    },
+  },
+  {
     version: '0.2.0',
     date: '2026-09-08',
     importance: 'normal',
@@ -469,6 +484,7 @@ export const UPDATE_LOG: UpdateEntry[] = [
  * 数据来源：git 提交历史中「版本 X.X.X」发版提交的时间；缺省（如 0.1.0 早期）不显示时刻。
  */
 export const RELEASE_TIMES: Record<string, string> = {
+  '0.2.1': '19:58',
   '0.2.0': '00:58',
   '0.1.31': '01:50',
   '0.1.30': '18:06',

@@ -140,7 +140,8 @@ function onConfirmRemove() {
             @click="onItemClick(item, $event)"
             @dblclick="enterDevelop(item)"
           >
-            <img :src="item.thumbUrl || item.url" :alt="item.name" loading="lazy" />
+            <img v-if="item.thumbUrl" :src="item.thumbUrl" :alt="item.name" loading="lazy" />
+            <div v-else class="thumb-placeholder" />
             <div class="meta">
               <span class="name">{{ item.name }}</span>
               <span class="dim">{{ item.width }}×{{ item.height }}</span>
@@ -281,6 +282,12 @@ function onConfirmRemove() {
   height: 110px;
   object-fit: cover;
   display: block;
+  background: var(--canvas-empty);
+}
+/* 缩略图未就绪占位（不再回退原图，避免大图解码 OOM） */
+.cell .thumb-placeholder {
+  width: 100%;
+  height: 110px;
   background: var(--canvas-empty);
 }
 .meta {

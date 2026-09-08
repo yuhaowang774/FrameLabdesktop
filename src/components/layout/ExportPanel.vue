@@ -453,7 +453,8 @@ function onThumbClick(item: { id: string }, e: MouseEvent) {
             :title="`${item.name}${item.selected ? '（已选中）' : ''}`"
             @click="onThumbClick(item, $event)"
           >
-            <img :src="item.thumbUrl || item.url" :alt="item.name" loading="lazy" />
+            <img v-if="item.thumbUrl" :src="item.thumbUrl" :alt="item.name" loading="lazy" />
+            <div v-else class="thumb-placeholder" />
             <span class="thumb-name">{{ item.name }}</span>
             <span
               class="select-dot"
@@ -735,6 +736,12 @@ function onThumbClick(item: { id: string }, e: MouseEvent) {
   width: 100%;
   height: 76px;
   object-fit: cover;
+  background: var(--canvas-empty);
+}
+/* 缩略图未就绪占位（不再回退原图，避免大图解码 OOM） */
+.thumb .thumb-placeholder {
+  width: 100%;
+  height: 76px;
   background: var(--canvas-empty);
 }
 .thumb-name {
