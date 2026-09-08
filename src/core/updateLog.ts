@@ -44,6 +44,21 @@ export const IMPORTANCE_LABELS: Record<UpdateImportance, string> = {
 // ===== 更新日志（新版本追加在最上方）=====
 export const UPDATE_LOG: UpdateEntry[] = [
   {
+    version: '0.2.4',
+    date: '2026-09-09',
+    importance: 'normal',
+    groups: {
+      improved: [
+        '大幅降低内存占用：编辑模式下内存峰值从约 5~6GB 降至 0.7GB 左右，高像素照片（如 9600 万像素）编辑不再卡顿、白屏或崩溃',
+        '超大照片全程只保留一份低内存预览副本：切换照片、进出裁剪编辑器、打开模板库、自动取色不再反复解码原图，操作更流畅',
+      ],
+      fixed: [
+        '修复连续查看 / 批量导出多张大图时内存持续累积、最终崩溃或被系统强制退出的问题',
+        '修复大图导出时内存占用翻倍的问题（导出数据不再经 base64 中转）',
+      ],
+    },
+  },
+  {
     version: '0.2.3',
     date: '2026-09-08',
     importance: 'patch',
@@ -510,6 +525,7 @@ export const UPDATE_LOG: UpdateEntry[] = [
  * 数据来源：git 提交历史中「版本 X.X.X」发版提交的时间；缺省（如 0.1.0 早期）不显示时刻。
  */
 export const RELEASE_TIMES: Record<string, string> = {
+  '0.2.4': '02:50',
   '0.2.3': '20:53',
   '0.2.2': '20:17',
   '0.2.1': '19:58',
