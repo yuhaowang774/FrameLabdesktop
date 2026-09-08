@@ -129,6 +129,17 @@ export async function readLocalDataURL(path: string): Promise<string> {
   return `data:${mime};base64,${b64}`
 }
 
+/** 桌面端：读取本地图片为同源 Blob（带正确 MIME），供 createImageBitmap 解码。
+ *  相比 dataURL 少一份大 base64 字符串；Blob 由解码器流式消费。 */
+export async function readLocalBlob(path: string): Promise<Blob> {
+  const b64 = await readLocalBase64(path)
+  const bytes = base64ToBytes(b64)
+  const mime = MIME[extOf(path)] || 'image/png'
+  const ab = new ArrayBuffer(bytes.byteLength)
+  new Uint8Array(ab).set(bytes)
+  return new Blob([ab], { type: mime })
+}
+
 /** asset 协议 URL 判定（Tauri convertFileSrc 在 Windows 生成 http://asset.localhost/<encoded-path>） */
 export function isAssetProtocolUrl(url: string): boolean {
   return /^(?:https?:\/\/asset\.localhost|asset:\/\/localhost)\/.+/.test(url)

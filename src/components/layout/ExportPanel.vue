@@ -202,19 +202,27 @@ function configFor(item: LibraryItem, backfill: boolean): FrameConfig {
 async function renderOne(item: LibraryItem, backfill: boolean): Promise<Blob> {
   // 桌面端照片 URL 是 asset 协议：直接绘制会污染画布导致 toBlob 抛
   // "Tainted canvases may not be exported"（另一台电脑导出失败的根因）。
-  // 先读盘转 dataURL 再加载，同源可安全合成；网页端（blob:/data:）短路不经 fs 模块。
+  // 先读盘转同源数据再解码；网页端（blob:/data:）短路不经 fs 模块。
+  // 解码用 createImageBitmap（ImageBitmap 可显式 close()）：批量导出逐张
+  // 关闭位图，避免 Chromium 图像缓存按 URL 滞留每张全尺寸解码位图
+  // （96MP ≈ 400MB/张，几十张批量导出会累积到数 GB 直至 OOM）。
   let src = item.url
   if (/^(?:https?:\/\/asset\.localhost|asset:\/\/localhost)\//.test(src)) {
     const { toDrawableUrl } = await import('../../platform/fs')
     src = await toDrawableUrl(src)
   }
-  const source = await loadImage(src)
-  const opts: ExportOptions = { format: format.value, jpgQuality: jpgQuality.value, scale: supersample.value }
-  if (state.bgMode === 'photo' && state.customBgImage) {
-    opts.backgroundImage = await loadImage(state.customBgImage)
+  const srcBlob = await (await fetch(src)).blob()
+  const bitmap = await createImageBitmap(srcBlob)
+  try {
+    const opts: ExportOptions = { format: format.value, jpgQuality: jpgQuality.value, scale: supersample.value }
+    if (state.bgMode === 'photo' && state.customBgImage) {
+      opts.backgroundImage = await loadImage(state.customBgImage)
+    }
+    const res = await exportFrame(bitmap as unknown as ImgSource, configFor(item, backfill), opts)
+    return res.blob
+  } finally {
+    bitmap.close() // 立即释放本张全分辨率位图
   }
-  const res = await exportFrame(source as ImgSource, configFor(item, backfill), opts)
-  return res.blob
 }
 
 /** 导出前置检查：桌面端必须先选定导出文件夹（导出直接写盘） */

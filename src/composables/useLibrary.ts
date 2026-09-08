@@ -180,41 +180,48 @@ function releaseThumbSlot(): void {
 }
 
 /** 生成缩略图 objectURL（长边 ≤320，JPEG 0.8）。
- *  桌面端 asset 协议 URL 会因跨域污染 canvas 导致生成失败（此前全部回退原图，
- *  是胶片条/导出页多选后 OOM 崩溃的根因）——现先经 toDrawableUrl 读盘转同源
- *  dataURL 再绘制；全局限流防止并发解码大图撑爆内存。失败返回 null。 */
+ *  内存关键路径（此前两版实现的教训）：
+ *  - 桌面端 asset URL 直接绘制会因跨域污染 canvas 失败 → 必须先读盘转同源数据；
+ *  - 用 Image 元素 + drawImage 解码：Chromium 图像缓存会按 URL 滞留整张全尺寸
+ *    解码位图（96MP ≈ 400MB/张），几张就把渲染进程推到 2GB+；
+ *  - 现改用 createImageBitmap(blob, { resize })：JPEG 在解码阶段降采样（DCT
+ *    scaling），不再物化全尺寸位图，且 bitmap.close() 确定性立即释放。
+ *  全局限流（并发 2）防止批量导入时解码峰值叠加。失败返回 null（UI 显示占位）。 */
 export async function makeThumbUrl(url: string, w: number, h: number): Promise<string | null> {
   if (!w || !h) return null
   await acquireThumbSlot()
   try {
-    let drawable = url
-    if (/^(?:https?:\/\/asset\.localhost|asset:\/\/localhost)\//.test(url)) {
+    // 统一取同源 Blob：桌面端 asset URL 读盘（带正确 MIME），网页端 fetch
+    let blob: Blob
+    const assetHit = url.match(/^(?:https?:\/\/asset\.localhost|asset:\/\/localhost)\/(.+)$/)
+    if (assetHit) {
       try {
-        const { toDrawableUrl } = await import('../platform/fs')
-        drawable = await toDrawableUrl(url)
+        const { readLocalBlob } = await import('../platform/fs')
+        blob = await readLocalBlob(decodeURIComponent(assetHit[1]))
       } catch {
         return null // 读盘失败（文件被移动等）：无缩略图，UI 显示占位而非原图
       }
+    } else {
+      blob = await (await fetch(url)).blob()
     }
-    const im = new Image()
-    im.crossOrigin = 'anonymous'
-    await new Promise<void>((res, rej) => {
-      im.onload = () => res()
-      im.onerror = () => rej(new Error('缩略图源加载失败'))
-      im.src = drawable
-    })
     const f = Math.min(1, 320 / Math.max(w, h))
-    const tw = Math.max(1, Math.round(w * f))
-    const th = Math.max(1, Math.round(h * f))
+    const bmp = await createImageBitmap(blob, {
+      resizeWidth: Math.max(1, Math.round(w * f)),
+      resizeHeight: Math.max(1, Math.round(h * f)),
+      resizeQuality: 'medium',
+    })
     const c = document.createElement('canvas')
-    c.width = tw
-    c.height = th
+    c.width = bmp.width
+    c.height = bmp.height
     const cx = c.getContext('2d')
-    if (!cx) return null
-    cx.imageSmoothingQuality = 'medium'
-    cx.drawImage(im, 0, 0, tw, th)
-    const blob = await new Promise<Blob | null>((res) => c.toBlob(res, 'image/jpeg', 0.8))
-    return blob ? URL.createObjectURL(blob) : null
+    if (!cx) {
+      bmp.close()
+      return null
+    }
+    cx.drawImage(bmp, 0, 0)
+    bmp.close() // 立即释放解码位图（这是内存峰值的主体）
+    const out = await new Promise<Blob | null>((res) => c.toBlob(res, 'image/jpeg', 0.8))
+    return out ? URL.createObjectURL(out) : null
   } catch {
     return null
   } finally {

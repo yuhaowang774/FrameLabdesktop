@@ -30,7 +30,8 @@ let naturalH = 0
 // 超大源图（如 12000×8000）每帧参与 drawImage 全图重采样是拖拽/缩放卡顿主因。
 // 加载时一次性降到长边上限内再供渲染（等比缩放，几何/裁剪数学完全等价）。
 // 仅预览路径使用；导出 exporter 仍以原始全分辨率图排版，成品质量不受影响。
-const PREVIEW_LONG_MAX = 6144
+// 4096：预览画布位图 ≈ 45MB（6144 时 ≈ 100MB）；4096 已覆盖 4K 显示尺寸。
+const PREVIEW_LONG_MAX = 4096
 let drawSrc: HTMLImageElement | HTMLCanvasElement | null = null
 let drawW = 0
 let drawH = 0

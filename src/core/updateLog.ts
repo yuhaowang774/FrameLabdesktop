@@ -44,6 +44,18 @@ export const IMPORTANCE_LABELS: Record<UpdateImportance, string> = {
 // ===== 更新日志（新版本追加在最上方）=====
 export const UPDATE_LOG: UpdateEntry[] = [
   {
+    version: '0.2.2',
+    date: '2026-09-08',
+    importance: 'patch',
+    groups: {
+      fixed: [
+        '大幅降低内存占用：缩略图生成改用「解码即降采样」并立即释放位图，不再滞留每张数百 MB 的全尺寸解码缓存（此前仅 6 张照片常驻内存即可达 2GB、峰值 4GB）',
+        '批量导出改为逐张释放解码位图：不再随导出张数累积内存（此前几十张批量导出会持续上涨直至崩溃）',
+        '预览画布内存占用减半（降采样上限 6144 → 4096，仍覆盖 4K 显示尺寸；导出质量不受影响）',
+      ],
+    },
+  },
+  {
     version: '0.2.1',
     date: '2026-09-08',
     importance: 'patch',
@@ -484,6 +496,7 @@ export const UPDATE_LOG: UpdateEntry[] = [
  * 数据来源：git 提交历史中「版本 X.X.X」发版提交的时间；缺省（如 0.1.0 早期）不显示时刻。
  */
 export const RELEASE_TIMES: Record<string, string> = {
+  '0.2.2': '20:17',
   '0.2.1': '19:58',
   '0.2.0': '00:58',
   '0.1.31': '01:50',
