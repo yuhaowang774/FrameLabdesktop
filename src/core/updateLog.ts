@@ -44,6 +44,16 @@ export const IMPORTANCE_LABELS: Record<UpdateImportance, string> = {
 // ===== 更新日志（新版本追加在最上方）=====
 export const UPDATE_LOG: UpdateEntry[] = [
   {
+    version: '0.2.5',
+    date: '2026-09-09',
+    importance: 'patch',
+    groups: {
+      fixed: [
+        '修复图库与胶片条缩略图不即时显示、要点击照片后才陆续出现的问题（现已启动即显示）',
+      ],
+    },
+  },
+  {
     version: '0.2.4',
     date: '2026-09-09',
     importance: 'normal',
@@ -525,6 +535,7 @@ export const UPDATE_LOG: UpdateEntry[] = [
  * 数据来源：git 提交历史中「版本 X.X.X」发版提交的时间；缺省（如 0.1.0 早期）不显示时刻。
  */
 export const RELEASE_TIMES: Record<string, string> = {
+  '0.2.5': '03:50',
   '0.2.4': '02:50',
   '0.2.3': '20:53',
   '0.2.2': '20:17',
