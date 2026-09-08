@@ -3,7 +3,7 @@
 > 本文档是项目的**进度跟踪与规划基准**，记录已完成与未完成事务。后续所有规划、推进、验收均以此为对照参考。每完成一项须及时更新状态。
 >
 > 设计依据：[设计文档 spec](./superpowers/specs/2026-08-13-photo-frame-watermark-design.md)
-> 最近更新：2026-09-03
+> 最近更新：2026-09-08
 
 ---
 
@@ -11,12 +11,12 @@
 
 | 维度 | 决策 |
 |---|---|
-| 形态 | 网页版（后续可由 Tauri/Electron 包装桌面版） |
+| 形态 | Tauri 2 桌面版（Windows NSIS / macOS app+dmg）+ 网页端，含 updater 自动更新 |
 | 功能范围 | 完整复刻 αPro + 保真导出改进 |
 | 技术栈 | Vite + Vue 3 (`<script setup>` + TS) + 原生 Canvas + exifr |
 | 视觉风格 | 忠实复刻原版（暗色磨砂玻璃 + 棋盘格预览 + Light/Dark 主题） |
 | 架构 | 方案 A：混合状态驱动 + Canvas 手工合成导出 |
-| 品牌 Logo | 14 个品牌，矢量自绘（标志性文字标记，规避商标版权），暗白双版 |
+| 品牌 Logo | 26 个品牌，SimpleIcons（CC0）官方矢量 + 文字标记兜底（规避商标版权），暗白双版 + 自由着色 |
 
 ---
 
@@ -28,7 +28,7 @@
 | 1. 基础设施 | ✅ 已完成 | 脚手架、类型、CSS 变量、git |
 | 2. 核心数据流 | ✅ 已完成 | useFrameConfig + useCssVars + core/constants（单一数据源已就绪，预览变量驱动打通） |
 | 3. 预览容器与背景 | ✅ 已完成 | `bgRenderer.ts`(提前) + FrameContainer / BgCanvas / Workspace / MainPhoto / FooterInfo 全部就绪 |
-| 4. 主照片与底部信息 | 🟡 部分 | FooterInfo 逻辑已内嵌进 `exporter.ts` ✅；MainPhoto / FooterInfo 组件 ⬜ 未开始 |
+| 4. 主照片与底部信息 | ✅ 已完成 | MainPhoto / FooterInfo 预览组件 ✅；FooterInfo 逻辑已内嵌进 `exporter.ts` ✅ |
 | 5. 通用控件 | ✅ 已完成 | RangeSlider / ToggleGroup / GlassModal |
 | 6. 控制面板与子控件 | ✅ 已完成 | ControlPanel + 5 个 controls（接导出触发） |
 | 7. EXIF 识别 | ✅ 已完成 | useExif（exifr 读取4标签→拼接 Xmm f/X 1/Xs ISOX） |
@@ -38,10 +38,10 @@
 | 11. 保真导出 | ✅ 已完成 | `exporter.ts`（PNG 无损 / JPG 高画质双选项 + 原生分辨率排版 + 边界保护） |
 | 12. 历史记录 | ✅ 已完成 | useHistory 抽离 + 保存/恢复/删除/清空 |
 | 13. 批量处理 | ✅ 已完成 | 多图递归导出 + 预设 + 回填EXIF + 失败汇总 |
-| 14. 视觉还原与响应式 | ✅ 已完成 | 磨砂卡片分组 / 棋盘格 / Light·Dark 主题切换（body class + token）/ 768px 上下布局 |
+| 14. 视觉还原与响应式 | ✅ 已完成 | 磨砂卡片分组 / 棋盘格 / Light·Dark 主题切换（body class + token）/ 768px 上下布局 / 导出界面全尺寸响应式（v0.2.0） |
 | 15. 错误处理与边界 | ✅ 已完成 | 加载失败弹窗/预览主图失败占位/导出失败弹窗/EXIF回退/Logo上限/批量容错 |
-| 16. 验收 | ⬜ 未开始 | 手动验证清单 |
-| 17. 后续演进 | ⬜ 未开始 | 桌面版/拼图/滤镜等（非首版） |
+| 16. 验收 | ✅ 已完成 | 手动验证清单（2026-08-14 全部通过，导出真机实跑 P1 达成） |
+| 17. 后续演进 | 🟡 部分 | ✅ 桌面版（Tauri 2 + updater）、35mm 等效焦距 / 镜头识别、水印叠加；⬜ 拼图 / 滤镜 / 内嵌 Web Font |
 
 图例：✅ 已完成 / ⏳ 进行中 / ⬜ 未开始
 
@@ -83,9 +83,9 @@
 - [x] `components/layout/Workspace.vue`：右栏 + `fitPreview` 缩放(上限1.0) + 棋盘格透明预览区 + 临时上传入口
 - [x] `App.vue` 接入 Workspace，形成首个可视化闭环（预览实时响应 frameConfig）背景
 
-### 阶段 4 · 主照片与底部信息 ⬜
-- [ ] `components/preview/MainPhoto.vue`：主照片容器（width = 原图缩放%）
-- [ ] `components/preview/FooterInfo.vue`：brand-container + exif-text
+### 阶段 4 · 主照片与底部信息 ✅
+- [x] `components/preview/MainPhoto.vue`：主照片容器（width = 原图缩放%）
+- [x] `components/preview/FooterInfo.vue`：brand-container + exif-text
 - [x] 无背景模式下 footer 以 absolute 叠加（位置可调，阶段10已实现）
 
 ### 阶段 5 · 通用控件 ✅
@@ -216,10 +216,10 @@
 - [x] 批量处理 + 历史预设保存/恢复/删除（阶段12/13已实现）
 - [x] 响应式 768px 断点 —— 已静态确认：`App.vue`/`ControlPanel.vue`/`Workspace.vue` 均包含 `@media (max-width: 768px)`，面板横向滚动、上下布局切换已就绪
 
-### 阶段 17 · 后续演进（非首版）⬜
-- [ ] Tauri/Electron 桌面版 + sharp 高保真
+### 阶段 17 · 后续演进（非首版）🟡
+- [x] Tauri 2 桌面版（2026-08-21 迁移，含官方 updater 自动更新；仍走 Canvas 保真导出，未采用 sharp）
 - [ ] 多图拼图 / 胶片边框 / 滤镜
-- [ ] 35mm 等效焦距换算 / 镜头识别
+- [x] 35mm 等效焦距换算 / 镜头识别（`eqFocal` + `cropFactor` + `lensText`，2026-08-27）
 - [ ] 内嵌 Web Font 跨设备一致
 
 ---
