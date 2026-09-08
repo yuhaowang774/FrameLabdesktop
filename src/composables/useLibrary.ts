@@ -97,7 +97,10 @@ watch(activeId, () => {
   const it = items.find((i) => i.id === activeId.value)
   catalogSetActive(it?.path ?? null)
   try {
-    localStorage.setItem(ACTIVE_KEY, JSON.stringify(it ? { id: it.id, path: it.path ?? null } : null))
+    // 无选中照片时移除键而非写入 "null"：JSON.stringify(null) 会让下次启动
+    // 的 restoreActive 解析出 null 并崩溃（0.2.0 白屏根因）
+    if (it) localStorage.setItem(ACTIVE_KEY, JSON.stringify({ id: it.id, path: it.path ?? null }))
+    else localStorage.removeItem(ACTIVE_KEY)
   } catch {
     /* ignore */
   }
@@ -105,16 +108,21 @@ watch(activeId, () => {
 
 /** 启动时恢复上次选中照片：ID 直接命中（种子图等稳定 ID）；其次按桌面端磁盘路径匹配
  *  （桌面端启动按目录还原图库后 ID 会重新生成）；最后按目录文件记录的 activePath 匹配。
- *  找不到则不动作。 */
+ *  找不到则不动作。
+ *  注意：localStorage 键在「图库清空」时会写入字符串 "null"（JSON.stringify(null)），
+ *  JSON.parse 得到 null——此处必须判空，否则启动即抛 TypeError 白屏（0.2.0 用户实测）。 */
 export function restoreActive(): void {
   let rec: { id?: string | null; path?: string | null } = {}
   try {
     const raw = localStorage.getItem(ACTIVE_KEY)
-    if (raw) rec = JSON.parse(raw) as { id?: string | null; path?: string | null }
+    if (raw) {
+      const parsed = JSON.parse(raw) as { id?: string | null; path?: string | null } | null
+      if (parsed && typeof parsed === 'object') rec = parsed
+    }
   } catch {
     /* ignore：旧键损坏不阻断，目录文件里的 activePath 仍可恢复 */
   }
-  const catActive = loadCatalog().activePath ?? null
+  const catActive = loadCatalog()?.activePath ?? null
   const hit =
     (rec.id ? items.find((i) => i.id === rec.id) : undefined) ??
     (rec.path ? items.find((i) => i.path === rec.path) : undefined) ??

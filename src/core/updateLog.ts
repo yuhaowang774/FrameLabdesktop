@@ -44,6 +44,20 @@ export const IMPORTANCE_LABELS: Record<UpdateImportance, string> = {
 // ===== 更新日志（新版本追加在最上方）=====
 export const UPDATE_LOG: UpdateEntry[] = [
   {
+    version: '0.2.3',
+    date: '2026-09-08',
+    importance: 'patch',
+    groups: {
+      fixed: [
+        '修复部分用户启动即白屏的问题：清空图库后本地记录会残留 "null" 值，下次启动解析时崩溃（0.2.0 起存在；已有该问题的用户更新本版后即可正常启动）',
+        '同类隐患一并修复：模板列表、参数快照等本地数据的损坏 / "null" 值不再导致启动崩溃（按空数据处理）',
+      ],
+      added: [
+        '启动恢复界面新增「清除本地设置并重启」自救按钮（历史记录保留），用于极端情况下的一键脱困',
+      ],
+    },
+  },
+  {
     version: '0.2.2',
     date: '2026-09-08',
     importance: 'patch',
@@ -496,6 +510,7 @@ export const UPDATE_LOG: UpdateEntry[] = [
  * 数据来源：git 提交历史中「版本 X.X.X」发版提交的时间；缺省（如 0.1.0 早期）不显示时刻。
  */
 export const RELEASE_TIMES: Record<string, string> = {
+  '0.2.3': '20:53',
   '0.2.2': '20:17',
   '0.2.1': '19:58',
   '0.2.0': '00:58',

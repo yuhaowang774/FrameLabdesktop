@@ -413,10 +413,12 @@ function load(): FrameTemplate[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (raw) {
-      const parsed = JSON.parse(raw) as FrameTemplate[]
-      // 合并内置（内置始终存在），用户自定义追加
-      const custom = parsed.filter((t) => !t.builtin)
-      return [...BUILTIN, ...custom]
+      const parsed = JSON.parse(raw) as FrameTemplate[] | null
+      // 合并内置（内置始终存在），用户自定义追加；持久化值可能为 "null"/损坏，须判空
+      if (Array.isArray(parsed)) {
+        const custom = parsed.filter((t) => !t.builtin)
+        return [...BUILTIN, ...custom]
+      }
     }
   } catch {
     /* ignore */

@@ -513,7 +513,9 @@ const SNAP_KEY = 'frame-snapshots'
 function readSnapshots(): Snapshot[] {
   try {
     const raw = localStorage.getItem(SNAP_KEY)
-    return raw ? (JSON.parse(raw) as Snapshot[]) : []
+    // 持久化值可能为 "null"（JSON.stringify(null)）：解析结果判空后回退空数组
+    const parsed = raw ? (JSON.parse(raw) as Snapshot[] | null) : null
+    return Array.isArray(parsed) ? parsed : []
   } catch {
     return []
   }

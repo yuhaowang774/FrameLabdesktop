@@ -60,6 +60,7 @@
       '<button id="bl-gpu" style="flex:1;min-width:150px;height:32px;background:transparent;color:#ddd;border:1px solid #4a4a4a;font-size:13px;cursor:pointer">禁用 GPU 加速并重启</button>' +
       '<button id="bl-reload" style="height:32px;padding:0 14px;background:transparent;color:#aaa;border:1px solid #3a3a3a;font-size:13px;cursor:pointer">重新加载</button>' +
       '<button id="bl-copy" style="height:32px;padding:0 14px;background:transparent;color:#aaa;border:1px solid #3a3a3a;font-size:13px;cursor:pointer">复制错误信息</button>' +
+      '<button id="bl-reset" style="flex:1;min-width:150px;height:32px;background:transparent;color:#d9a441;border:1px solid #7a6430;font-size:13px;cursor:pointer">清除本地设置并重启（历史记录保留）</button>' +
       '</div>' +
       '<p style="margin:14px 0 0;font-size:11px;color:#777;line-height:16px">若以上均无效：请重启电脑，或到 GitHub Releases 重新下载安装包覆盖安装。</p>' +
       '</div>'
@@ -81,6 +82,18 @@
       })
     }
     wrap.querySelector('#bl-reload').onclick = function () { location.reload() }
+    wrap.querySelector('#bl-reset').onclick = function () {
+      // 针对「本地持久化数据触发的启动崩溃」（如 0.2.0 的 "null" 键）：
+      // 清空 localStorage（界面布局/模板/设置等，历史记录在 IndexedDB 不受影响）后重载
+      try {
+        localStorage.clear()
+        this.textContent = '已清除，正在重启…'
+        this.disabled = true
+        setTimeout(function () { location.reload() }, 300)
+      } catch (e) {
+        pre.textContent = '清除失败: ' + String(e)
+      }
+    }
     wrap.querySelector('#bl-copy').onclick = function () {
       var btn = this
       try {
