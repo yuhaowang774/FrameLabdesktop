@@ -101,7 +101,15 @@
 
         <!-- 网页版在线体验：桌面端完整界面按 1280×800 渲染后缩放呈现，如同开了一个真实窗口 -->
         <figure class="app-shot">
-          <a class="try-fullscreen" href="app/?window=1" target="_blank" rel="noopener">⤢ 全屏体验</a>
+          <a class="try-fullscreen" href="app/?window=1" target="_blank" rel="noopener">
+            <span class="fs-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6"/><path d="M9 21H3v-6"/><path d="M21 3l-7 7"/><path d="M3 21l7-7"/></svg>
+            </span>
+            <span class="fs-text">
+              <span class="fs-label">全屏体验</span>
+              <span class="fs-hint">新窗口打开</span>
+            </span>
+          </a>
           <div class="app-window">
             <iframe class="app-embed" id="appEmbed" src="app/?window=1" title="FrameLab 网页版完整界面（与桌面端一致），可直接操作体验" loading="lazy"></iframe>
             <img class="app-shot-img" src="assets/screenshot.jpg" alt="FrameLab 应用界面截图：编辑画布加载晚霞样片，信息卡显示 SONY α6000 与拍摄参数" width="2520" height="1608" loading="lazy" decoding="async">
