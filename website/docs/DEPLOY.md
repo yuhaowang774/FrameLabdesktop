@@ -12,11 +12,11 @@
 2. 授权 GitHub 并选择仓库 **FrameLabdesktop**（main 分支）
 3. 构建配置（三件事）：
    - **Framework preset**：`None`
-   - **Build command**：`npm run build -- --base=/app/ && node scripts/copy-app-to-website.mjs`
+   - **Build command**：`npm run build -- --base=/app/ && node scripts/copy-app-to-website.mjs && node scripts/fetch-gh-stats.mjs`
    - **Build output directory**：`/website`
 4. **Save and Deploy** → 约 2 分钟后获得 `https://<项目名>.pages.dev` 地址，HTTPS 自动生效
 
-> 构建命令同时产出两个部分：`website/`（宣传页 + `_headers`）与 `website/app/`（网页版 FrameLab，供 Hero 内嵌 iframe 在线体验，`--base=/app/` 保证子路径资源引用正确）。
+> 构建命令产出三部分：`website/`（宣传页 + `_headers`）、`website/app/`（网页版 FrameLab，供 Hero 内嵌 iframe 在线体验，`--base=/app/` 保证子路径资源引用正确）、`website/assets/gh-stats.js`（构建时拉取的 GitHub 星数/累计下载/最新版本兜底值——访客网络下 api.github.com 常被限流或不可达，烘焙值保证数字永不空白，运行时仍会尝试实时更新并写 localStorage 缓存）。
 
 代码适配已就绪：`website/_headers` 提供 HTML 免缓存 + 资产长缓存 + 安全头（替代原 Nginx 配置）。
 

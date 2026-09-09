@@ -3,7 +3,34 @@
   'use strict';
 
   var GH_API = 'https://api.github.com/repos/yuhaowang774/FrameLabdesktop';
-  var FALLBACK_VERSION = 'v0.2.0';
+  var FALLBACK_VERSION = 'v0.2.6';
+
+  /* ---------- 统计数据三层兜底：localStorage 上次实时值 → 构建烘焙值 → 内置常量 ----------
+     GitHub API 在部分访客网络下会限流（未认证 60 次/时/IP）或不可达，实时拉取可能失败；
+     构建时 scripts/fetch-gh-stats.mjs 把当时的值烘焙进 assets/gh-stats.js，
+     叠加本地缓存，保证任何网络环境下数字都不空白。 */
+  var LS_STATS_KEY = 'gh-stats-cache';
+  function readCache() {
+    try {
+      var v = JSON.parse(localStorage.getItem(LS_STATS_KEY) || 'null');
+      return (v && typeof v === 'object') ? v : null;
+    } catch (_) { return null; }
+  }
+  var bakedStats = (typeof window.GH_STATS_BAKED === 'object' && window.GH_STATS_BAKED) || {};
+  var cachedStats = readCache() || {}; // 无缓存时回退空对象，避免 null 取属性崩溃
+  var curStats = {
+    stars: cachedStats.stars || bakedStats.stars || 0,
+    downloads: cachedStats.downloads || bakedStats.downloads || 0,
+    version: cachedStats.version || bakedStats.version || FALLBACK_VERSION
+  };
+  function cacheStats() {
+    try { localStorage.setItem(LS_STATS_KEY, JSON.stringify(curStats)); } catch (_) {}
+  }
+  function applyStats() {
+    setVersion(curStats.version);
+    renderTotal(curStats.downloads);
+    renderStars(curStats.stars);
+  }
 
   /* ---------- 页脚年份 ---------- */
   var yearEl = document.getElementById('year');
@@ -49,12 +76,11 @@
   window.addEventListener('resize', fitEmbed, { passive: true });
   fitEmbed();
 
-  /* ---------- 版本号同步（GitHub API，失败静默回退内置值） ---------- */
+  /* ---------- 版本号（实时值优先，兜底见三层回退） ---------- */
   function setVersion(v) {
     var pill = document.getElementById('verPill');
-    if (pill) pill.textContent = v;
+    if (pill && v) pill.textContent = v;
   }
-  setVersion(FALLBACK_VERSION);
 
   /* ---------- 累计下载数（汇总全部 Releases 资产 download_count） ---------- */
   function renderTotal(n) {
@@ -71,6 +97,9 @@
     if (chip) chip.hidden = false;
   }
 
+  /* 先渲染兜底值（缓存 → 烘焙 → 常量），实时拉取成功后再覆盖 */
+  applyStats();
+
   if ('fetch' in window) {
     try {
       // 最新版本号
@@ -78,16 +107,22 @@
         .then(function (r) { return r.ok ? r.json() : null; })
         .then(function (data) {
           if (data && typeof data.tag_name === 'string' && /^v?\d/.test(data.tag_name)) {
-            setVersion(data.tag_name.charAt(0) === 'v' ? data.tag_name : 'v' + data.tag_name);
+            curStats.version = data.tag_name.charAt(0) === 'v' ? data.tag_name : 'v' + data.tag_name;
+            cacheStats();
+            setVersion(curStats.version);
           }
         })
-        .catch(function () { /* 网络受限时保留内置版本号 */ });
+        .catch(function () { /* 网络受限时保留兜底值 */ });
 
       // star 数
       fetch(GH_API, { headers: { Accept: 'application/vnd.github+json' } })
         .then(function (r) { return r.ok ? r.json() : null; })
         .then(function (data) {
-          if (data && typeof data.stargazers_count === 'number') renderStars(data.stargazers_count);
+          if (data && typeof data.stargazers_count === 'number') {
+            curStats.stars = data.stargazers_count;
+            cacheStats();
+            renderStars(curStats.stars);
+          }
         })
         .catch(function () { /* 忽略 */ });
 
@@ -105,7 +140,11 @@
               return list.length === 100 ? page(n + 1) : total;
             });
         }
-        page(1).then(renderTotal).catch(function () { /* 失败保持占位 — */ });
+        page(1).then(function (total) {
+          curStats.downloads = total;
+          cacheStats();
+          renderTotal(total);
+        }).catch(function () { /* 失败保持兜底值 */ });
       })();
     } catch (_) { /* 忽略 */ }
   }
