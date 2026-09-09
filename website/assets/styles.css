@@ -289,10 +289,15 @@ code { padding: 1px 6px; border-radius: 6px; background: rgba(255, 255, 255, 0.0
   color: rgba(242, 244, 248, 0.85);
 }
 
-/* ---------- 网页版在线体验（完整桌面界面按 1280×800 缩放呈现，如同开了个窗口） ---------- */
+/* ---------- 网页版在线体验（完整桌面界面按 1280×800 缩放呈现，如同开了个窗口） ----------
+   外层 figure = 布局容器（左侧「全屏体验」入口 + 右侧窗口本体）；
+   窗口样式全部在 .app-window 上。 */
 .app-shot {
   position: relative;
   margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 14px;
   /* 向右扩展 container 的右侧留白：与页面右缘的间距用流体值（不随窗口突兀变化），
      突破量封顶 280px——超宽屏不无限拉伸，右侧自然留出更多呼吸空间 */
   --edge: calc((100vw - min(var(--container), 100vw - 48px)) / 2);
@@ -300,7 +305,14 @@ code { padding: 1px 6px; border-radius: 6px; background: rgba(255, 255, 255, 0.0
   --reach: clamp(0px, calc(var(--edge) - var(--inset)), 280px);
   width: calc(100% + var(--reach));
   margin-right: calc(-1 * var(--reach));
-  aspect-ratio: 1280 / 800; /* 与 iframe 虚拟视口同比例，高度随宽度自动 */
+}
+
+/* 窗口本体：1280×800 虚拟视口同比例，高度随宽度自动 */
+.app-window {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  aspect-ratio: 1280 / 800;
   border: 1px solid rgba(255, 255, 255, 0.14);
   border-radius: var(--radius);
   background: #0d1119;
@@ -335,20 +347,22 @@ code { padding: 1px 6px; border-radius: 6px; background: rgba(255, 255, 255, 0.0
   .app-shot-img { display: block; }
 }
 
+/* 「全屏体验」：位于演示窗口左侧的独立入口（窗口外，随父级 flex 垂直居中） */
 .try-fullscreen {
-  position: absolute;
-  top: 12px;
-  left: clamp(12px, 1.4vw, 24px); /* 界面左上角（与容器间距同样流体） */
-  z-index: 2;
-  padding: 7px 16px;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 18px;
   border-radius: 999px;
   border: 1px solid rgba(255, 255, 255, 0.2);
   background: rgba(6, 9, 18, 0.78);
   -webkit-backdrop-filter: blur(8px);
   backdrop-filter: blur(8px);
   color: var(--text);
-  font-size: 0.82rem;
+  font-size: 0.85rem;
   font-weight: 600;
+  white-space: nowrap;
   transition: background 0.18s, border-color 0.18s;
 }
 .try-fullscreen:hover {
@@ -418,8 +432,6 @@ code { padding: 1px 6px; border-radius: 6px; background: rgba(255, 255, 255, 0.0
     order: 2;
     width: 100%;
     margin-right: 0;
-    border-right: 1px solid rgba(255, 255, 255, 0.14);
-    border-radius: var(--radius);
   }
 }
 
@@ -432,6 +444,12 @@ code { padding: 1px 6px; border-radius: 6px; background: rgba(255, 255, 255, 0.0
   .dl-stat { flex-wrap: wrap; gap: 8px 12px; }
 
   .footer-grid { flex-direction: column; }
+
+  /* 小屏：全屏体验入口移到窗口上方（仍在外面），窗口占满整行 */
+  .app-shot { flex-direction: column; align-items: flex-start; gap: 10px; }
+  .app-window { width: 100%; aspect-ratio: auto; }
+  .app-embed { display: none; }
+  .app-shot-img { display: block; }
 }
 
 @media (max-width: 400px) {
