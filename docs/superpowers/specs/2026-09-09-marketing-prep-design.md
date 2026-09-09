@@ -26,7 +26,8 @@ FrameLab 进入宣发阶段。目标：清理项目无用文件并建立归档�
 |---|---|---|
 | A 本地垃圾（gitignored） | devserver.err、devserver.log、tauri-dev-err.log、tauri-dev-run.log、tauri-dev.log、web-dev.log、tsconfig.tsbuildinfo、tsconfig.node.tsbuildinfo、vite.config.js、vite.config.d.ts、.gitmsg、verify-export.html、.codebuddy（空目录） | 移入 `_archive/2026-09/` |
 | B git 废弃物 | `tools/verify-templates.html`（模板 16 项像素断言验收页；无代码引用，仅历史文档记录） | git rm + 复制入 `_archive/2026-09/`（git 历史 + 本地归档双保险，未来模板开发可取回复用） |
-| B 转宣发素材 | `test-assets/test_with_exif.jpg`（带 EXIF） | git mv → `marketing/demo-photos/`，test-assets 目录随之消失 |
+| B 转宣发素材 | `test-assets/test_with_exif.jpg`（带 EXIF） | git mv → `marketing/demo-photos/`（备用演示图），test-assets 目录随之消失 |
+| 新增宣发素材 | `DSC02720.JPG`（项目根，6.2MB，SONY ILCE-6000，EXIF 完整含镜头型号，6000×3376） | git add → `marketing/demo-photos/`，**主演示照片**（CDP 截图/录屏共用） |
 | C 保留 | design-assets/（新旧界面截图、图标原图）、release/、src-tauri/target、dist/ | 不动 |
 | 不动 | frame 仓库（d:\A\frame，已归档）本地测试 JPG | 维持既有约定，不提交 |
 
@@ -60,7 +61,7 @@ FrameLab 进入宣发阶段。目标：清理项目无用文件并建立归档�
   4. 导出面板（格式/画质）
   5. 图库视图（多选态）
   6. B站封面专用干净构图
-- 演示照片：`marketing/demo-photos/test_with_exif.jpg`
+- 演示照片：`marketing/demo-photos/DSC02720.JPG`（主，SONY ILCE-6000，EXIF 完整：机型/镜头/光圈/ISO/快门全齐，品牌 Logo 展示 SONY）；`test_with_exif.jpg`（备用）
 - 截图不做 HTML 注入式标注；标注建议写入文档（封面文字交给剪映/PPT，主图保持真实截图可信度）
 
 ## 四、目录结构与命名规范

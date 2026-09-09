@@ -76,7 +76,8 @@ _archive/
 
 ## B 类（git 跟踪）处置
 - tools/verify-templates.html → git rm（本目录有副本）
-- test-assets/test_with_exif.jpg → git mv 至 marketing/demo-photos/（转宣发演示素材，非删除）
+- test-assets/test_with_exif.jpg → git mv 至 marketing/demo-photos/（备用演示图，非删除）
+- DSC02720.JPG（项目根新增）→ marketing/demo-photos/（主演示照片，SONY ILCE-6000 EXIF 完整）
 
 ## 恢复方式
 任意文件均可从本目录取回；git rm 的文件另可从 git 历史恢复：`git checkout <commit>^ -- <path>`
@@ -95,18 +96,20 @@ Get-ChildItem d:\A\FrameLab -File | Select-Object Name
 
 **Files:**
 - Delete: `tools/verify-templates.html`（git rm）
-- Move: `test-assets/test_with_exif.jpg` → `marketing/demo-photos/test_with_exif.jpg`（git mv）
+- Move: `test-assets/test_with_exif.jpg` → `marketing/demo-photos/test_with_exif.jpg`（git mv，备用演示图）
+- Add: `DSC02720.JPG`（项目根）→ `marketing/demo-photos/DSC02720.JPG`（主演示照片，git add）
 
-- [ ] **Step 1: git mv 演示素材 + git rm 调试页**
+- [ ] **Step 1: git mv/add 演示素材 + git rm 调试页**
 
 ```powershell
 New-Item -ItemType Directory -Force d:\A\FrameLab\marketing\demo-photos | Out-Null
 git -C d:\A\FrameLab mv test-assets/test_with_exif.jpg marketing/demo-photos/test_with_exif.jpg
+Move-Item d:\A\FrameLab\DSC02720.JPG d:\A\FrameLab\marketing\demo-photos\DSC02720.JPG
 git -C d:\A\FrameLab rm tools/verify-templates.html
-git -C d:\A\FrameLab add .gitignore _archive/2026-09/README.md
+git -C d:\A\FrameLab add .gitignore _archive/2026-09/README.md marketing/demo-photos/DSC02720.JPG
 git -C d:\A\FrameLab status --short
 ```
-预期 status：`R test-assets/... → marketing/demo-photos/...`、`D tools/verify-templates.html`、`.gitignore`、`_archive/2026-09/README.md`（_archive 是否入 status 取决于 .gitignore 生效，应为忽略态）。
+预期 status：`R test-assets/... → marketing/demo-photos/...`、`A marketing/demo-photos/DSC02720.JPG`（6.2MB）、`D tools/verify-templates.html`、`.gitignore`、`_archive/2026-09/README.md`（_archive 应为忽略态）。
 
 - [ ] **Step 2: 回归验证（清理零破坏）**
 
@@ -119,7 +122,7 @@ npm --prefix d:\A\FrameLab run build
 - [ ] **Step 3: Commit**
 
 ```bash
-git -C d:\A\FrameLab -c user.name=yuhaowang774 -c user.email=yuhaowang774@users.noreply.github.com commit -m "chore: 宣发前项目清理——归档本地日志/缓存，test-assets 转 marketing 演示素材，移除调试验收页"
+git -C d:\A\FrameLab -c user.name=yuhaowang774 -c user.email=yuhaowang774@users.noreply.github.com commit -m "chore: 宣发前项目清理——归档本地日志/缓存，DSC02720+test-assets 入 marketing 演示素材，移除调试验收页"
 ```
 
 ---
@@ -241,7 +244,7 @@ npm --prefix d:\A\FrameLab run tauri:dev
 
 ```powershell
 node d:\A\FrameLab\scripts\cdp-shot.mjs eval "document.title"
-node d:\A\FrameLab\scripts\cdp-shot.mjs eval "document.body.innerText.includes('test_with_exif') || document.querySelectorAll('img').length"
+node d:\A\FrameLab\scripts\cdp-shot.mjs eval "document.body.innerText.includes('DSC02720') || document.querySelectorAll('img').length"
 ```
 预期：返回 `"FrameLab"` 类标题；第二个表达式为 `true` 或数量 >0。**若连不上**：确认窗口已弹出、端口未被占用（`curl http://127.0.0.1:9222/json/version`）；**若图库为空**：读 `src-tauri/tauri.conf.json` 的 identifier 核对 AppData 目录名是否为 `com.framelab.app`，不符则按真实 identifier 重写 seed 文件并重启应用。
 
@@ -411,7 +414,7 @@ if (Test-Path "$dir\_marketing_backup\framelab-catalog.json.bak") {
 定位文案（统一口径）：开源免费 / 本地小工具 / 给照片挂品牌 Logo 和 EXIF 参数 / 杂志模板 / 无损输出 / 照片不出你的电脑。
 
 ## 目录
-- `demo-photos/` 演示照片（带 EXIF，截图与录屏共用）
+- `demo-photos/` 演示照片（`DSC02720.JPG` 主用：SONY ILCE-6000，EXIF 完整含镜头；`test_with_exif.jpg` 备用）
 - `screenshots/<日期>/` 宣传截图（CDP 真实截图，2x 高清）
 - `bilibili/` B站发布四件套（分镜/文案/压制/数据跟踪）
 
@@ -454,4 +457,4 @@ git -C d:\A\FrameLab push
 
 - **Spec 覆盖**：清理归档（Task 1-2）、归档机制+审计记录（Task 1）、B站规格+四件套+排期（Task 6，排期=发布时间+周更跟踪）、CDP 截图 6 场景+演示照片（Task 3-5）、命名规范+交付清单+QC（Task 5 Step7 / Task 7）、target 保留（不涉及操作，符合 spec）✓
 - **占位符扫描**：Task 5 交互文本（「品牌」「导出」入口）为运行时探查并给出探查命令与调整规则，非占位；其余步骤均含完整命令/内容 ✓
-- **一致性**：目录名 `marketing/`、`_archive/2026-09/`、文件名与 spec 第四节一致；demo 照片路径 `marketing/demo-photos/test_with_exif.jpg` 全程一致 ✓
+- **一致性**：目录名 `marketing/`、`_archive/2026-09/`、文件名与 spec 第四节一致；demo 照片路径 `marketing/demo-photos/DSC02720.JPG`（主）全程一致 ✓
