@@ -178,10 +178,11 @@ function onDblClick(e: MouseEvent) {
 }
 
 // ===== 拖拽平移（绑定在 stage：画布内图片或画布外空白区域均可拖动）=====
+// 任何缩放倍率下均可拖动（未缩放时也能直接移动照片位置；
+// Esc / 双击 / 底部工具栏「适应屏幕」均可复位视图）
 function onPointerDown(e: PointerEvent) {
   // INFO 面板展开时：点击 INFO 元素由 FooterInfo 处理元素拖拽（已 stopPropagation），
-  // 点击元素外区域则正常平移画布（移除原先的 infoEditing 整体禁用）。
-  if (viewer.zoom.value <= 1 && viewer.panX.value === 0 && viewer.panY.value === 0) return
+  // 点击元素外区域则正常平移画布。
   dragging.value = true
   dragStart.value = { x: e.clientX, y: e.clientY, px: viewer.panX.value, py: viewer.panY.value }
   ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
@@ -200,17 +201,12 @@ function onPointerUp(e: PointerEvent) {
 
 // 总缩放 = fit * 用户 zoom
 const totalScale = computed(() => fitScale.value * viewer.zoom.value)
-// 可拖拽（放大或有平移时）：舞台空白区域也显示抓手光标
-const grabbing = computed(
-  () => dragging.value || viewer.zoom.value > 1 || viewer.panX.value !== 0 || viewer.panY.value !== 0,
-)
 </script>
 
 <template>
   <section class="workspace">
     <div
-      class="stage"
-      :class="{ grab: grabbing }"
+      class="stage grab"
       ref="stage"
       @wheel="onWheel"
       @dblclick="onDblClick"

@@ -398,6 +398,8 @@ export function useLibrary() {
       suspendCommit(true)
       try {
         const bytes = await readLocalBytes(e.path)
+        // EXIF 读取的字节长度即文件大小（此前 size 恒 0，基础信息面板「文件大小」显示 —）
+        item.size = bytes.byteLength
         item.exif = await applyExif(bytes)
       } catch {
         /* 读取失败静默跳过 EXIF */
