@@ -196,7 +196,10 @@ function onPointerMove(e: PointerEvent) {
 }
 function onPointerUp(e: PointerEvent) {
   dragging.value = false
-  ;(e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId)
+  const el = e.currentTarget as HTMLElement
+  // 仅在确实持有指针捕获时释放：pointerdown 可能未经过 stage（如 INFO 元素自身的
+  // 拖拽拦截了事件），无条件 release 会抛 NotFoundError 触发「组件错误」弹窗
+  if (el.hasPointerCapture?.(e.pointerId)) el.releasePointerCapture(e.pointerId)
 }
 
 // 总缩放 = fit * 用户 zoom
