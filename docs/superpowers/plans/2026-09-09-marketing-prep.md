@@ -10,6 +10,13 @@
 
 **Spec:** `docs/superpowers/specs/2026-09-09-marketing-prep-design.md`
 
+## 执行变更记录
+
+- **2026-09-10：CDP 自动截图取消（用户指示）**，改为用户手动截图 + AI 提供指南（`marketing/screenshots/截图指南.md`）。Task 4（预置图库）/ Task 5（六场景截图）不再执行；Task 3 的 `scripts/cdp-shot.mjs` 保留（未来运行时验证可复用）。
+- CDP 尝试结论（留档）：`WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` 会被宿主侧 `additional_browser_args`（lib.rs L1184）覆盖，需在 Rust 侧追加 `--remote-debugging-port` 才能生效（已验证 CDP UP Edg/152）；该实验性改动已还原，未入库。
+- 坑留档：PS5.1 `Set-Content -Encoding UTF8` 写 JSON 带 BOM → 前端 `JSON.parse` 失败被静默吞掉 → 触发 localStorage 旧目录迁移覆盖 seed。写 AppData JSON 必须用 `[IO.File]::WriteAllText` + `UTF8Encoding($false)`。
+- 演示照片改用用户指定 `DSC02720.JPG`（spec/plan 已同步，commit 2d8f586）。
+
 **Git 提交身份**（本机全局身份未配置，所有 commit 必须带）：
 `git -c user.name=yuhaowang774 -c user.email=yuhaowang774@users.noreply.github.com commit ...`
 
