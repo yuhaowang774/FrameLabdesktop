@@ -24,3 +24,6 @@ release/
 
 # 宣传页内嵌网页版（Pages 构建时生成）
 website/app/
+
+# 宣发清理归档（本地备份，不入库）
+_archive/
