@@ -62,13 +62,14 @@ function onDrop(e: DragEvent) {
   }
 }
 
+// 与胶片条一致的多选逻辑：Ctrl/⌘+点击切换选中；Shift+点击从锚点范围多选；普通点击单选
 function onItemClick(item: { id: string }, e: MouseEvent) {
-  if (e.shiftKey || e.metaKey || e.ctrlKey) {
+  if (e.metaKey || e.ctrlKey) {
     library.toggleSelect(item.id)
-  } else {
-    library.items.forEach((i) => (i.selected = false))
-    library.select(item.id)
+    return
   }
+  if (e.shiftKey) library.rangeSelect(item.id)
+  else library.select(item.id)
 }
 
 function enterDevelop(item: { id: string }) {
