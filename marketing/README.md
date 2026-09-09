@@ -25,7 +25,7 @@
 | 文件 | 尺寸 | 用途 |
 |---|---|---|
 | screenshots/2026-09-10/web-hero-edit.png | 2519×1576 | Hero 大图：杂志模板 + SONY Logo + 镜头/参数行（官网 Hero / README 头图备选） |
-| screenshots/2026-09-10/bilibili-cover-1146x717.png | 1146×717 | B站封面底图（AI 从 hero 裁切 1.6:1，待加标题字） |
+| screenshots/2026-09-10/bilibili-cover-1146x717.png | 1146×717 | B站封面：用户自制（此为 AI 从 hero 裁切的参考底图，最终以用户制作为准） |
 | screenshots/2026-09-10/web-export-panel.png | 2519×1575 | 无损导出：JPG 高画质/超采样/批量，输出 35.3MB 预览 |
 | screenshots/2026-09-10/web-library-grid.png | 2519×1574 | 图库批量管理（109 张网格 + 文件名/尺寸） |
 | screenshots/2026-09-10/web-templates-grid.jpg | 2115×1280 | 模板库弹窗（共 10 套 + 批量应用；JPG，建议有空补 PNG 重截） |
