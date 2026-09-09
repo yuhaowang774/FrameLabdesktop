@@ -20,7 +20,7 @@
 ---
 
 <div align="center">
-<img src="website/assets/screenshot.jpg" width="860" alt="FrameLab 界面截图：编辑画布加载晚霞样片，信息卡显示 SONY α6000 与拍摄参数" />
+<img src="website/assets/screenshot.jpg" width="860" alt="FrameLab 界面截图：杂志白框模板加载山林样片，信息带显示 SONY α6000、镜头型号与拍摄参数" />
 </div>
 
 ## ✨ 功能特性
