@@ -16,13 +16,17 @@ const tabs: { id: ModuleTab; label: string }[] = [
 
 // ===== 使用指南（#10 应用内引导）：覆盖评论区高频「怎么用」问题 =====
 // 「?」按钮触发；首次启动自动弹出一次（localStorage 标记）。
+// 窗口模式（宣传页 iframe，?window=1）不自动弹出，仅标记已读——全屏打开时不再重复打扰。
 const guideOpen = ref(false)
 const GUIDE_SEEN_KEY = 'frame-guide-seen'
+const isWindowEmbed = new URLSearchParams(location.search).get('window') === '1'
 function onHelp() {
   guideOpen.value = true
 }
 try {
-  if (!localStorage.getItem(GUIDE_SEEN_KEY)) {
+  if (isWindowEmbed) {
+    localStorage.setItem(GUIDE_SEEN_KEY, '1')
+  } else if (!localStorage.getItem(GUIDE_SEEN_KEY)) {
     guideOpen.value = true
     localStorage.setItem(GUIDE_SEEN_KEY, '1')
   }

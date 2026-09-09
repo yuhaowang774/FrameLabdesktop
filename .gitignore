@@ -21,3 +21,6 @@ vite.config.js
 vite.config.d.ts
 
 release/
+
+# 宣传页内嵌网页版（Pages 构建时生成）
+website/app/

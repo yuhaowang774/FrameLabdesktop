@@ -52,15 +52,17 @@ body::after {
   z-index: 0;
 }
 
-main, .site-header, .site-footer, .float-dock { position: relative; z-index: 1; }
+main, .site-header, .site-footer { position: relative; z-index: 1; }
 
-/* 瓦肯三角粒子交互背景（全屏固定，内容层之下） */
+/* 瓦肯三角粒子交互背景（全屏固定，内容层之下；模糊氛围化，突出软件截图） */
 #bgParticles {
   position: fixed;
   inset: 0;
   z-index: 0;
   display: block;
   pointer-events: none;
+  filter: blur(6px);
+  transform: scale(1.07); /* 补偿 blur 边缘透明 */
 }
 
 img, svg { display: inline-block; vertical-align: middle; }
@@ -221,8 +223,6 @@ code { padding: 1px 6px; border-radius: 6px; background: rgba(255, 255, 255, 0.0
 }
 .nav-link:hover { color: #fff; background: rgba(255, 255, 255, 0.06); }
 
-.nav-sep { width: 1px; height: 20px; background: rgba(255, 255, 255, 0.16); margin: 0 10px; }
-
 /* ---------- Hero（左文右图双栏，占满首屏；字体对齐参考站：32px/500/1.16） ---------- */
 .hero {
   min-height: calc(100vh - var(--nav-h));
@@ -289,16 +289,18 @@ code { padding: 1px 6px; border-radius: 6px; background: rgba(255, 255, 255, 0.0
   color: rgba(242, 244, 248, 0.85);
 }
 
-/* ---------- 软件实际截图（右栏，右缘贴住视口） ---------- */
+/* ---------- 网页版在线体验（完整桌面界面按 1280×800 缩放呈现，如同开了个窗口） ---------- */
 .app-shot {
+  position: relative;
   margin: 0;
-  /* 右缘贴住视口：向右扩展 container 的右侧留白宽度 */
+  /* 向右扩展 container 的右侧留白，但保留 20px 间隙 */
   --edge: calc((100vw - min(var(--container), 100vw - 48px)) / 2);
-  width: calc(100% + var(--edge));
-  margin-right: calc(var(--edge) / -1);
+  --inset: 20px;
+  width: calc(100% + var(--edge) - var(--inset));
+  margin-right: calc((var(--inset) - var(--edge)) / 1);
+  aspect-ratio: 1280 / 800; /* 与 iframe 虚拟视口同比例，高度随宽度自动 */
   border: 1px solid rgba(255, 255, 255, 0.14);
-  border-right: none;
-  border-radius: var(--radius) 0 0 var(--radius);
+  border-radius: var(--radius);
   background: #0d1119;
   box-shadow:
     0 40px 120px -40px rgba(0, 0, 0, 0.9),
@@ -306,10 +308,50 @@ code { padding: 1px 6px; border-radius: 6px; background: rgba(255, 255, 255, 0.0
   overflow: hidden;
 }
 
-.app-shot img {
-  display: block;
+/* iframe 以 1280×800 桌面视口渲染，JS 按容器宽度等比缩小（main.js fitEmbed） */
+.app-embed {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 1280px;
+  height: 800px;
+  border: 0;
+  background: #0a0d15;
+  transform-origin: 0 0;
+}
+
+/* 手机端回退：显示静态截图（缩放窗口在小屏文字过小） */
+.app-shot-img {
+  display: none;
   width: 100%;
   height: auto;
+}
+
+@media (max-width: 767px) {
+  .app-shot { aspect-ratio: auto; }
+  .app-embed { display: none; }
+  .app-shot-img { display: block; }
+}
+
+.try-fullscreen {
+  position: absolute;
+  top: 12px;
+  right: 24px;
+  z-index: 2;
+  padding: 7px 16px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(6, 9, 18, 0.78);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  color: var(--text);
+  font-size: 0.82rem;
+  font-weight: 600;
+  transition: background 0.18s, border-color 0.18s;
+}
+.try-fullscreen:hover {
+  background: rgba(20, 30, 56, 0.9);
+  border-color: rgba(122, 162, 247, 0.6);
 }
 
 /* 平台信息行 */
@@ -321,48 +363,12 @@ code { padding: 1px 6px; border-radius: 6px; background: rgba(255, 255, 255, 0.0
 
 .dot { opacity: 0.4; margin-inline: 4px; }
 
-/* ---------- 悬浮联系按钮（参考站微信/Discord 样式） ---------- */
-.float-dock {
-  position: fixed;
-  left: 50%;
-  bottom: 22px;
-  transform: translateX(-50%);
-  z-index: 90;
-  display: flex;
-  gap: 10px;
-  padding: 8px;
-  border-radius: 999px;
-  border: 1px solid var(--border);
-  background: rgba(10, 15, 30, 0.72);
-  -webkit-backdrop-filter: blur(14px);
-  backdrop-filter: blur(14px);
-  box-shadow: 0 18px 44px -18px rgba(0, 0, 0, 0.85);
-}
-
-.float-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 9px 20px;
-  border-radius: 999px;
-  border: 1px solid var(--border);
-  background: var(--surface-2);
-  color: var(--text);
-  font-size: 0.9rem;
-  font-weight: 600;
-  transition: transform 0.18s, border-color 0.18s, background 0.18s;
-}
-.float-btn svg { width: 17px; height: 17px; }
-.float-btn:hover { transform: translateY(-2px); border-color: rgba(255, 255, 255, 0.3); background: rgba(40, 52, 84, 0.6); }
-.float-btn-accent { border-color: rgba(122, 162, 247, 0.4); }
-.float-btn-accent:hover { border-color: rgba(122, 162, 247, 0.7); }
-
 /* ---------- 页脚 ---------- */
 .site-footer {
   margin-top: clamp(40px, 6vw, 72px);
   border-top: 1px solid rgba(255, 255, 255, 0.08);
   background: rgba(4, 6, 12, 0.6);
-  padding: 34px 0 90px; /* 底部留出悬浮按钮空间 */
+  padding: 34px 0;
 }
 
 .footer-grid {
@@ -394,7 +400,7 @@ code { padding: 1px 6px; border-radius: 6px; background: rgba(255, 255, 255, 0.0
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
   .reveal { opacity: 1; transform: none; transition: none; }
-  .btn, .float-btn { transition: none; }
+  .btn { transition: none; }
 }
 
 /* ============================================================
@@ -418,17 +424,14 @@ code { padding: 1px 6px; border-radius: 6px; background: rgba(255, 255, 255, 0.0
 @media (max-width: 767px) {
   .brand-pill { display: none; }
   .nav-link { padding: 8px 10px; }
-  .nav-sep { display: none; }
 
   .hero-actions .btn { flex: 1 1 auto; min-width: 150px; }
 
   .dl-stat { flex-wrap: wrap; gap: 8px 12px; }
 
   .footer-grid { flex-direction: column; }
-  .site-footer { padding-bottom: 110px; }
 }
 
 @media (max-width: 400px) {
   .container { width: calc(100% - 32px); }
-  .float-dock { width: calc(100% - 32px); justify-content: center; }
 }

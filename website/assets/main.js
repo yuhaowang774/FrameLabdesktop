@@ -37,19 +37,17 @@
     reveals.forEach(function (el) { io.observe(el); });
   }
 
-  /* ---------- 下载/联系点击上报（Nginx /track/ 端点记日志，部署见 docs/DEPLOY.md） ---------- */
-  document.addEventListener('click', function (e) {
-    var el = e.target instanceof Element ? e.target.closest('[data-track]') : null;
-    if (!el) return;
-    var name = el.getAttribute('data-track');
-    try {
-      if (navigator.sendBeacon) {
-        navigator.sendBeacon('/track/' + encodeURIComponent(name));
-      } else {
-        new Image().src = '/track/' + encodeURIComponent(name) + '?t=' + Date.now();
-      }
-    } catch (_) { /* 统计失败不影响主流程 */ }
-  });
+  /* ---------- 网页版嵌入窗口等比缩放 ----------
+     iframe 以 1280×800 桌面视口渲染完整界面，按容器宽度等比缩小，观感如同开了一个真实窗口。 */
+  var embedFrame = document.getElementById('appEmbed');
+  var embedBox = embedFrame ? embedFrame.parentElement : null;
+  function fitEmbed() {
+    if (!embedFrame || !embedBox) return;
+    var s = embedBox.clientWidth / 1280;
+    embedFrame.style.transform = 'scale(' + s + ')';
+  }
+  window.addEventListener('resize', fitEmbed, { passive: true });
+  fitEmbed();
 
   /* ---------- 版本号同步（GitHub API，失败静默回退内置值） ---------- */
   function setVersion(v) {

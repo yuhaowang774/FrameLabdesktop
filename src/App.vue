@@ -269,6 +269,9 @@ onMounted(async () => {
 const showLeft = computed(() => app.activeModule.value === 'develop' && app.state.leftOpen)
 const showRight = computed(() => app.activeModule.value === 'develop' && app.state.rightOpen)
 
+// 窗口模式（宣传页 iframe，?window=1）：跳过图库，默认展示编辑界面
+if (new URLSearchParams(location.search).get('window') === '1') app.setModule('develop')
+
 document.body.classList.add('theme-dark')
 </script>
 

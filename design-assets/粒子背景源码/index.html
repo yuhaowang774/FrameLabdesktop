@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>瓦肯三角 · 粒子交互背景</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html, body { width:100%; height:100%; overflow:hidden; background:#1a1a24; }
+  canvas { display:block; position:absolute; top:0; left:0; }
+  .tip {
+    position:fixed; bottom:24px; left:50%; transform:translateX(-50%);
+    color:rgba(255,255,255,.35); font:12px/1.6 -apple-system,"PingFang SC",sans-serif;
+    letter-spacing:.1em; pointer-events:none; user-select:none;
+  }
+</style>
+</head>
+<body>
+<canvas id="scene"></canvas>
+<div class="tip">移动鼠标 · 扰动粒子</div>
+<script>
+/* ================= 可调参数 ================= */
+const IMG_URL       = 'WYHlogo.jpg'; // 你的图片路径
+const GAP           = 4;            // 采样间隔（像素）
+const PARTICLE_SIZE = 3;            // 粒子尺寸
+const MOUSE_RADIUS  = 240;          // 鼠标影响半径
+const REPEL_FORCE   = 0.18;         // 轻微外推（越小越不像"挖洞"）
+const SWIRL_FORCE   = 1.35;         // 绕鼠标的涡流强度
+const TURBULENCE    = 0.85;         // 相干噪声扰动强度（类 curl noise）
+const JITTER        = 0.5;          // 随机抖动强度
+const NOISE_SCALE   = 0.02;         // 噪声场空间频率（越小涡块越大）
+const NOISE_SPEED   = 0.0026;       // 噪声场随时间演化速度（越大翻涌越快）
+const SPEED_BOOST   = 0.08;         // 鼠标移动越快，扰动越强
+const EASE          = 0.11;         // 粒子回归速度 (0~1)
+const FRICTION      = 0.55;         // 速度衰减（越小阻尼越大；配合 EASE 决定弹不弹）
+// 无过冲（不 Q 弹）条件：EASE <= (1 - sqrt(FRICTION))^2 / FRICTION
+// 当前组合 (0.11, 0.55) 上限约为 0.1214，仍在临界阻尼内：响应更快且不过冲
+const THRESHOLD     = 128;          // 亮度阈值：<128 视为"暗色笔画"
+const COLOR_MODE    = 'origin';     // 'mono' 单色 | 'origin' 原图色 | 'gradient' 渐变
+const MONO_COLOR    = 'rgba(180, 220, 255, 0.9)'; // mono 模式的粒子色
+const ORIGIN_MIN    = 80;           // origin 模式最暗笔画映射到的亮度（避免黑粒子在深底上看不见）
+const ORIGIN_MAX    = 235;          // origin 模式最亮笔画映射到的亮度
+const GLITCH        = 0.10;         // 粒子随机微扰幅度（呼吸感）
+/* ========================================== */
+
+const canvas = document.getElementById('scene');
+const ctx    = canvas.getContext('2d');
+const off    = document.createElement('canvas');
+const offCtx = off.getContext('2d', { willReadFrequently: true });
+
+let particles = [];
+let mouse = { x:-9999, y:-9999 };
+let mouseBoost = 1; // 鼠标移动速度带来的扰动加成
+let W = 0, H = 0, imgW = 0, imgH = 0;
+let scaleX = 1, scaleY = 1;
+
+/* ---------- 粒子类 ---------- */
+class Particle {
+  constructor(ox, oy, color) {
+    this.ox = ox; this.oy = oy;              // 原始位置
+    this.x  = W/2 + (Math.random()-0.5) * W; // 初始散开位置
+    this.y  = H/2 + (Math.random()-0.5) * H;
+    this.vx = 0; this.vy = 0;
+    this.size = PARTICLE_SIZE * (0.6 + Math.random()*0.6);
+    this.color = color;
+    this.phase = Math.random() * Math.PI * 2; // 用于微扰相位
+  }
+  update(t) {
+    // 1. 鼠标扰动：外推 + 涡流 + 相干噪声 + 随机抖动
+    const dx = this.x - mouse.x, dy = this.y - mouse.y;
+    const dist = Math.hypot(dx, dy);
+    if (dist < MOUSE_RADIUS && dist > 0.01) {
+      const f = 1 - dist / MOUSE_RADIUS;   // 影响权重 0~1
+      const g = Math.pow(f, 1.4) * mouseBoost; // 平滑衰减（指数越小，外圈衰减越慢）× 速度加成
+      const ux = dx / dist, uy = dy / dist; // 径向单位向量
+      // 1a. 轻微外推（保留一点点"让位"感，但不形成空洞）
+      this.vx += ux * g * REPEL_FORCE;
+      this.vy += uy * g * REPEL_FORCE;
+      // 1b. 切向涡流（绕鼠标旋转）
+      this.vx += -uy * g * SWIRL_FORCE;
+      this.vy +=  ux * g * SWIRL_FORCE;
+      // 1c. 相干噪声场（用原始坐标取样，形成流动的湍流感）
+      const ang = (Math.sin(this.ox * NOISE_SCALE + t * NOISE_SPEED) +
+                   Math.cos(this.oy * NOISE_SCALE - t * NOISE_SPEED * 0.8)) * Math.PI;
+      this.vx += Math.cos(ang) * g * TURBULENCE;
+      this.vy += Math.sin(ang) * g * TURBULENCE;
+      // 1d. 随机抖动（打散规律感）
+      this.vx += (Math.random() - 0.5) * g * JITTER * 2;
+      this.vy += (Math.random() - 0.5) * g * JITTER * 2;
+    }
+    // 2. 弹性回归
+    this.vx += (this.ox - this.x) * EASE;
+    this.vy += (this.oy - this.y) * EASE;
+    // 3. 摩擦 + 呼吸微扰
+    this.vx *= FRICTION;
+    this.vy *= FRICTION;
+    this.x += this.vx + Math.cos(t*0.001 + this.phase) * GLITCH;
+    this.y += this.vy + Math.sin(t*0.001 + this.phase) * GLITCH;
+  }
+  draw() {
+    ctx.fillStyle = this.color;
+    ctx.fillRect(this.x, this.y, this.size, this.size);
+  }
+}
+
+/* ---------- 取色 ---------- */
+function pickColor(r, g, b, ox, oy) {
+  if (COLOR_MODE === 'mono') return MONO_COLOR;
+  if (COLOR_MODE === 'gradient') {
+    const hue = (ox / imgW) * 60 + 200; // 蓝紫渐变
+    return `hsla(${hue}, 80%, 65%, 0.9)`;
+  }
+  // origin：保留明暗层次，但把 [0, THRESHOLD] 的暗部线性映射到 [ORIGIN_MIN, ORIGIN_MAX]
+  const lum = Math.min(0.299*r + 0.587*g + 0.114*b, THRESHOLD);
+  const v = Math.round(ORIGIN_MIN + (lum / THRESHOLD) * (ORIGIN_MAX - ORIGIN_MIN));
+  return `rgb(${v},${v},${v})`;
+}
+
+/* ---------- 图像加载 & 粒子生成 ---------- */
+const img = new Image();
+img.onload = () => {
+  imgW = img.width; imgH = img.height;
+  resize();
+  buildParticles();
+  requestAnimationFrame(loop);
+};
+img.onerror = () => {
+  document.body.innerHTML = '<p style="color:#fff;padding:40px;font-family:sans-serif">图片加载失败，请确认 WYHlogo.jpg 与 HTML 文件在同一目录。</p>';
+};
+img.src = IMG_URL;
+
+function buildParticles() {
+  off.width = imgW; off.height = imgH;
+  offCtx.clearRect(0, 0, imgW, imgH);
+  offCtx.drawImage(img, 0, 0);
+  let data;
+  try {
+    data = offCtx.getImageData(0, 0, imgW, imgH).data;
+  } catch(e) {
+    document.body.innerHTML = '<p style="color:#fff;padding:40px;font-family:sans-serif">跨域限制：请把图片保存到本地，或通过本地服务器（如 VSCode Live Server）访问。</p>';
+    return;
+  }
+  particles = [];
+  // 图像在屏幕上的显示尺寸（等比缩放，居中）
+  const scale = Math.min(W / imgW, H / imgH) * 0.85;
+  const dispW = imgW * scale, dispH = imgH * scale;
+  const offX  = (W - dispW) / 2, offY  = (H - dispH) / 2;
+  scaleX = scale; scaleY = scale;
+  const gap = Math.max(1, Math.round(GAP / scale)); // 屏幕显示越缩小，采样间隔也按比例缩小
+  for (let y = 0; y < imgH; y += gap) {
+    for (let x = 0; x < imgW; x += gap) {
+      const i = (y * imgW + x) * 4;
+      const r = data[i], g = data[i+1], b = data[i+2], a = data[i+3];
+      if (a < 128) continue;
+      const brightness = 0.299*r + 0.587*g + 0.114*b;
+      if (brightness > THRESHOLD) continue; // 只取暗色笔画
+      const ox = offX + x * scale;
+      const oy = offY + y * scale;
+      particles.push(new Particle(ox, oy, pickColor(r, g, b, ox, oy)));
+    }
+  }
+}
+
+/* ---------- 尺寸自适应 ---------- */
+function resize() {
+  W = canvas.width  = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+  if (imgW) buildParticles(); // 窗口变化时重采样
+}
+window.addEventListener('resize', resize);
+
+/* ---------- 鼠标 & 触摸 ---------- */
+window.addEventListener('mousemove', e => {
+  const speed = mouse.x < -1000 ? 0 : Math.hypot(e.clientX - mouse.x, e.clientY - mouse.y);
+  mouseBoost = Math.min(2.8, 0.9 + speed * SPEED_BOOST); // 划得越快扰动越猛
+  mouse.x = e.clientX; mouse.y = e.clientY;
+});
+window.addEventListener('mouseleave', () => { mouse.x = -9999; mouse.y = -9999; mouseBoost = 1; });
+window.addEventListener('touchmove', e => {
+  const t = e.touches[0];
+  const speed = mouse.x < -1000 ? 0 : Math.hypot(t.clientX - mouse.x, t.clientY - mouse.y);
+  mouseBoost = Math.min(2.8, 0.9 + speed * SPEED_BOOST);
+  mouse.x = t.clientX; mouse.y = t.clientY;
+}, { passive:true });
+window.addEventListener('touchend', () => { mouse.x = -9999; mouse.y = -9999; });
+
+/* ---------- 主循环 ---------- */
+let last = 0;
+function loop(t) {
+  const dt = Math.min(t - last, 50); last = t;
+  ctx.clearRect(0, 0, W, H);
+  mouseBoost += (1 - mouseBoost) * 0.12; // 鼠标停下后扰动强度回落
+  for (const p of particles) { p.update(t); p.draw(); }
+  requestAnimationFrame(loop);
+}
+</script>
+</body>
+</html>

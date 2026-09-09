@@ -45,9 +45,8 @@
 > 仅保留「软件简介、下载、联系方式」三个主模块，两屏内完成全部信息传递。
 
 ```
-header（sticky 导航：Logo + 药丸标签 | 下载 / GitHub / 联系我们）
+header（sticky 导航：Logo + 药丸标签 | 下载 / GitHub）
 ├─ Hero（左对齐）：标题 + 副文案 + 白色「立即下载」/ 玻璃「查看 GitHub ⭐」+ 累计下载数 + 软件实际截图 + 平台行
-├─ 悬浮联系药丸（底部居中固定）：意见反馈 / 邮件联系
 └─ footer：版权 + 品牌声明 | 下载 / GitHub / 使用指南 / 反馈 + ICP 备案占位
 ```
 
@@ -107,12 +106,13 @@ header（sticky 导航：Logo + 药丸标签 | 下载 / GitHub / 联系我们）
 4. 降级：断网/接口失败时版本徽章回退内置版本号
 5. 校验：HTML 结构、meta 完整性、控制台零报错
 
-## 五、部署阶段（阿里云 + Nginx）
+## 五、部署阶段（Cloudflare Pages，2026-09-09 由阿里云方案切换）
 
 详见 [DEPLOY.md](./DEPLOY.md)。要点：
 
-- 服务器准备（安全组 80/443、Nginx 安装）→ 上传静态文件 → Nginx 站点配置（gzip、缓存策略、安全头）→ HTTPS（certbot/阿里云证书）→ 域名解析与备案 → 上线前检查
-- 监控：Nginx 访问日志统计下载点击（文档附命令），可选接入阿里云云监控
+- GitHub 仓库 Git 集成自动构建（输出目录 `/website`，构建命令留空）→ `*.pages.dev` 免费子域 + 自动 HTTPS → 可选绑定自定义域名
+- 缓存/安全头由 `website/_headers` 声明（HTML 免缓存、资产 7 天）；统计改用 Cloudflare Web Analytics
+- 下载源保持 GitHub Releases 直链；push 即部署，支持一键回滚
 
 ## 六、交付物清单
 
@@ -120,5 +120,5 @@ header（sticky 导航：Logo + 药丸标签 | 下载 / GitHub / 联系我们）
 |---|---|
 | 网页源代码 | `website/index.html`、`website/assets/*`、`website/robots.txt`、`website/sitemap.xml` |
 | 设计稿与原型 | 本页 live prototype（即原型，见第二节说明）+ 本文档设计规范 |
-| 部署文档与维护指南 | `website/docs/DEPLOY.md` + `website/deploy.sh` |
+| 部署文档与维护指南 | `website/docs/DEPLOY.md`（Cloudflare Pages 版） |
 | 测试报告与优化建议 | `website/docs/TEST-REPORT.md` |

@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://framelab.example.com/sitemap.xml
+Sitemap: https://framelab.pages.dev/sitemap.xml

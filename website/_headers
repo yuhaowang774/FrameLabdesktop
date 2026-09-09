@@ -1,0 +1,24 @@
+# Cloudflare Pages 头部策略：HTML 免缓存（发布即生效），静态资产长缓存
+/index.html
+  Cache-Control: no-cache, must-revalidate
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: DENY
+  Referrer-Policy: strict-origin-when-cross-origin
+
+/assets/*
+  Cache-Control: public, max-age=604800
+
+/app/index.html
+  Cache-Control: no-cache, must-revalidate
+
+/app/assets/*
+  Cache-Control: public, max-age=604800
+
+/app/*
+  Cache-Control: public, max-age=86400
+
+/robots.txt
+  Cache-Control: public, max-age=86400
+
+/sitemap.xml
+  Cache-Control: public, max-age=86400
