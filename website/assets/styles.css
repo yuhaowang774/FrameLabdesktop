@@ -293,11 +293,13 @@ code { padding: 1px 6px; border-radius: 6px; background: rgba(255, 255, 255, 0.0
 .app-shot {
   position: relative;
   margin: 0;
-  /* 向右扩展 container 的右侧留白，但保留 20px 间隙 */
+  /* 向右扩展 container 的右侧留白：与页面右缘的间距用流体值（不随窗口突兀变化），
+     突破量封顶 280px——超宽屏不无限拉伸，右侧自然留出更多呼吸空间 */
   --edge: calc((100vw - min(var(--container), 100vw - 48px)) / 2);
-  --inset: 20px;
-  width: calc(100% + var(--edge) - var(--inset));
-  margin-right: calc((var(--inset) - var(--edge)) / 1);
+  --inset: clamp(20px, 3.5vw, 64px);
+  --reach: clamp(0px, calc(var(--edge) - var(--inset)), 280px);
+  width: calc(100% + var(--reach));
+  margin-right: calc(-1 * var(--reach));
   aspect-ratio: 1280 / 800; /* 与 iframe 虚拟视口同比例，高度随宽度自动 */
   border: 1px solid rgba(255, 255, 255, 0.14);
   border-radius: var(--radius);
@@ -336,7 +338,7 @@ code { padding: 1px 6px; border-radius: 6px; background: rgba(255, 255, 255, 0.0
 .try-fullscreen {
   position: absolute;
   top: 12px;
-  right: 24px;
+  left: clamp(12px, 1.4vw, 24px); /* 界面左上角（与容器间距同样流体） */
   z-index: 2;
   padding: 7px 16px;
   border-radius: 999px;
