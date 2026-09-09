@@ -1,23 +1,32 @@
 <div align="center">
 
-<img src="app-icon.png" width="96" alt="FrameLab 图标" />
+<img src="app-icon.png" width="110" alt="FrameLab 图标" />
 
 # FrameLab
 
-**照片相框 & EXIF 信息卡合成工具**
+**给照片挂品牌 Logo 和 EXIF 参数的本地小工具**
 
-为照片加上品牌 Logo、相机型号、拍摄参数与日期，内置杂志排版模板与模糊背景，
-所见即所得、按原始像素无损输出 —— 所有处理均在本地完成，原图不上传。
+杂志模板 · 无损输出 · 照片不出你的电脑
 
-[下载最新版](https://github.com/yuhaowang774/FrameLabdesktop/releases/latest) · [意见反馈](https://github.com/yuhaowang774/FrameLabdesktop/issues/new)
+[![Latest Release](https://img.shields.io/github/v/release/yuhaowang774/FrameLabdesktop?style=flat-square)](https://github.com/yuhaowang774/FrameLabdesktop/releases/latest)
+[![Downloads](https://img.shields.io/github/downloads/yuhaowang774/FrameLabdesktop/total?style=flat-square)](https://github.com/yuhaowang774/FrameLabdesktop/releases/latest)
+![Platform](https://img.shields.io/badge/Windows%2010%20%2F%2011%20x64-0078D6?style=flat-square)
+![Runtime](https://img.shields.io/badge/Tauri%202%20%2B%20Vue%203-3178C6?style=flat-square)
+
+[**⬇ 免费下载**](https://github.com/yuhaowang774/FrameLabdesktop/releases/latest) · [🌐 官网 & 在线体验](https://framelab-studio.pages.dev) · [💬 问题反馈](https://github.com/yuhaowang774/FrameLabdesktop/issues/new)
 
 </div>
 
 ---
 
+<div align="center">
+<img src="website/assets/screenshot.jpg" width="860" alt="FrameLab 界面截图：编辑画布加载晚霞样片，信息卡显示 SONY α6000 与拍摄参数" />
+</div>
+
 ## ✨ 功能特性
 
 ### 相框与排版
+
 - **多种 INFO 布局**：经典纵向 / 杂志双栏 / 悬浮双行 / 手机白底水印卡 / 杂志编辑（顶部标题 + 照片自动取色色卡）
 - **品牌 Logo**：佳能 / 索尼 / 尼康 / 富士 / 哈苏 / 徕卡等相机品牌与小米 / 华为 / 三星 / iPhone 等手机品牌的官方矢量字标，暗白双版自动适配，支持自定义颜色
 - **自定义 Logo**：上传图片（IndexedDB 持久化），或直接输入文字生成文字标
@@ -26,11 +35,13 @@
 - **附加效果**：暗角、颗粒、文本 / 图片水印（单枚或平铺）
 
 ### 信息与 EXIF
+
 - **自动识别**：导入照片自动解析 EXIF（焦距 / 光圈 / 快门 / ISO / 镜头 / 拍摄日期 / 机身型号），型号自动映射为营销名（如 ILCE-6000 → α6000）
 - **灵活控制**：EXIF / 镜头 / 日期 / 型号 / Logo 各自独立开关、字体、字号、颜色，支持画布自由拖拽定位与居中吸附
 - **等效焦距**：优先读取 35mm 字段，或按画幅系数手动换算
 
 ### 工作流（对标 Lightroom Classic）
+
 - **图库 → 编辑 → 导出** 三段式：文件夹 / 拖拽批量导入、胶片条切换（← / →）、每张照片独立参数与历史
 - **撤销 / 重做** 常驻底栏（Ctrl+Z / Ctrl+Shift+Z），每张照片独立历史链
 - **同步设置**：调好一张，一键把相框 / 背景 / INFO 样式同步到多选的其他照片（各照片保留自身 EXIF）
@@ -38,6 +49,7 @@
 - **自由编辑**：照片任意角度旋转（拉直地平线）、裁剪、缩放平移、Before/After 对比
 
 ### 导出画质
+
 - 主照片以**原生像素 1:1** 参与合成，装饰层按比例放大 —— 无降采样、无画质损失
 - **PNG 无损 / JPG 高画质（质量可调）** 双格式，超采样让文字与 Logo 更锐利
 - 自动嵌入 sRGB ICC Profile，避免偏色
@@ -46,8 +58,11 @@
 
 前往 [**Releases 最新版**](https://github.com/yuhaowang774/FrameLabdesktop/releases/latest) 下载 `FrameLab_x.x.x_x64-setup.exe`（Windows 10/11 x64）：
 
-- ✅ 内置**自动更新**：有新版本自动下载、静默安装并重启，更新包经签名校验
+- ✅ **自动更新**：有新版本自动下载、静默安装并重启，更新包经签名校验
+- ✅ **离线可用**：安装后完全离线运行，无广告、无需登录
 - ✅ 安装包未做代码签名，首次运行如遇 SmartScreen 提示，选择「仍要运行」即可
+
+> 不想安装？[官网在线体验](https://framelab-studio.pages.dev)可直接在浏览器里试用完整界面（网页版功能与桌面端一致）。
 
 ## 🚀 快速上手
 
@@ -59,7 +74,7 @@
 
 ## 🔒 隐私
 
-所有照片处理均在本地浏览器内核中完成，**不联网上传任何图片**；唯一的网络请求是检查软件更新。
+所有照片处理均在本地浏览器内核中完成，**照片不出你的电脑**；唯一的网络请求是检查软件更新与获取更新日志。
 
 ## 🛠 开发
 
@@ -82,6 +97,7 @@ src/
   components/    layout 五区外壳 · preview 预览链 · controls 参数面板 · common 通用控件
   platform/      Web / Tauri 双端适配层（文件、对话框、目录、GPU 偏好）
 src-tauri/       Rust 薄壳（文件与目录 IPC、原生菜单、自动更新）
+website/         宣传下载页（Cloudflare Pages 部署，内嵌网页版在线体验）
 docs/            项目规划与设计文档
 ```
 
