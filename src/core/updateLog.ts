@@ -44,6 +44,21 @@ export const IMPORTANCE_LABELS: Record<UpdateImportance, string> = {
 // ===== 更新日志（新版本追加在最上方）=====
 export const UPDATE_LOG: UpdateEntry[] = [
   {
+    version: '0.2.6',
+    date: '2026-09-09',
+    importance: 'normal',
+    groups: {
+      improved: [
+        '编辑画布无需先缩放即可直接拖动照片定位（原来必须先滚轮放大才能移动）',
+        '图库网格 Shift+点击多选与胶片条行为统一：从上次点击位置范围多选（原来只切换单张）',
+      ],
+      fixed: [
+        '修复基础信息面板「文件大小」不显示的问题（本地导入的照片现正常显示）',
+        '修复点击 INFO 元素后偶发弹出「组件错误」提示的问题',
+      ],
+    },
+  },
+  {
     version: '0.2.5',
     date: '2026-09-09',
     importance: 'patch',
