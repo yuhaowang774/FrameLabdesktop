@@ -27,3 +27,6 @@ website/app/
 
 # 宣发清理归档（本地备份，不入库）
 _archive/
+
+# 宣发素材与工作文档（仅本地，不入库）
+marketing/
