@@ -21,6 +21,7 @@ import { editingPhoto, photoImage, runtimeError } from './composables/useUi'
 import { resetBlurCaches } from './core/bgRenderer'
 import { isTauri } from './platform/env'
 import UpdateModal from './components/layout/UpdateModal.vue'
+import UpdateNotice from './components/layout/UpdateNotice.vue'
 import { detectUpdate, type UpdateHit } from './composables/useUpdateLog'
 
 const library = useLibrary()
@@ -314,6 +315,9 @@ document.body.classList.add('theme-dark')
 
     <!-- 更新完成弹窗：升级后首次启动自动弹出；也可从首选项「关于 → 更新记录」打开 -->
     <UpdateModal v-model="showUpdateModal" :update="updateHit" />
+
+    <!-- 新版本提醒卡片：启动自动检查命中后右下角提示（立即更新 / 稍后 / 跳过此版本） -->
+    <UpdateNotice />
 
     <!-- 运行时错误弹窗：报错可见、详情可复制（用户要求：报错必提醒、能定位问题） -->
     <Teleport to="body">

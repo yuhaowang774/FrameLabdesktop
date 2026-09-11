@@ -22,13 +22,17 @@ import {
   setHistoryLimitPref,
   getStartupTemplatePref,
   setStartupTemplatePref,
+  getAutoUpdatePref,
+  setAutoUpdatePref,
   type ExportFormatPref,
 } from '../../composables/usePrefs'
 import { useLibrary } from '../../composables/useLibrary'
 import { useTemplates } from '../../composables/useTemplates'
 import { clearAllHistoryNodes } from '../../composables/useHistoryDB'
 import { listCustomLogos, removeCustomLogo } from '../../composables/useLogoStore'
+import { checkInBackground } from '../../composables/useUpdater'
 import UpdateModal from './UpdateModal.vue'
+import Switch from '../common/Switch.vue'
 
 const emit = defineEmits<{ (e: 'close'): void }>()
 const library = useLibrary()
@@ -135,6 +139,15 @@ async function onRestart() {
     restarting.value = false
     window.alert('重启失败，请手动关闭应用后重新打开。')
   }
+}
+
+// ===== 自动检查更新开关（仅桌面端）：启动时静默检查新版本并在右下角提醒 =====
+const autoUpdate = ref(getAutoUpdatePref())
+function onAutoUpdate(v: boolean) {
+  autoUpdate.value = v
+  setAutoUpdatePref(v)
+  // 打开开关时立即静默检查一次（发现新版本即提醒）；关闭仅停止后续启动检查
+  if (v) void checkInBackground()
 }
 
 // ===== 软件更新（仅桌面端）：检查 → 下载（进度）→ 静默安装 → 自动重启 =====
@@ -463,6 +476,13 @@ async function onGreenApply() {
         <!-- 关于 -->
         <section class="pf-sec">
           <h3 class="pf-sec-title">关于</h3>
+          <div class="pf-row" v-if="isTauri">
+            <div class="pf-text">
+              <span class="pf-label">自动检查更新</span>
+              <span class="pf-desc">启动后自动检查新版本，发现时在右下角提醒；也可用下方「检查更新」手动检查。</span>
+            </div>
+            <Switch :model-value="autoUpdate" @update:model-value="onAutoUpdate" />
+          </div>
           <div class="pf-row" v-if="isTauri">
             <div class="pf-text">
               <span class="pf-label">软件更新</span>

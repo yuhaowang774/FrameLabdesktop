@@ -5,6 +5,7 @@ const KEYS = {
   exportQuality: 'framelab-pref-export-quality',
   historyLimit: 'framelab-pref-history-limit',
   startupTemplate: 'framelab-pref-startup-template',
+  autoUpdate: 'framelab-pref-auto-update',
 } as const
 
 const DEFAULT_HISTORY_LIMIT = 100
@@ -58,4 +59,12 @@ export function getStartupTemplatePref(): string {
 }
 export function setStartupTemplatePref(v: string): void {
   write(KEYS.startupTemplate, v)
+}
+
+// ===== 更新：启动时自动检查新版本（默认开；'0' 为显式关闭） =====
+export function getAutoUpdatePref(): boolean {
+  return read(KEYS.autoUpdate, '1') !== '0'
+}
+export function setAutoUpdatePref(v: boolean): void {
+  write(KEYS.autoUpdate, v ? '1' : '0')
 }
