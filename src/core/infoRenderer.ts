@@ -126,10 +126,15 @@ export function drawInfoLayer(
     canvasCenter?: { x: number; y: number }
     /** 设计 px → 像素 缩放，默认 1 */
     unitScale?: number
+    /** 预览模式（审查报告 R9）：绘制全部 enable 元素（含 exportable=false 的“仅预览”元素）；
+     *  导出模式仍仅绘制 exportable=true 的元素 */
+    forPreview?: boolean
   } = {},
 ): void {
   if (!layer.enabled) return
-  const sorted = [...layer.elements].filter((e) => e.enable && e.exportable).sort((a, b) => a.zIndex - b.zIndex)
+  const sorted = [...layer.elements]
+    .filter((e) => e.enable && (opts.forPreview || e.exportable))
+    .sort((a, b) => a.zIndex - b.zIndex)
   const s = opts.unitScale ?? 1
 
   // 画布中心（设计 px）

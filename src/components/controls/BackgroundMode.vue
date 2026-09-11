@@ -40,11 +40,15 @@ async function applyCustomBg(dataUrl: string) {
 async function onCustomBgChange(e: Event) {
   const input = e.target as HTMLInputElement
   const file = input.files?.[0]
-  if (file) {
-    const dataUrl = await fileToDataURL(file)
-    await applyCustomBg(dataUrl)
+  // 审查报告 U17：读取失败也必须重置 input（否则同一文件再也选不动）
+  try {
+    if (file) {
+      const dataUrl = await fileToDataURL(file)
+      await applyCustomBg(dataUrl)
+    }
+  } finally {
+    input.value = ''
   }
-  input.value = ''
 }
 
 function fileToDataURL(file: File): Promise<string> {
@@ -58,13 +62,16 @@ function fileToDataURL(file: File): Promise<string> {
 
 function pickCustom() {
   if (isTauri) {
+    // 审查报告 U17：补 catch——失败不再冒泡为 unhandledrejection 全局错误弹窗
     void (async () => {
       const { pickImageFiles, readLocalDataURL } = await import('../../platform/fs')
       const list = await pickImageFiles()
       if (!list.length) return
       const dataUrl = await readLocalDataURL(list[0].path)
       await applyCustomBg(dataUrl)
-    })()
+    })().catch((err) => {
+      window.alert('背景图读取失败：' + ((err as Error)?.message ?? err))
+    })
     return
   }
   customInput.value?.click()

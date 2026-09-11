@@ -53,6 +53,8 @@ const bgImage = ref<ImageBitmap | HTMLImageElement | HTMLCanvasElement | null>(n
 
 // 切换照片序列号：预加载期间若用户再次切换，过期请求直接丢弃，避免旧图覆盖新图
 let switchSeq = 0
+/** 切换加载中（审查报告 S15：大图解码可达数秒，显示遮罩避免「卡死」错觉） */
+const switching = ref(false)
 // 正在加载的照片 URL：96MP 一次完整加载链（读盘 IPC + 解码降采样）耗时数秒，
 // 期间重复触发（进入编辑模块的 activeModule watch 等）必须直接跳过——
 // 两个解码链并行叠加会造成数 GB 的瞬时分配峰值（内存尖峰/卡顿的直接来源）。
@@ -172,6 +174,8 @@ async function loadActive() {
   }
   const seq = ++switchSeq
   loadingUrl = active.url
+  // 审查报告 S15：切换期间显示加载遮罩（大图解码可达数秒，避免用户误认为界面卡死）
+  switching.value = true
   // 切换全程挂起历史提交：大图解码期间（可达秒级）用户的开关/滑块操作会被随后的
   // loadCursorFor 参数恢复覆盖（实测竞态：切换后立即点击开关被重置 + 产生脏历史节点），
   // 挂起后此类"半路编辑"静默丢弃，最终状态与恢复的参数一致。计数式挂起，finally 恒复位。
@@ -205,6 +209,8 @@ async function loadActive() {
   } finally {
     if (loadingUrl === active.url) loadingUrl = null
     suspendCommit(false)
+    // 仅当本次仍是最新请求时关闭遮罩（被丢弃的旧请求不关，避免提前隐藏新加载的遮罩）
+    if (seq === switchSeq) switching.value = false
   }
 }
 
@@ -313,6 +319,9 @@ document.body.classList.add('theme-dark')
     <TopBar />
 
     <main class="body">
+      <!-- 照片切换加载遮罩（审查报告 S15）：大图解码可达数秒，提示避免「卡死」错觉 -->
+      <div v-if="switching" class="switch-mask">正在加载照片…</div>
+
       <!-- 图库模块 -->
       <LibraryView v-if="app.activeModule.value === 'library'" />
 
@@ -385,6 +394,19 @@ document.body.classList.add('theme-dark')
   display: flex;
   min-height: 0;
   position: relative;
+}
+.switch-mask {
+  position: absolute;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.18);
+  color: var(--text-dim);
+  font-size: 12px;
+  letter-spacing: 0.5px;
+  pointer-events: none; /* 仅提示，不阻塞操作 */
 }
 .rail {
   flex: none;

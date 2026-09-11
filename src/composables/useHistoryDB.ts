@@ -72,7 +72,9 @@ export function trackSeq(recs: { seq: number }[]): void {
 }
 
 export function nextSeq(): number {
-  globalSeq += 1
+  // 审查报告 S17：seq 改为「毫秒时间戳 ×1000 + 进程内自增」——跨标签页也单调，
+  // 多标签同时编辑同一照片时不再产生相同 seq（排序退化为键序）
+  globalSeq = Math.max(globalSeq + 1, Date.now() * 1000)
   return globalSeq
 }
 

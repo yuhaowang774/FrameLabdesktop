@@ -144,6 +144,18 @@ watch(
   { immediate: true },
 )
 
+// 审查报告 U15：剔除已删除模板的缩略图缓存（其它入口删除 / 导入覆盖后的残留，
+// 组件常驻左栏、长期累积）
+watch(
+  () => list.value.map((t) => t.id),
+  (ids) => {
+    const keep = new Set(ids)
+    for (const k of Object.keys(thumbs)) {
+      if (!keep.has(k)) delete thumbs[k]
+    }
+  },
+)
+
 // 右栏大预览：选中模板 + 当前编辑照片合成（photoSrc 缺省时走内置示例图）。
 // INFO 复用上方 previewInfo（当前照片真实内容），
 // 点击卡片应用后 state 回填真实信息 → watch 依赖 info 实时重渲，预览即「应用后效果」。
@@ -213,6 +225,8 @@ async function applyBatch(t: { id: string; name: string }) {
 
 function removeCustom(t: { id: string }) {
   templates.remove(t.id)
+  // 审查报告 U15：同步删除缩略图缓存（dataURL 数百 KB~MB 级，此前永久驻留）
+  delete thumbs[t.id]
   if (selectedId.value === t.id) selectedId.value = null
 }
 

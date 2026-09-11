@@ -178,7 +178,9 @@ export async function thumbFor(path: string): Promise<ArrayBuffer | null> {
     const ab = new ArrayBuffer(u8.byteLength)
     new Uint8Array(ab).set(u8)
     return ab
-  } catch {
+  } catch (e) {
+    // 审查报告 T12：失败留痕（不打断流程，降级为重新生成缩略图）
+    console.warn('[fs] 读取缩略图缓存失败（降级为重新生成）：', e)
     return null
   }
 }
@@ -193,8 +195,9 @@ export async function saveThumb(path: string, blob: Blob): Promise<void> {
       bin += String.fromCharCode(...buf.subarray(i, i + CHUNK))
     }
     await tauriInvoke('thumb_put', { path, dataBase64: btoa(bin) })
-  } catch {
-    /* 持久化失败仅影响下次启动速度，不打断当前流程 */
+  } catch (e) {
+    // 审查报告 T12：失败留痕（仅影响下次启动速度，不打断当前流程）
+    console.warn('[fs] 缩略图持久化失败（仅影响下次启动速度）：', e)
   }
 }
 
@@ -235,7 +238,9 @@ export async function readPreviewCanvas(path: string, longMax: number): Promise<
     if (!ctx) return null
     ctx.putImageData(new ImageData(rgba, w, h), 0, 0)
     return canvas
-  } catch {
+  } catch (e) {
+    // 审查报告 T12：留痕（非 JPEG / 解码失败属预期降级路径，调用方回退 createImageBitmap）
+    console.warn('[fs] Rust 预览解码失败（回退前端解码）：', e)
     return null
   }
 }
@@ -363,11 +368,16 @@ export async function restoreLibrary(): Promise<void> {
     await migrateLegacyLibrary()
     return
   }
-  // 按父目录分组（捕获含尾分隔符的目录部分；无分隔符的裸路径单独判定）
+  // 按父目录分组（捕获最后一个分隔符前的部分；无分隔符的裸路径单独判定）
+  // 审查报告 T20：盘根（C:\a.jpg → "C:"）与 UNC 共享根不能走目录扫描校验——
+  // "C:" 的 read_dir 语义是「该盘当前工作目录」（通常是 exe 所在目录）而非盘根，
+  // 会把盘根照片误判为「文件已不存在」而跳过。此类无父目录情形归为 '' 组，逐条 pathExists 校验。
   const byDir = new Map<string, string[]>()
   for (const p of cat.paths) {
-    const m = p.match(/^(.*[/\\])/)
-    const dir = m ? m[1].replace(/[/\\]+$/, '') : ''
+    const m = p.match(/^(.*)[/\\][^/\\]+$/)
+    let dir = m ? m[1] : ''
+    if (/^[a-zA-Z]:$/.test(dir)) dir = '' // 盘根（C: / D: …）
+    if (/^[/\\]{2}[^/\\]+[/\\][^/\\]+$/.test(dir)) dir = '' // UNC 共享根（\\server\share）
     const list = byDir.get(dir)
     if (list) list.push(p)
     else byDir.set(dir, [p])

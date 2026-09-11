@@ -64,6 +64,11 @@ export function resetBlurCaches(): void {
  * 性能：模糊滤镜（ctx.filter=blur）开销很大，这里使用 OffscreenCanvas（降级为普通 canvas）
  * 缓存上一次模糊结果，参数不变时直接 blit，避免重复模糊。
  */
+/** 模糊结果缓存的最大画布面积（px²，4096×4096 ≈ 16.7M px ≈ 67MB RGBA）：
+ *  审查报告 R18——导出路径画布可达数千 px（数百 MB），不进入缓存，避免单张导出后
+ *  内存长期驻留全尺寸画布（缓存只服务预览）。 */
+const BLUR_CACHE_MAX_PX = 4096 * 4096
+
 let blurCache: {
   img: ImgSource
   w: number
@@ -190,7 +195,11 @@ export function drawBlurredBackground(
     // 叠加极低强度黑白噪点打破等差阶梯（平均亮度不变）。缓存内已含 dither，预览/导出同源。
     applyDither(octx, w, h)
   }
-  blurCache = { img, w, h, blurPx, dim, zoom, offsetX, offsetY, quality, canvas: off }
+  // 审查报告 R18：大画布（导出路径）不进入缓存——不更新缓存即可（保留既有预览缓存），
+  // 本次绘制直接使用 off，绘制完由 GC 回收
+  if (w * h <= BLUR_CACHE_MAX_PX) {
+    blurCache = { img, w, h, blurPx, dim, zoom, offsetX, offsetY, quality, canvas: off }
+  }
 
   ctx.drawImage(off as CanvasImageSource, 0, 0, w, h)
 }

@@ -75,10 +75,19 @@ function onFrameContextMenu(id: string, e: MouseEvent) {
   // 下一次右键事件冒泡到 window 时会被上一次残留的 once 监听立即关闭，菜单时有时无
   setTimeout(() => {
     if (!ctxMenu.value) return
-    window.addEventListener('click', closeCtxMenu, { once: true })
-    window.addEventListener('contextmenu', onWindowCtxClose, { once: true })
-    window.addEventListener('keydown', onCtxKeydown, { once: true })
+    installCtxListeners()
   }, 0)
+}
+// 审查报告 U16：三个 once 监听只有被触发的那一个会自解，其余滞留到下一次全局事件
+//（每次开菜单多留 2 个闭包）——改为 AbortController 统一中止，关闭/卸载即清理
+let ctxAbort: AbortController | null = null
+function installCtxListeners(): void {
+  ctxAbort?.abort()
+  ctxAbort = new AbortController()
+  const opt: AddEventListenerOptions = { once: true, signal: ctxAbort.signal }
+  window.addEventListener('click', closeCtxMenu, opt)
+  window.addEventListener('contextmenu', onWindowCtxClose, opt)
+  window.addEventListener('keydown', onCtxKeydown, opt)
 }
 // 右键落在菜单触发元素上（handler 已 preventDefault）：由该 handler 重开菜单，不作为关闭信号
 function onWindowCtxClose(e: MouseEvent) {
@@ -87,6 +96,8 @@ function onWindowCtxClose(e: MouseEvent) {
 }
 function closeCtxMenu() {
   ctxMenu.value = null
+  ctxAbort?.abort()
+  ctxAbort = null
 }
 function ctxExport() {
   const id = ctxMenu.value?.id

@@ -7,6 +7,7 @@ import { useFrameConfig, suspendCommit } from './useFrameConfig'
 import { importPhoto, removePhotoHistory } from './useHistory'
 import { parseExif, buildExifText, formatDate, type ExifParseResult } from './useExif'
 import { isTauri } from '../platform/env'
+import { reportRuntimeError } from './useUi'
 import {
   catalogAdd,
   catalogClear,
@@ -496,6 +497,8 @@ export function useLibrary() {
     }
 
     // 4 路并行解析 + 每批就绪即入列（渐进显示：首批就绪图库即开始出现，不等全部解析完）
+    /** 解析失败的条目名（审查报告 T12：此前静默丢弃——导入 100 张只出现 60 张且无提示） */
+    const failed: string[] = []
     const pending = [...fresh]
     while (pending.length) {
       const batch = pending.splice(0, 4)
@@ -511,7 +514,10 @@ export function useLibrary() {
         const e = batch[i]
         const meta = metas[i]
         // 解码失败（该格式不支持或文件损坏）：不加入图库，避免产生 0×0 的坏条目
-        if (!meta || !meta.width || !meta.height) continue
+        if (!meta || !meta.width || !meta.height) {
+          failed.push(e.name)
+          continue
+        }
         const url = assetUrl(e.path)
         const id = makeId()
         if (firstNewId === null) firstNewId = id
@@ -577,6 +583,13 @@ export function useLibrary() {
         }
         await importPhoto(id, snap, '导入')
       }
+    }
+    // 审查报告 T12：失败条目汇总提示（此前完全静默，用户不知道有照片被跳过）
+    if (failed.length) {
+      reportRuntimeError(
+        '部分照片无法导入',
+        `${failed.length} 张照片读取失败（格式不支持或文件已损坏），已跳过：\n${failed.slice(0, 10).join('\n')}${failed.length > 10 ? `\n…等共 ${failed.length} 张` : ''}`,
+      )
     }
     // 启动还原：优先恢复目录记录的「上次选中」照片（审查报告 S1 尾注：restoreActive
     // 在 items 为空时抢先执行找不到目标），无记录时才选中第一张，避免重启后总跳回第一张

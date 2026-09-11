@@ -5,12 +5,13 @@ import BgCanvas from './BgCanvas.vue'
 import MainPhoto from './MainPhoto.vue'
 import FooterInfo from './FooterInfo.vue'
 import EffectOverlay from './EffectOverlay.vue'
+import InfoLayerDisplay from './InfoLayerDisplay.vue'
 import SelectableBox from '../common/SelectableBox.vue'
 import { useFrameConfig } from '../../composables/useFrameConfig'
 import { useLayers } from '../../composables/useLayers'
 import { DESIGN_CONTAINER } from '../../core/constants'
 import { mapPhotoRectToConfig, mapBgRectToConfig, bgRectFromConfig } from '../../core/dragMap'
-import { rotatedSize } from '../../core/photoEdit'
+import { rotatedSize, sourceSize } from '../../core/photoEdit'
 import { applyShowToggles } from '../../core/showToggles'
 
 const props = defineProps<{
@@ -256,10 +257,11 @@ function onPhotoReady(info: { w: number; h: number }) {
 watch(
   () => props.photoSrc,
   () => {
-    const img = props.bgImage
-    const w = img && img instanceof HTMLImageElement && img.naturalWidth ? img.naturalWidth : 1
-    const h = img && img instanceof HTMLImageElement && img.naturalHeight ? img.naturalHeight : 1
-    photoNatural.value = { w, h }
+    // 审查报告 R16：统一用 sourceSize 识别尺寸——此前只认 HTMLImageElement，桌面端主路径
+    //（ImageBitmap / Rust 解码 canvas）被写成 1×1，与「避免容器先塌缩成 1:1」的注释相矛盾
+    //（此前靠 MainPhoto 的 ready 事件补救）。sourceSize 覆盖 Image / ImageBitmap / Canvas。
+    const s = props.bgImage ? sourceSize(props.bgImage) : { w: 0, h: 0 }
+    photoNatural.value = { w: s.w || 1, h: s.h || 1 }
   },
 )
 
@@ -349,6 +351,14 @@ defineExpose({
       <FooterInfo />
     </div>
 
+    <!-- 顶层 INFO 多元素层预览（审查报告 R9：与导出共用 drawInfoLayer 渲染器，
+         此前该层只有导出绘制、预览看不到） -->
+    <InfoLayerDisplay
+      :container-h="containerHDesign"
+      :photo-cx="photoRectAbs.left + photoRectAbs.width / 2"
+      :photo-cy="photoRectAbs.top + photoRectAbs.height / 2"
+    />
+
     <!-- 顶层效果叠加：暗角 + 颗粒 + 水印（与导出一致） -->
     <EffectOverlay :container-h="containerHDesign" />
   </div>
@@ -427,11 +437,11 @@ defineExpose({
   outline: 1px dashed var(--text);
   outline-offset: -2px;
 }
-/* 未选择照片提示：居中覆盖在画板上方（最顶层，含效果层之上），不拦截交互 */
+/* 未选择照片提示：居中覆盖在画板上方（最顶层，含 INFO 元素层与效果层之上），不拦截交互 */
 .no-photo-hint {
   position: absolute;
   inset: 0;
-  z-index: 8;
+  z-index: 9;
   display: flex;
   align-items: center;
   justify-content: center;

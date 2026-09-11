@@ -23,6 +23,12 @@ export interface RuntimeErrorInfo {
 }
 export const runtimeError = ref<RuntimeErrorInfo | null>(null)
 
+/** 后台异步任务的统一兜底（审查报告 U8）：显式捕获并把失败报为全局错误提示，
+ *  避免裸 `void promise` 失败时以 unhandledrejection 形式冒出（且丢失业务上下文） */
+export function fireAndForget(p: Promise<unknown>, label: string): void {
+  void p.catch((e) => reportRuntimeError(label, String((e as Error)?.message ?? e)))
+}
+
 let lastErrKey = ''
 let lastErrTime = 0
 export function reportRuntimeError(title: string, detail: string): void {

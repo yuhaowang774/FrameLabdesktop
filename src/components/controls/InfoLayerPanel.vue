@@ -2,7 +2,7 @@
 // INFO 信息设置：三个可折叠板块（相机品牌 / 相机型号 / EXIF 参数）。
 // 与右侧「照片/背景/边框」模块一致的折叠面板设计：展开 = 该元素显示在画布上并可调参，收起 = 隐藏。
 // 展开本面板时画布上的三个元素可拖拽微调位置；收起后固定显示（打印态）。
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useFrameConfig } from '../../composables/useFrameConfig'
 import { useAppState } from '../../composables/useAppState'
 import { infoCenterRequest } from '../../composables/useUi'
@@ -22,7 +22,7 @@ import type { FrameConfig } from '../../core/types'
 const { state, patch } = useFrameConfig()
 const r = RANGES
 const app = useAppState()
-const { listCustomLogos, uploadCustomLogo, addTextLogo, removeCustomLogo } = useLogoStore()
+const { listCustomLogos, uploadCustomLogo, addTextLogo, removeCustomLogo, logoVersion } = useLogoStore()
 
 // ===== 品牌选项 =====
 const brandOptions = BRANDS.map((b) => ({ value: b.id, label: b.name }))
@@ -51,6 +51,9 @@ const footerColor = computed(() => footerTextColor(state.bgMode, state.bgColor, 
 function refreshCustom() {
   customLogos.value = listCustomLogos()
 }
+// 审查报告 U12：列表跟随 logoVersion 刷新——首选项清除全部自定义 Logo / 其它入口
+// 新增删除后，本面板（品牌下拉）不再残留幽灵项
+watch(logoVersion, refreshCustom)
 
 // 各组独立样式（EXIF/镜头/日期/型号）改动的统一写入入口
 function onStylePatch(v: Record<string, unknown>) {
@@ -170,11 +173,17 @@ async function onLogoFile(e: Event) {
 }
 
 async function onDeleteCustom(id: string) {
-  await removeCustomLogo(id)
-  if (state.brand === `${CUSTOM_PREFIX}${id}`) {
-    patch({ brand: BRANDS[0].id })
+  // 审查报告 U8：补 catch/finally——失败时提示且列表仍刷新（此前失败后列表停在旧状态）
+  try {
+    await removeCustomLogo(id)
+    if (state.brand === `${CUSTOM_PREFIX}${id}`) {
+      patch({ brand: BRANDS[0].id })
+    }
+  } catch (err) {
+    window.alert('删除失败：' + ((err as Error)?.message ?? err))
+  } finally {
+    refreshCustom()
   }
-  refreshCustom()
 }
 
 // ===== 文本生成 Logo：直接打字生成文字标（与上传 Logo 同链路持久化） =====

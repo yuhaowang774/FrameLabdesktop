@@ -59,6 +59,26 @@ function currentTarget(): ActivePhotoTarget | null {
 const chains = reactive<Record<string, HistoryNodeRecord[]>>({})
 const cursors = reactive<Record<string, number>>({})
 
+// 审查报告 S8：内存链 LRU——每张访问过的照片常驻最多 limit 份完整 FrameConfig 快照
+//（浏览大图库可累积数百 MB）。仅保留最近访问的 CHAIN_CACHE_MAX 张照片的链；
+// 被淘汰的照片下次访问时从 IndexedDB 重载（recordEdit 每次已落库，不丢数据）。
+const CHAIN_CACHE_MAX = 12
+const chainAccess: string[] = []
+function touchChainCache(photoId: string): void {
+  const i = chainAccess.indexOf(photoId)
+  if (i >= 0) chainAccess.splice(i, 1)
+  chainAccess.push(photoId)
+  while (chainAccess.length > CHAIN_CACHE_MAX) {
+    const evict = chainAccess[0]
+    if (evict === currentTarget()?.id) break // 当前编辑的照片不淘汰
+    chainAccess.shift()
+    delete chains[evict]
+    delete cursors[evict]
+    loaded.delete(evict)
+    loading.delete(evict)
+  }
+}
+
 // 懒加载标记：保证每张照片的链表只从 DB 载入一次
 const loaded = new Set<string>()
 const loading = new Map<string, Promise<void>>()
@@ -85,6 +105,7 @@ export function ensureChain(photoId: string): Promise<void> {
     chains[photoId] = recs
     cursors[photoId] = recs.length > 0 ? recs.length - 1 : -1
     loaded.add(photoId)
+    touchChainCache(photoId)
   })()
     .catch((e) => {
       reportDbError(e)
@@ -222,6 +243,10 @@ export async function applyCursorFor(photoId: string): Promise<void> {
 /** 同步应用某照片当前 cursor 指向的节点参数（需先 ensureChain 加载）。
  *  供切换照片时与图源/背景在同一同步块内原子恢复，避免中间帧卡顿。 */
 export function loadCursorFor(photoId: string): void {
+  // 审查报告 S19：切换照片时释放悬浮预览与对比快照（均为完整 FrameConfig 深拷贝，勿长期驻留）
+  preview.value = null
+  beforeState.value = null
+  touchChainCache(photoId)
   applyConfig(photoId, chainOf(photoId)[cursors[photoId] ?? -1]?.state)
 }
 
@@ -627,6 +652,9 @@ export async function removePhotoHistory(photoId: string): Promise<void> {
   // （审查报告 S2：此前只判 pendingCommit，未判 pendingKey，rAF 未及触发时必漏）。
   if (pendingKey?.photoId === photoId) pendingKey = null
   if (pendingCommit?.photoId === photoId) pendingCommit = null
+  // 审查报告 S19：清除指向被删照片的悬浮预览与对比快照
+  if (preview.value?.photoId === photoId) preview.value = null
+  beforeState.value = null
   // 其余照片的待提交历史按正常时机落定（flush 内部会清 rAF 与定时器）
   await flushPending()
   loaded.delete(photoId)
@@ -642,6 +670,9 @@ export async function clearAllGlobal(): Promise<void> {
   for (const k of Object.keys(cursors)) delete cursors[k]
   loaded.clear()
   loading.clear()
+  // 审查报告 S19：全局清空时同步释放悬浮预览与对比快照
+  preview.value = null
+  beforeState.value = null
   await clearAllHistoryNodes()
 }
 /** 统计全部历史节点数量 */

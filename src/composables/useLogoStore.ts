@@ -20,6 +20,21 @@ import {
 
 // 缓存：内置品牌 key = `${brandId}`；自定义 key = `custom:${id}`
 const cache = new Map<string, HTMLCanvasElement>()
+// 审查报告 S16：着色变体（键含 #色值）无上限——取色器连续拖动每帧产生一个中间色。
+// 超限时仅淘汰变体，保留所有无色基准（key=id）与自定义缓存（custom:*）。
+const CACHE_MAX = 48
+function trimBrandCache(): void {
+  if (cache.size <= CACHE_MAX) return
+  for (const key of [...cache.keys()]) {
+    if (cache.size <= CACHE_MAX) break
+    if (key.includes('#')) cache.delete(key)
+  }
+}
+/** 写入着色变体后的统一入口（自动维护变体上限） */
+function setVariant(key: string, canvas: HTMLCanvasElement): void {
+  cache.set(key, canvas)
+  trimBrandCache()
+}
 // 内置品牌 SVG 异步加载完成后自增，触发依赖组件刷新
 const logoVersion = ref(0)
 // 自定义 Logo 内存镜像：id → 已解码 Image
@@ -120,6 +135,9 @@ export async function initCustomLogos(): Promise<void> {
     for (const id of customImages.keys()) {
       renderCustomToCache(id)
     }
+    // 审查报告 S7：载入完成后 bump 版本——此前不 bump，早于加载渲染的 1×1 占位
+    // 不会被刷新，自定义 Logo 长期空白（仅别的品牌渲染时才偶然恢复）
+    logoVersion.value++
   } catch {
     /* IndexedDB 不可用时静默降级，仅内置品牌可用 */
   }
@@ -337,7 +355,7 @@ function renderBrandToCache(id: string, color?: string): HTMLCanvasElement {
   void ensureBrandBase(id).then((base) => {
     if (!base) return
     const target = color && color !== 'auto' ? color : undefined
-    cache.set(key, target ? tintCanvas(base, target) : base)
+    setVariant(key, target ? tintCanvas(base, target) : base)
     logoVersion.value++
   })
   return placeholder
@@ -368,7 +386,7 @@ export function resolveLogo(id: string, color?: string): HTMLCanvasElement {
     const base = cache.get(id)
     if (base && base.width > 1) {
       const tinted = tintCanvas(base, targetColor)
-      cache.set(key, tinted)
+      setVariant(key, tinted)
       return tinted
     }
   }
@@ -390,13 +408,13 @@ export function preloadBrandLogo(id: string, color?: string): Promise<void> {
   // 无色基准已就绪：同步套色，无需任何异步管线
   const base = cache.get(id)
   if (base && base.width > 1) {
-    cache.set(key, targetColor ? tintCanvas(base, targetColor) : base)
+    setVariant(key, targetColor ? tintCanvas(base, targetColor) : base)
     logoVersion.value++
     return Promise.resolve()
   }
   return ensureBrandBase(id).then((ready) => {
     if (!ready) return
-    cache.set(key, targetColor ? tintCanvas(ready, targetColor) : ready)
+    setVariant(key, targetColor ? tintCanvas(ready, targetColor) : ready)
     logoVersion.value++
   })
 }
@@ -416,10 +434,15 @@ export function resolveLogoDataURL(id: string, color?: string): string {
   const key = id.startsWith(CUSTOM_PREFIX) ? id : logoCacheKey(id, color)
   const hit = dataUrlCache.get(key)
   if (hit !== undefined) return hit
-  const url = resolveLogo(id, color).toDataURL('image/png')
-  dataUrlCache.set(key, url)
-  // 取色器连续拖动会产生大量中间色 dataURL：超上限整表清空（下次按需重建，成本低）
-  if (dataUrlCache.size > 64) dataUrlCache.clear()
+  const logo = resolveLogo(id, color)
+  const url = logo.toDataURL('image/png')
+  // 审查报告 S7：未就绪自定义 Logo 的 1×1 占位不写缓存——否则会永久停留在空白
+  //（initCustomLogos 完成 bump logoVersion 后重新计算）
+  if (!(id.startsWith(CUSTOM_PREFIX) && (logo.width <= 1 || logo.height <= 1))) {
+    dataUrlCache.set(key, url)
+    // 取色器连续拖动会产生大量中间色 dataURL：超上限整表清空（下次按需重建，成本低）
+    if (dataUrlCache.size > 64) dataUrlCache.clear()
+  }
   return url
 }
 
@@ -487,6 +510,8 @@ export function useLogoStore() {
     resolveLogo,
     resolveLogoDataURL,
     initCustomLogos,
+    /** 响应式版本号：异步加载/缓存更新后自增，供 UI 列表与预览刷新（审查报告 U12） */
+    logoVersion,
     listCustomLogos,
     uploadCustomLogo,
     addTextLogo,

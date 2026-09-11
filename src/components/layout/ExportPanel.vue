@@ -142,7 +142,9 @@ const sizeCache = new Map<string, { w: number; h: number }>()
 const activeItem = computed(() => library.items.find((i) => i.id === library.activeId.value) ?? null)
 const activeSize = ref<{ w: number; h: number } | null>(null)
 
+let sizeSeq = 0
 watch(activeItem, async (item) => {
+  const seq = ++sizeSeq
   activeSize.value = null
   if (!item) return
   const hit = sizeCache.get(item.id)
@@ -150,12 +152,21 @@ watch(activeItem, async (item) => {
     activeSize.value = hit
     return
   }
+  // 审查报告 U13/U19：优先使用导入时已解析的宽高（LibraryItem 自带），避免为预估
+  // 体积而全尺寸解码原图（96MP 正是内存治理刻意规避的路径）；尺寸未知（0）才回退
+  // 解码，且用 seq 取消过期任务（快速切图不再并发多次解码）。
+  if (item.width && item.height) {
+    const s = { w: item.width, h: item.height }
+    sizeCache.set(item.id, s)
+    if (seq === sizeSeq) activeSize.value = s
+    return
+  }
   try {
     const im = await loadImage(item.url)
+    if (seq !== sizeSeq) return
     const s = { w: im.naturalWidth, h: im.naturalHeight }
     sizeCache.set(item.id, s)
-    // 异步竞态保护：仅当仍是当前照片时更新
-    if (library.activeId.value === item.id) activeSize.value = s
+    if (seq === sizeSeq && library.activeId.value === item.id) activeSize.value = s
   } catch {
     /* 尺寸读取失败：预估显示 —，不阻塞导出 */
   }
@@ -257,6 +268,23 @@ function ensureExportFolder(): boolean {
 /** 单张导出进行中标志（审查报告 R13：与批量导出互斥，防止连点并发合成） */
 const singleRunning = ref(false)
 
+// 审查报告 U6：任务条 400ms 延迟收尾会被「400ms 内启动的新任务」误杀（进度条消失、
+// 用户可能重复点击）——统一为可取消的收尾定时器：新任务启动时取消旧的收尾
+let endTaskTimer: number | null = null
+function scheduleEndTask(): void {
+  if (endTaskTimer !== null) clearTimeout(endTaskTimer)
+  endTaskTimer = window.setTimeout(() => {
+    endTaskTimer = null
+    app.endTask()
+  }, 400)
+}
+function cancelPendingEndTask(): void {
+  if (endTaskTimer !== null) {
+    clearTimeout(endTaskTimer)
+    endTaskTimer = null
+  }
+}
+
 /** 导出并弹出预览；选定了导出文件夹时直接写盘（重名自动加序号） */
 async function exportSingle() {
   const active = library.items.find((i) => i.id === library.activeId.value)
@@ -264,6 +292,7 @@ async function exportSingle() {
   // 审查报告 R13：与批量导出 / 上一次单张导出互斥——此前连点会并发两次合成，
   // 两条链路共用全局任务条与同一个预览（后完成者覆盖、提前 endTask 清空进度条）
   if (batch.value.running || singleRunning.value) return
+  cancelPendingEndTask()
   singleRunning.value = true
   app.startTask('导出单张 · ' + active.name)
   try {
@@ -285,7 +314,7 @@ async function exportSingle() {
     window.alert('导出失败：' + (e as Error).message)
   } finally {
     singleRunning.value = false
-    setTimeout(() => app.endTask(), 400)
+    scheduleEndTask()
   }
 }
 
@@ -344,6 +373,7 @@ async function exportBatch() {
   if (!list.length || batch.value.running || !ensureExportFolder()) return
   // 桌面端写入选定的导出文件夹；网页端逐张触发浏览器下载
   const folder = exportFolder.value
+  cancelPendingEndTask()
   batch.value = { running: true, done: 0, total: list.length, label: '', finished: false, cancelled: false, success: 0, failed: [] }
   app.startTask('批量导出')
   let last: { blob: Blob; name: string; written?: string } | null = null
@@ -383,7 +413,7 @@ async function exportBatch() {
     batch.value.running = false
     // 批量导出也弹预览（最后一张成功图）；已写盘时弹窗为「已导出」态
     if (last && !batch.value.cancelled) void showPreview(last.blob, last.name, last.written ?? null)
-    setTimeout(() => app.endTask(), 400)
+    scheduleEndTask()
   }
 }
 

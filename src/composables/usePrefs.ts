@@ -45,11 +45,18 @@ export function setExportQualityPref(v: number): void {
 
 // ===== 编辑：历史记录上限 =====
 export const HISTORY_LIMIT_OPTIONS = [20, 50, 100, 200] as const
+// 审查报告 S18：记录编辑历史的热路径会每次提交读一次本偏好（同步 localStorage，
+// 且与存储锁竞争）——首次读取后缓存，写入时同步更新
+let historyLimitCache: number | null = null
 export function getHistoryLimitPref(): number {
-  const n = Number(read(KEYS.historyLimit, String(DEFAULT_HISTORY_LIMIT)))
-  return (HISTORY_LIMIT_OPTIONS as readonly number[]).includes(n) ? n : DEFAULT_HISTORY_LIMIT
+  if (historyLimitCache === null) {
+    const n = Number(read(KEYS.historyLimit, String(DEFAULT_HISTORY_LIMIT)))
+    historyLimitCache = (HISTORY_LIMIT_OPTIONS as readonly number[]).includes(n) ? n : DEFAULT_HISTORY_LIMIT
+  }
+  return historyLimitCache
 }
 export function setHistoryLimitPref(v: number): void {
+  historyLimitCache = v
   write(KEYS.historyLimit, String(v))
 }
 

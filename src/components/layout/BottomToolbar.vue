@@ -69,7 +69,10 @@ async function onCopyParams() {
 }
 
 function onPasteParams() {
-  void clip.pasteParams()
+  // 审查报告 U8：补兜底——粘贴流程内部含确认弹窗，异常不应成为 unhandledrejection
+  void clip.pasteParams().catch((e) => {
+    window.alert('粘贴失败：' + ((e as Error)?.message ?? e))
+  })
 }
 </script>
 

@@ -79,17 +79,35 @@ function load(): LayoutState {
 
 const state = reactive<LayoutState>(load())
 
+// 审查报告 S11：拖拽面板宽度时 pointermove 每次触发本 watch（60~120 次/秒的
+// JSON.stringify + 同步 setItem，拖拽手感与主线程都受影响）——改为 200ms 尾沿节流，
+// 退出前由 beforeunload 兜底立即落盘。
+let persistTimer: ReturnType<typeof setTimeout> | null = null
+function persistNow(): void {
+  if (persistTimer) {
+    clearTimeout(persistTimer)
+    persistTimer = null
+  }
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state))
+  } catch {
+    /* ignore */
+  }
+}
 watch(
   state,
-  (val) => {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(val))
-    } catch {
-      /* ignore */
-    }
+  () => {
+    if (persistTimer) return
+    persistTimer = setTimeout(() => {
+      persistTimer = null
+      persistNow()
+    }, 200)
   },
   { deep: true },
 )
+if (typeof window !== 'undefined') {
+  window.addEventListener('beforeunload', persistNow)
+}
 
 // 默认进入图库模块：照片管理是工作流起点，用户从图库选片后再进入编辑/导出
 const activeModule = ref<ModuleTab>('library')

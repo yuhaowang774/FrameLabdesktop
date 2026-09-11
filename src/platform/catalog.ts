@@ -131,8 +131,9 @@ export function flushPersist(): Promise<void> {
     try {
       const { invoke } = await import('@tauri-apps/api/core')
       await invoke('write_app_json', { filename: CATALOG_FILE, content: json })
-    } catch {
-      /* 写盘失败仅影响下次恢复，不打断导入流程 */
+    } catch (e) {
+      // 审查报告 T12：写盘失败留痕（目录变更可能未落盘，仅影响下次恢复）
+      console.warn('[catalog] 目录写盘失败：', e)
     }
   })().finally(() => {
     writeInFlight = null

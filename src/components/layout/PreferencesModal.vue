@@ -28,7 +28,7 @@ import {
 } from '../../composables/usePrefs'
 import { useLibrary } from '../../composables/useLibrary'
 import { useTemplates } from '../../composables/useTemplates'
-import { clearAllHistoryNodes } from '../../composables/useHistoryDB'
+import { clearAllGlobal } from '../../composables/useHistory'
 import { listCustomLogos, removeCustomLogo } from '../../composables/useLogoStore'
 import { checkInBackground } from '../../composables/useUpdater'
 import UpdateModal from './UpdateModal.vue'
@@ -119,7 +119,10 @@ async function runClear(kind: string) {
     } catch {
       /* ignore */
     }
-    await clearAllHistoryNodes()
+    // 审查报告 S5：走 useHistory.clearAllGlobal（内存链 + 游标 + DB 一起清）——
+    // 此前只清 DB，内存快照残留会导致之后的编辑以「已有 N 条」继续游走、
+    // UI 显示与重启后不一致
+    await clearAllGlobal()
   } else if (kind === 'logos') {
     for (const c of listCustomLogos()) await removeCustomLogo(c.id)
   } else if (kind === 'templates') {

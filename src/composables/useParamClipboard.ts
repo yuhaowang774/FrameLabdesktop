@@ -102,15 +102,19 @@ export function useParamClipboard() {
     if (!cfg) return
     const missing = applyTemplateToState(cfg)
     const ids = syncTargets.value.map((i) => i.id)
-    let syncedNote = ''
+    const tail = missing.length ? '；部分 INFO 无数据，已用「自定义」占位。' : '。'
     if (syncAlso && ids.length) {
+      // 审查报告 U8：等待同步实际完成后再报结果（此前同步未开始就先宣布成功，失败也静默）
       void applyTemplateToPhotos(ids, cfg, '粘贴参数')
-      syncedNote = `，并同步到 ${ids.length} 张选中照片`
+        .then(() => {
+          showResult(`已将粘贴的参数应用到当前照片，并同步到 ${ids.length} 张选中照片${tail}`)
+        })
+        .catch((e) => {
+          showResult(`已应用到当前照片，但同步到选中照片失败：${(e as Error)?.message ?? e}`)
+        })
+      return
     }
-    showResult(
-      '已将粘贴的参数应用到当前照片' + syncedNote +
-      (missing.length ? '；部分 INFO 无数据，已用「自定义」占位。' : '。'),
-    )
+    showResult('已将粘贴的参数应用到当前照片' + tail)
   }
 
   /** 结果弹窗（粘贴/同步设置共用） */
