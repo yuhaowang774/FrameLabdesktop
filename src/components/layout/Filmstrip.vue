@@ -69,6 +69,19 @@ function onFrameContextMenu(id: string, e: MouseEvent) {
     y: Math.min(e.clientY, window.innerHeight - 76),
     id,
   }
+  // 关闭监听必须延迟到下一个宏任务安装：若在本次事件派发中（watch 微任务）注册，
+  // 下一次右键事件冒泡到 window 时会被上一次残留的 once 监听立即关闭，菜单时有时无
+  setTimeout(() => {
+    if (!ctxMenu.value) return
+    window.addEventListener('click', closeCtxMenu, { once: true })
+    window.addEventListener('contextmenu', onWindowCtxClose, { once: true })
+    window.addEventListener('keydown', onCtxKeydown, { once: true })
+  }, 0)
+}
+// 右键落在菜单触发元素上（handler 已 preventDefault）：由该 handler 重开菜单，不作为关闭信号
+function onWindowCtxClose(e: MouseEvent) {
+  if (e.defaultPrevented) return
+  closeCtxMenu()
 }
 function closeCtxMenu() {
   ctxMenu.value = null
@@ -81,13 +94,6 @@ function ctxExport() {
   app.requestSingleExport()
   app.setModule('export')
 }
-watch(ctxMenu, (v) => {
-  if (v) {
-    window.addEventListener('click', closeCtxMenu, { once: true })
-    window.addEventListener('contextmenu', closeCtxMenu, { once: true })
-    window.addEventListener('keydown', onCtxKeydown, { once: true })
-  }
-})
 function onCtxKeydown(e: KeyboardEvent) {
   if (e.key === 'Escape') closeCtxMenu()
 }

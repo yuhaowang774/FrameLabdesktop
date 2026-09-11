@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // 中间主画布工作区：承载预览容器，fit 适配 + 用户缩放 + 拖拽平移。
-import { ref, onMounted, onBeforeUnmount, computed, watch } from 'vue'
+import { ref, onMounted, onBeforeUnmount, computed } from 'vue'
 import { useViewer } from '../../composables/useViewer'
 import { useAppState } from '../../composables/useAppState'
 import { useLibrary } from '../../composables/useLibrary'
@@ -218,6 +218,19 @@ function onStageContextMenu(e: MouseEvent) {
     x: Math.min(e.clientX, window.innerWidth - 186),
     y: Math.min(e.clientY, window.innerHeight - 76),
   }
+  // 关闭监听必须延迟到下一个宏任务安装：若在本次事件派发中（watch 微任务）注册，
+  // 下一次右键事件冒泡到 window 时会被上一次残留的 once 监听立即关闭，菜单时有时无
+  setTimeout(() => {
+    if (!ctxMenu.value) return
+    window.addEventListener('click', closeCtxMenu, { once: true })
+    window.addEventListener('contextmenu', onWindowCtxClose, { once: true })
+    window.addEventListener('keydown', onCtxKeydown, { once: true })
+  }, 0)
+}
+// 右键落在菜单触发元素上（handler 已 preventDefault）：由该 handler 重开菜单，不作为关闭信号
+function onWindowCtxClose(e: MouseEvent) {
+  if (e.defaultPrevented) return
+  closeCtxMenu()
 }
 function closeCtxMenu() {
   ctxMenu.value = null
@@ -227,14 +240,6 @@ function ctxExportCurrent() {
   app.requestSingleExport()
   app.setModule('export')
 }
-// 菜单打开期间：点击任意处 / 再次右键 / Esc 关闭
-watch(ctxMenu, (v) => {
-  if (v) {
-    window.addEventListener('click', closeCtxMenu, { once: true })
-    window.addEventListener('contextmenu', closeCtxMenu, { once: true })
-    window.addEventListener('keydown', onCtxKeydown, { once: true })
-  }
-})
 function onCtxKeydown(e: KeyboardEvent) {
   if (e.key === 'Escape') closeCtxMenu()
 }
