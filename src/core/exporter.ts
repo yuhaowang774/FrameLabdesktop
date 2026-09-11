@@ -414,23 +414,12 @@ async function drawFooter(
     ctx.fillText(config.exifText, ox + dExifX * unitScale, ox + dExifY * unitScale)
     ctx.restore()
   }
-  // 拍摄日期：duo 下使用机型样式组（灰细小字，与样例一致）；其余布局沿用 EXIF 样式组
+  // 拍摄日期：样式完全独立（dateFontSize ?? 全局），与机型样式组零耦合——
+  // 调整相机型号字号/字体/颜色时日期纹丝不动（与 infoLayout/FooterInfo 三端同源）
   if (config.showDate && config.dateText) {
-    // duo 下日期默认沿用机型样式组（样例复刻）；只要用户改了一个独立属性，就以用户设置为准
-    const usesModelDateStyle =
-      config.infoLayout === 'duo' &&
-      config.dateFontFamily === null &&
-      config.dateFontSize === null &&
-      config.dateTextWeight === null &&
-      config.dateTextOpacity === null
-    const finalOpacity = usesModelDateStyle ? config.cameraModelOpacity : dateOpacity
-    const finalSize = usesModelDateStyle ? config.cameraModelSize : dateSize
-    const finalWeight = usesModelDateStyle ? config.cameraModelWeight : dateWeight
-    const finalFont = usesModelDateStyle ? config.cameraModelFont : dateFont
-    const finalItalic = usesModelDateStyle ? config.cameraModelItalic : false
     ctx.save()
-    ctx.fillStyle = paint(usesModelDateStyle ? config.cameraModelColor : config.dateTextColor, finalOpacity)
-    ctx.font = fontStr(finalWeight, finalSize * unitScale, finalFont, finalItalic)
+    ctx.fillStyle = paint(config.dateTextColor, dateOpacity)
+    ctx.font = fontStr(dateWeight, dateSize * unitScale, dateFont, false)
     ctx.textAlign = rowTextAlign
     ctx.textBaseline = 'top'
     applyTextShadow()

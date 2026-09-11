@@ -41,6 +41,9 @@ const items = reactive<LibraryItem[]>([])
 const activeId = ref<string | null>(null)
 // Shift 范围选择锚点（最近一次单击/选中项的索引）
 let anchorIndex = -1
+// 桌面端 EXIF 头部读取上限：EXIF 存于 JPEG APP1 段（规格上限 64KB/段），2MB 绰绰有余；
+// 只读头部替代全文件读盘（84MB 照片全量 IO 是导入/启动还原慢的主因）
+const EXIF_HEAD_BYTES = 2 * 1024 * 1024
 
 // ===== 移除确认（LrC 语义：仅从图库移除，不删磁盘原文件）=====
 // 模块级单例：Delete/Backspace 快捷键（App.vue）请求移除 → Filmstrip 的确认弹窗 → confirmRemoval 执行
@@ -169,13 +172,14 @@ function releaseUrl(url?: string): void {
 }
 
 // ===== 缩略图生成（全局限流）=====
-// 生成一张缩略图需要完整解码原图（96MP 位图 ≈ 数百 MB 峰值内存）。
-// 批量导入时几十张同时生成会瞬间耗尽 WebView2 渲染进程内存（OOM 白屏崩溃），
-// 故用全局限流队列：同时最多 2 张在解码，其余排队。
+// 生成一张缩略图需要解码原图（桌面端走 Rust DCT 缩放解码，单张峰值仅 ~6MB RGBA；
+// 网页端 createImageBitmap 解码期降采样）。全局限流防批量导入时解码峰值叠加：
+// 桌面端单张内存小，并发 4 张缩略图生成速度与内存占用平衡最优。
 let thumbActive = 0
 const thumbQueue: (() => void)[] = []
+const THUMB_CONCURRENCY = 4
 function acquireThumbSlot(): Promise<void> {
-  if (thumbActive < 2) {
+  if (thumbActive < THUMB_CONCURRENCY) {
     thumbActive++
     return Promise.resolve()
   }
@@ -364,14 +368,32 @@ export function useLibrary() {
    */
   async function addLocalEntries(entries: LocalImageEntry[]): Promise<LibraryItem[]> {
     if (!isTauri || !entries.length) return []
-    const { assetUrl, readLocalBytes } = await import('../platform/fs')
+    const { assetUrl, readLocalBytes, readLocalHead, readImageMeta } = await import('../platform/fs')
     const added: LibraryItem[] = []
     let firstNewId: string | null = null
     const known = new Set(items.map((i) => i.path))
     for (const e of entries) {
       if (known.has(e.path)) continue // 已在图库：跳过，避免重复导入产生重复条目
       const url = assetUrl(e.path)
-      const { width, height } = await readSizeFromUrl(url)
+      // 导入提速关键路径：宽高/文件大小走 Rust 头解析（毫秒级，不解码像素），
+      // 替代旧 Image 全尺寸解码（96MP 只为读宽高就物化数百 MB 位图）；
+      // 非 JPEG/PNG 或解析失败时回退旧 Image 路径
+      let width = 0
+      let height = 0
+      let fileSize = 0
+      if (isTauri) {
+        const meta = await readImageMeta(e.path)
+        if (meta) {
+          width = meta.width
+          height = meta.height
+          fileSize = meta.size
+        }
+      }
+      if (!width || !height) {
+        const dim = await readSizeFromUrl(url)
+        width = dim.width
+        height = dim.height
+      }
       const id = makeId()
       if (firstNewId === null) firstNewId = id
       // 同 addFiles：先 reactive 化再 push，异步缩略图/EXIF 赋值才触发渲染
@@ -397,10 +419,24 @@ export function useLibrary() {
       })
       suspendCommit(true)
       try {
-        const bytes = await readLocalBytes(e.path)
-        // EXIF 读取的字节长度即文件大小（此前 size 恒 0，基础信息面板「文件大小」显示 —）
-        item.size = bytes.byteLength
-        item.exif = await applyExif(bytes)
+        // EXIF 只读头部 2MB 解析（EXIF 存于 APP1 段，规格上限 64KB/段，2MB 绰绰有余），
+        // 替代旧全文件读盘（84MB 照片全量 IO 是导入慢的主因之一）；
+        // 头部解析失败且文件更大时才回退全量重试一次
+        let bytes: ArrayBuffer | null = null
+        let parsed: ExifParseResult | null = null
+        try {
+          bytes = await readLocalHead(e.path, EXIF_HEAD_BYTES)
+          parsed = await parseExif(bytes)
+        } catch {
+          if (fileSize > EXIF_HEAD_BYTES) {
+            bytes = await readLocalBytes(e.path)
+            parsed = await parseExif(bytes)
+          }
+        }
+        if (bytes) {
+          item.size = fileSize || bytes.byteLength
+          item.exif = parsed ? await applyExif(bytes) : null
+        }
       } catch {
         /* 读取失败静默跳过 EXIF */
       } finally {
@@ -419,6 +455,14 @@ export function useLibrary() {
     if (!target) return
     items.forEach((i) => (i.selected = false))
     target.selected = true
+    activeId.value = id
+    anchorIndex = items.indexOf(target)
+  }
+
+  /** 仅切换当前照片（不动勾选集合），并同步范围选择锚点——导出页选片用 */
+  function setActiveKeepSelection(id: string): void {
+    const target = items.find((i) => i.id === id)
+    if (!target) return
     activeId.value = id
     anchorIndex = items.indexOf(target)
   }
@@ -500,6 +544,7 @@ export function useLibrary() {
     applyExif,
     select,
     selectByIndex,
+    setActiveKeepSelection,
     next,
     prev,
     remove,

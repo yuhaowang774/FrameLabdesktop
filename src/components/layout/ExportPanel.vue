@@ -316,7 +316,10 @@ function resetBatch() {
 }
 
 async function exportBatch() {
-  const list = selectedCount.value > 0 ? library.items.filter((i) => i.selected) : library.items
+  // 默认只导出当前正在编辑的照片（用户反馈：此前无勾选时默认导出全部，容易误导出几十张）；
+  // 需要批量时先勾选（「全选」后即导出全部），选中数量一目了然。
+  const selected = library.items.filter((i) => i.selected)
+  const list = selected.length > 0 ? selected : activeItem.value ? [activeItem.value] : []
   if (!list.length || batch.value.running || !ensureExportFolder()) return
   // 桌面端写入选定的导出文件夹；网页端逐张触发浏览器下载
   const folder = exportFolder.value
@@ -364,10 +367,24 @@ function onThumbClick(item: { id: string }, e: MouseEvent) {
     library.rangeSelect(item.id)
   } else {
     // 普通点击：切换「当前照片」（预览/编辑），不清空勾选集合——
-    // 勾选由右上角圆圈独立控制，避免预览时已勾选导出的照片全部丢失。
-    library.activeId.value = item.id
+    // 勾选由右上角圆圈独立控制，避免预览时已勾选导出的照片全部丢失；
+    // setActiveKeepSelection 同步范围锚点，Shift 范围多选从此处可预期
+    library.setActiveKeepSelection(item.id)
   }
 }
+
+// 编辑画布右键「导出当前照片」请求：切到导出页后自动触发一次单张导出。
+// immediate：Workspace 先置位再切模块，ExportPanel 挂载时值已为 true（无后续变更），
+// 必须挂载即消费一次。
+watch(
+  () => app.pendingSingleExport.value,
+  (v) => {
+    if (!v) return
+    app.pendingSingleExport.value = false
+    if (library.activeId.value) void exportSingle()
+  },
+  { immediate: true },
+)
 </script>
 
 <template>
@@ -458,7 +475,7 @@ function onThumbClick(item: { id: string }, e: MouseEvent) {
         <div class="row tools">
           <button class="btn" :disabled="!library.items.length" @click="library.selectAll()">全选</button>
           <button class="btn" :disabled="!selectedCount" @click="library.selectNone()">取消全选</button>
-          <span class="hint-inline">点击预览该照片 · 右上角圆圈勾选导出 · Shift+点击范围多选</span>
+          <span class="hint-inline">点击预览 · 右上角圆圈勾选导出 · Shift+点击范围多选 · 未勾选时批量导出仅导出当前照片，导出全部请先「全选」</span>
         </div>
         <div v-if="library.items.length === 0" class="hint">图库暂无照片，请先在图库模块导入。</div>
         <div v-else class="thumb-grid">
@@ -521,7 +538,7 @@ function onThumbClick(item: { id: string }, e: MouseEvent) {
       <div class="btns">
         <button class="btn primary big" :disabled="!library.activeId.value || batch.running" @click="exportSingle">导出当前照片</button>
         <button class="btn" :disabled="!targetCount || batch.running" @click="exportBatch">
-          批量导出（{{ selectedCount ? selectedCount + ' 张选中' : '全部 ' + targetCount + ' 张' }}）
+          批量导出（{{ selectedCount ? selectedCount + ' 张选中' : '当前照片' }}）
         </button>
       </div>
     </section>
@@ -776,6 +793,7 @@ function onThumbClick(item: { id: string }, e: MouseEvent) {
   position: absolute;
   top: 6px;
   right: 6px;
+  z-index: 2; /* 确保勾选圆圈始终浮于缩略图与文件名之上，可点区域稳定 */
   width: 18px;
   height: 18px;
   border-radius: 50%;

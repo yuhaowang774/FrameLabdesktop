@@ -189,6 +189,13 @@ function setFilmstripHeight(h: number): void {
   state.filmstripHeight = Math.max(44, Math.min(260, Math.round(h)))
 }
 
+// 编辑画布右键「导出当前照片」：Workspace 置位请求标记并切到导出模块，
+// ExportPanel 消费该标记后自动触发单张导出（跨组件解耦，不互相引用）。
+const pendingSingleExport = ref(false)
+function requestSingleExport(): void {
+  pendingSingleExport.value = true
+}
+
 const leftWidthPx = computed(() => state.leftWidth + 'px')
 const rightWidthPx = computed(() => state.rightWidth + 'px')
 const filmstripHeightPx = computed(() => state.filmstripHeight + 'px')
@@ -201,6 +208,8 @@ export function useAppState() {
     leftWidthPx,
     rightWidthPx,
     filmstripHeightPx,
+    pendingSingleExport,
+    requestSingleExport,
     setModule,
     editMode,
     setEditMode,

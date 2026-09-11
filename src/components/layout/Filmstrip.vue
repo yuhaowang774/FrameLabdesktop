@@ -177,10 +177,13 @@ function onHandleUp() {
 .frame {
   position: relative;
   flex: none;
-  width: 72px;
+  /* 自适应缩略图：宽随高按恒定 3:2 比例伸缩（此前固定 72px 宽在高分辨率/大高度下
+     比例失真、小屏下又过挤），不同屏幕尺寸与胶片条高度下都保持正常观感 */
   height: calc(100% - 12px);
-  max-height: 60px;
-  min-height: 28px;
+  max-height: 72px;
+  min-height: 32px;
+  aspect-ratio: 3 / 2;
+  width: auto;
   border-radius: 0;
   overflow: hidden;
   border: 1px solid var(--border);

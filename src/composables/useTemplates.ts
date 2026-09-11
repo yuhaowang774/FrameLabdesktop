@@ -61,10 +61,14 @@ const BUILTIN: FrameTemplate[] = [
       logoOpacity: 1,
       showCameraModel: true,
       // 样例实测机型行为 17px/#777 灰细小字；直接复刻后在深色区域几乎看不清，
-      // 故微调为 18px / 0.75 —— 仍比参数行小且淡，但能看清（duo 下日期沿用此样式组）
+      // 故微调为 18px / 0.75 —— 仍比参数行小且淡，但能看清
+      // （日期样式已与机型解耦：这里显式指定日期样式，保持原复刻观感）
       cameraModelSize: 18,
       cameraModelWeight: 400,
       cameraModelOpacity: 0.75,
+      dateFontSize: 18,
+      dateTextWeight: 400,
+      dateTextOpacity: 0.75,
       showExif: true,
       showLens: true,
       showDate: true,
@@ -213,6 +217,8 @@ const BUILTIN: FrameTemplate[] = [
       showCameraModel: true,
       cameraModelSize: 26,
       cameraModelWeight: 500,
+      dateFontSize: 26,
+      dateTextWeight: 500,
       showExif: false,
       showLens: false,
       showDate: true,
@@ -250,6 +256,9 @@ const BUILTIN: FrameTemplate[] = [
       cameraModelFont: "'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace",
       cameraModelSize: 22,
       cameraModelWeight: 600,
+      dateFontSize: 22,
+      dateTextWeight: 600,
+      dateTextOpacity: 1,
       showExif: true,
       showLens: true,
       showDate: true,

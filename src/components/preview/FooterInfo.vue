@@ -656,29 +656,11 @@ function onDividerUp() {
   window.removeEventListener('pointerup', onDividerUp)
 }
 
-// duo 布局下日期默认沿用机型样式组（灰细小字，与样例一致）；
-// 但用户在「日期样式」里显式改了任一属性后，以用户的独立设置为准。
-// 这样既保留样例复刻效果，又保证单独调日期字号/粗细/透明度时立即生效。
-const usesModelDateStyle = computed(() =>
-  state.infoLayout === 'duo' &&
-  state.dateFontFamily === null &&
-  state.dateFontSize === null &&
-  state.dateTextWeight === null &&
-  state.dateTextOpacity === null,
-)
-const dateFontStyle = computed(() => {
-  if (!usesModelDateStyle.value) {
-    return 'var(--date-text-weight) var(--date-font-size)/1 var(--date-font-family)'
-  }
-  return 'var(--camera-model-italic) var(--camera-model-weight) var(--camera-model-size)/1 var(--camera-model-font-family)'
-})
-const dateOpacityStyle = computed(() =>
-  usesModelDateStyle.value ? 'var(--camera-model-opacity)' : 'var(--date-text-opacity)',
-)
-// duo 下日期颜色同样逐属性回退：完全跟随机型时用机型颜色，否则用日期独立色（?? 自适应色）
-const dateColorStyle = computed(() =>
-  usesModelDateStyle.value ? 'var(--camera-model-color)' : 'var(--date-text-color)',
-)
+// 日期样式完全独立（--date-* 变量内部 dateFontSize ?? 全局，与 EXIF/镜头组同语义）。
+// duo 下不再继承机型样式组：调整相机型号字号/字体/颜色时日期纹丝不动（用户要求两者独立控制）。
+const dateFontStyle = computed(() => 'var(--date-text-weight) var(--date-font-size)/1 var(--date-font-family)')
+const dateOpacityStyle = computed(() => 'var(--date-text-opacity)')
+const dateColorStyle = computed(() => 'var(--date-text-color)')
 // 深色背景（模糊/照片填充）下文字加柔和投影，增强可读性（与导出端阴影一致）
 const infoTextShadow = computed(() =>
   state.bgMode === 'solid' ? 'none' : '0 1px 3px rgba(0, 0, 0, 0.5)',

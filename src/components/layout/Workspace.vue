@@ -1,8 +1,9 @@
 <script setup lang="ts">
 // 中间主画布工作区：承载预览容器，fit 适配 + 用户缩放 + 拖拽平移。
-import { ref, onMounted, onBeforeUnmount, computed } from 'vue'
+import { ref, onMounted, onBeforeUnmount, computed, watch } from 'vue'
 import { useViewer } from '../../composables/useViewer'
 import { useAppState } from '../../composables/useAppState'
+import { useLibrary } from '../../composables/useLibrary'
 import FrameContainer from '../preview/FrameContainer.vue'
 import { DESIGN_CONTAINER } from '../../core/constants'
 
@@ -13,6 +14,7 @@ defineProps<{
 
 // 自由拖拽模式启用画布内拖拽交互，简易模式隐藏控制点
 const app = useAppState()
+const library = useLibrary()
 
 const viewer = useViewer()
 
@@ -204,6 +206,39 @@ function onPointerUp(e: PointerEvent) {
 
 // 总缩放 = fit * 用户 zoom
 const totalScale = computed(() => fitScale.value * viewer.zoom.value)
+
+// ===== 右键菜单：快速导出当前照片 =====
+// 编辑界面右键弹出快捷菜单（当前仅「导出当前照片」一项），避免误右键直接触发写盘。
+const ctxMenu = ref<{ x: number; y: number } | null>(null)
+function onStageContextMenu(e: MouseEvent) {
+  if (!library.activeId.value) return
+  e.preventDefault()
+  // 菜单贴边收纳：不超出窗口右缘/下缘
+  ctxMenu.value = {
+    x: Math.min(e.clientX, window.innerWidth - 186),
+    y: Math.min(e.clientY, window.innerHeight - 76),
+  }
+}
+function closeCtxMenu() {
+  ctxMenu.value = null
+}
+function ctxExportCurrent() {
+  ctxMenu.value = null
+  app.requestSingleExport()
+  app.setModule('export')
+}
+// 菜单打开期间：点击任意处 / 再次右键 / Esc 关闭
+watch(ctxMenu, (v) => {
+  if (v) {
+    window.addEventListener('click', closeCtxMenu, { once: true })
+    window.addEventListener('contextmenu', closeCtxMenu, { once: true })
+    window.addEventListener('keydown', onCtxKeydown, { once: true })
+  }
+})
+function onCtxKeydown(e: KeyboardEvent) {
+  if (e.key === 'Escape') closeCtxMenu()
+}
+onBeforeUnmount(closeCtxMenu)
 </script>
 
 <template>
@@ -216,6 +251,7 @@ const totalScale = computed(() => fitScale.value * viewer.zoom.value)
       @pointerdown="onPointerDown"
       @pointermove="onPointerMove"
       @pointerup="onPointerUp"
+      @contextmenu="onStageContextMenu"
     >
       <div
         class="fit-wrap"
@@ -237,6 +273,15 @@ const totalScale = computed(() => fitScale.value * viewer.zoom.value)
 
       <!-- 缩放比例指示 -->
       <div class="zoom-indicator">{{ Math.round(viewer.zoom.value * 100) }}%</div>
+
+      <!-- 右键快捷菜单：快速导出当前照片 -->
+      <div
+        v-if="ctxMenu"
+        class="ctx-menu"
+        :style="{ left: ctxMenu.x + 'px', top: ctxMenu.y + 'px' }"
+      >
+        <button class="ctx-item" @click="ctxExportCurrent">⬇ 导出当前照片</button>
+      </div>
     </div>
   </section>
 </template>
@@ -288,5 +333,34 @@ const totalScale = computed(() => fitScale.value * viewer.zoom.value)
   flex: none;
   /* 独立合成层：缩放/平移只改变合成器矩阵，不再触发整个画布子树重绘 */
   will-change: transform;
+}
+/* 右键快捷菜单：fixed 定位到鼠标处，玻璃拟态与全局一致 */
+.ctx-menu {
+  position: fixed;
+  z-index: 300;
+  min-width: 176px;
+  padding: 4px;
+  background: rgba(20, 28, 48, 0.92);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+  border: 1px solid var(--border);
+  box-shadow: 0 16px 40px -18px rgba(0, 0, 0, 0.85);
+}
+.ctx-item {
+  display: block;
+  width: 100%;
+  padding: 7px 12px;
+  background: transparent;
+  border: none;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 18px;
+  text-align: left;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.ctx-item:hover {
+  background: var(--accent);
 }
 </style>

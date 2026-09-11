@@ -7,7 +7,7 @@
 // 安全模型：WebView 禁止直接 fs，全部经下列 Command IPC 完成。
 use base64::Engine as _;
 use std::fs;
-use std::io::Read;
+use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 
 use serde::Serialize;
@@ -111,6 +111,80 @@ fn read_file_bytes(path: String) -> Result<tauri::ipc::Response, String> {
     }
     let bytes = fs::read(&path).map_err(|e| format!("读取文件失败: {e}"))?;
     Ok(tauri::ipc::Response::new(bytes))
+}
+
+/// 读取图片元数据（宽/高/文件大小），导入提速关键路径：只解析头部不解码像素。
+/// JPEG 走 jpeg-decoder read_info（仅解析 SOF 等头部，大图毫秒级）；
+/// PNG 手工解析 IHDR（宽高为大端 u32，偏移 16/20）；其它格式返回 Err，前端回退 Image 解码。
+/// 二进制布局：w u32 LE + h u32 LE + size u64 LE。
+#[tauri::command]
+fn read_image_meta(path: String) -> Result<tauri::ipc::Response, String> {
+    use std::io::{BufReader, Read};
+    let meta = fs::metadata(&path).map_err(|e| format!("读取文件信息失败: {e}"))?;
+    let size = meta.len();
+    let ext_ok = Path::new(&path)
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| matches!(e.to_ascii_lowercase().as_str(), "jpg" | "jpeg" | "jfif" | "png"))
+        .unwrap_or(false);
+    if !ext_ok {
+        return Err("非 JPEG/PNG 格式，走前端解码".into());
+    }
+    let mut f = fs::File::open(&path).map_err(|e| format!("打开文件失败: {e}"))?;
+    let mut head = [0u8; 24];
+    let mut n = 0usize;
+    while n < head.len() {
+        let r = f.read(&mut head[n..]).map_err(|e| format!("读取文件失败: {e}"))?;
+        if r == 0 {
+            break;
+        }
+        n += r;
+    }
+    let (w, h) = if n >= 24 && head.starts_with(&[0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A]) {
+        (
+            u32::from_be_bytes([head[16], head[17], head[18], head[19]]),
+            u32::from_be_bytes([head[20], head[21], head[22], head[23]]),
+        )
+    } else {
+        // 头部预读已移动文件指针（n 字节），JPEG 解码前必须回卷到起点，
+        // 否则 SOI 标记被跳过 → "first two bytes are not an SOI marker"，
+        // 前端 readImageMeta 吞错回退全量解码，快速路径整体失效。
+        f.seek(SeekFrom::Start(0)).map_err(|e| format!("重定位文件失败: {e}"))?;
+        let mut decoder = jpeg_decoder::Decoder::new(BufReader::new(f));
+        decoder
+            .read_info()
+            .map_err(|e| format!("读取 JPEG 元数据失败: {e}"))?;
+        let info = decoder.info().ok_or_else(|| "无法读取 JPEG 元数据".to_string())?;
+        (info.width as u32, info.height as u32)
+    };
+    if w == 0 || h == 0 {
+        return Err("图片尺寸无效".into());
+    }
+    let mut out = Vec::with_capacity(16);
+    out.extend_from_slice(&w.to_le_bytes());
+    out.extend_from_slice(&h.to_le_bytes());
+    out.extend_from_slice(&size.to_le_bytes());
+    Ok(tauri::ipc::Response::new(out))
+}
+
+/// 只读文件前 len 字节（EXIF 头部解析用）：EXIF 存于 JPEG APP1 段（规格上限 64KB/段），
+/// 只读头部 2MB 即可完成解析，替代大图全量读盘（导入/启动还原提速的关键路径）。
+#[tauri::command]
+fn read_file_head(path: String, len: u32) -> Result<tauri::ipc::Response, String> {
+    use std::io::Read;
+    let mut f = fs::File::open(&path).map_err(|e| format!("打开文件失败: {e}"))?;
+    let len = (len as usize).min(8 * 1024 * 1024);
+    let mut buf = vec![0u8; len];
+    let mut read = 0usize;
+    while read < len {
+        let r = f.read(&mut buf[read..]).map_err(|e| format!("读取文件失败: {e}"))?;
+        if r == 0 {
+            break;
+        }
+        read += r;
+    }
+    buf.truncate(read);
+    Ok(tauri::ipc::Response::new(buf))
 }
 
 /// 读取 JPEG 并在解码阶段直接缩放（DCT 1/2·1/4·1/8），返回 RGBA 位图。
@@ -1181,7 +1255,7 @@ pub fn run() {
                 .title(format!("FrameLab v{}", app.package_info().version))
                 .inner_size(1360.0, 860.0)
                 .min_inner_size(1024.0, 660.0)
-                .additional_browser_args(browser_args)
+                .additional_browser_args(&browser_args)
                 // 拖放保持 Tauri 原生处理：前端经 onDragDropEvent 拿到拖入文件的真实磁盘路径，
                 // 走 addLocalEntries 导入（进 catalog 持久化，重启可还原）；网页端 HTML5 拖放不受影响。
                 .drag_and_drop(true);
@@ -1200,6 +1274,8 @@ pub fn run() {
             list_dir_images,
             read_file_base64,
             read_file_bytes,
+            read_image_meta,
+            read_file_head,
             read_preview_bytes,
             write_file_base64,
             path_exists,

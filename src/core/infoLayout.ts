@@ -114,15 +114,10 @@ export function computeFooterLayout(cfg: FrameConfig, canvasBottom: number, logo
   const exifS = exifTextStyle(cfg)
   const lensS = lensTextStyle(cfg)
   const modelS = modelTextStyle(cfg)
-  // duo 下日期默认沿用机型样式组（灰细小字，与样例一致）；
-  // 只要用户改了一个日期独立属性，就以该组生效样式为准（计算布局/测量宽度）。
-  const usesModelDateStyle =
-    cfg.infoLayout === 'duo' &&
-    cfg.dateFontFamily === null &&
-    cfg.dateFontSize === null &&
-    cfg.dateTextWeight === null &&
-    cfg.dateTextOpacity === null
-  const dateS = usesModelDateStyle ? modelS : dateTextStyle(cfg)
+  // 日期样式完全独立（dateFontSize ?? 全局，与 EXIF/镜头组同语义）：
+  // duo 下不再继承机型样式组——调整机型字号/字体/颜色时日期纹丝不动（用户反馈：两者必须独立控制）。
+  // duo 模板的日期外观由模板自带 dateFontSize/dateTextWeight 明确指定（见 useTemplates 内置模板）。
+  const dateS = dateTextStyle(cfg)
   const exifH = exifS.size
   const modelH = modelS.size
   const showDate = cfg.showDate && !!cfg.dateText
@@ -135,12 +130,11 @@ export function computeFooterLayout(cfg: FrameConfig, canvasBottom: number, logo
   if (cfg.infoLayout === 'duo') {
     // 宽度测量用各组生效样式：单独改 EXIF/日期字体或字号后，右缘对齐仍然准确
     const exifW = measureTextWidth(cfg.exifText, toCanvasFont(exifS))
-    const dateFont = toCanvasFont(dateS, usesModelDateStyle ? cfg.cameraModelItalic : false)
-    const dateW = measureTextWidth(cfg.dateText, dateFont)
+    const dateW = measureTextWidth(cfg.dateText, toCanvasFont(dateS))
     const rightW = Math.max(showExif ? exifW : 0, showDate ? dateW : 0)
     const rightX = DESIGN_CONTAINER - DUO_INSET - rightW
-    // 日期行高用生效样式（未改独立样式时 == 机型字号，行为不变）：
-    // 单独调大日期字号后仍按实际渲染高度预留，避免溢出行距与上方 EXIF 参数行重叠
+    // 日期行高用生效字号（dateFontSize ?? 全局）：单独调大日期字号后仍按实际渲染高度预留，
+    // 避免溢出行距与上方 EXIF 参数行重叠
     // （回归：应用 duo 模板保留用户日期独立字号后，按机型字号预留导致重叠）。
     const dateH = dateS.size
     const dateY = bottom - dateH

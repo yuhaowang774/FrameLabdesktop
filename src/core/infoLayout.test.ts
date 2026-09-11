@@ -118,13 +118,23 @@ describe('duo 杂志双栏：独立字号联动', () => {
     expect(L.lens.y + lensTextStyle(big).size).toBeLessThanOrEqual(L.model.y + EPS)
   })
 
-  it('只显示日期（无 EXIF/无镜头）时块高为一行，不重复计算', () => {
+  it('只显示日期（无 EXIF/无镜头）时两栏各自贴底，块高取较高者', () => {
     const only = cfg({ ...INFO_ON, infoLayout: 'duo', showExif: false, showLens: false })
     const L = computeFooterLayout(only, CANVAS_BOTTOM, 2.6)
-    // 日期行底部贴齐底缘
-    expect(L.date.y + only.cameraModelSize).toBeCloseTo(CANVAS_BOTTOM - only.overlayBottom, 6)
-    // 块内只有一行：机型行顶 = 块顶 = 日期行顶（旧实现会多算一行，把机型行顶推高）
-    expect(L.model.y).toBeCloseTo(L.date.y, 6)
+    // 日期样式独立：行高 = dateTextStyle 生效字号（与机型字号零耦合），底部贴齐底缘
+    expect(L.date.y + dateTextStyle(only).size).toBeCloseTo(CANVAS_BOTTOM - only.overlayBottom, 6)
+    // 左栏仅机型一行且块高由机型行决定：机型行同样贴块底
+    expect(L.model.y + only.cameraModelSize).toBeCloseTo(CANVAS_BOTTOM - only.overlayBottom, 6)
+  })
+
+  // 回归（用户反馈）：调整相机型号样式时日期必须纹丝不动——duo 日期不再继承机型样式组
+  it('单独调大型号字号：日期行位置与字号完全不变（独立控制）', () => {
+    const base = cfg({ ...INFO_ON, infoLayout: 'duo', showLens: false })
+    const big = cfg({ ...INFO_ON, infoLayout: 'duo', showLens: false, cameraModelSize: 60, cameraModelWeight: 300 })
+    const la = computeFooterLayout(base, CANVAS_BOTTOM, 2.6)
+    const lb = computeFooterLayout(big, CANVAS_BOTTOM, 2.6)
+    expect(lb.date.y).toBeCloseTo(la.date.y, 6)
+    expect(dateTextStyle(big).size).toBe(dateTextStyle(base).size)
   })
 
   it('单独调大 EXIF 字号时参数行随之上移，日期行不受影响', () => {

@@ -129,6 +129,39 @@ export async function readLocalBytes(path: string): Promise<ArrayBuffer> {
   return ab
 }
 
+export interface ImageMeta {
+  width: number
+  height: number
+  size: number
+}
+
+/** 桌面端：仅解析图片头拿宽高与文件大小（不解码像素，毫秒级）——导入提速关键路径。
+ *  JPEG 走 jpeg-decoder read_info，PNG 手工解析 IHDR；其它格式/失败返回 null，
+ *  调用方回退 Image 全尺寸解码（旧路径）。 */
+export async function readImageMeta(path: string): Promise<ImageMeta | null> {
+  try {
+    const buf = await tauriInvoke<ArrayBuffer>('read_image_meta', { path })
+    const v = new DataView(buf)
+    return {
+      width: v.getUint32(0, true),
+      height: v.getUint32(4, true),
+      size: Number(v.getBigUint64(8, true)),
+    }
+  } catch {
+    return null
+  }
+}
+
+/** 桌面端：只读文件前 len 字节（EXIF 头部解析用，避免大图全量读盘） */
+export async function readLocalHead(path: string, len: number): Promise<ArrayBuffer> {
+  const buf = await tauriInvoke<ArrayBuffer>('read_file_head', { path, len })
+  if (buf instanceof ArrayBuffer) return buf
+  const u8 = buf as unknown as Uint8Array
+  const ab = new ArrayBuffer(u8.byteLength)
+  new Uint8Array(ab).set(u8)
+  return ab
+}
+
 /** 桌面端：读取本地图片并转为 dataURL（自定义背景持久化用） */
 export async function readLocalDataURL(path: string): Promise<string> {
   const b64 = await readLocalBase64(path)
