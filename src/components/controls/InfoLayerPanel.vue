@@ -332,7 +332,6 @@ async function onCreateTextLogo() {
       </div>
       <RangeSlider v-model="state.logoSize" :min="r.logoSize.min" :max="r.logoSize.max" :step="r.logoSize.step" label="Logo 大小" />
       <RangeSlider v-model="state.logoOpacity" :min="r.logoOpacity.min" :max="r.logoOpacity.max" :step="r.logoOpacity.step" label="Logo 透明度" />
-      <!-- 「型号距 Logo」间距项已移除：多数布局下无可见效果，布局间距由布局引擎统一决定 -->
       <div class="field">
         <label>Logo 颜色</label>
         <ColorField
@@ -407,7 +406,6 @@ async function onCreateTextLogo() {
         :follow-global="false"
         @patch="onStylePatch"
       />
-      <RangeSlider v-model="state.cameraModelGap" :min="r.cameraModelGap.min" :max="r.cameraModelGap.max" :step="r.cameraModelGap.step" label="型号距 Logo" />
     </CollapsiblePanel>
 
     <!-- 板块 3：EXIF 参数（导入/内置照片时自动识别填充，无需手动点击） -->

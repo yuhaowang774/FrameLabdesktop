@@ -10,6 +10,7 @@ import Filmstrip from './components/layout/Filmstrip.vue'
 import BottomToolbar from './components/layout/BottomToolbar.vue'
 import LibraryView from './components/layout/LibraryView.vue'
 import ExportPanel from './components/layout/ExportPanel.vue'
+import ParamClipboardHost from './components/layout/ParamClipboardHost.vue'
 import PhotoEditor from './components/common/PhotoEditor.vue'
 import { useLibrary } from './composables/useLibrary'
 import { useAppState } from './composables/useAppState'
@@ -307,6 +308,9 @@ document.body.classList.add('theme-dark')
     <Filmstrip v-if="app.state.filmstripVisible" />
 
     <PhotoEditor v-if="editingPhoto" @close="editingPhoto = false" />
+
+    <!-- 参数剪贴板全局弹窗宿主：粘贴确认 / 同步结果（底栏与胶片条右键共用） -->
+    <ParamClipboardHost />
 
     <!-- 更新完成弹窗：升级后首次启动自动弹出；也可从首选项「关于 → 更新记录」打开 -->
     <UpdateModal v-model="showUpdateModal" :update="updateHit" />

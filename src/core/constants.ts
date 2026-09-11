@@ -267,7 +267,6 @@ export const RANGES = {
   distBottom: { min: 0, max: 200, step: 1 },
   cameraModelSize: { min: 8, max: 60, step: 1 },
   cameraModelWeight: { min: 100, max: 900, step: 100 },
-  cameraModelGap: { min: 0, max: 60, step: 1 },
   cameraModelOpacity: { min: 0, max: 1, step: 0.05 },
   cameraModelOffset: { min: -60, max: 60, step: 1 },
   overlayBottom: { min: 0, max: 200, step: 1 },

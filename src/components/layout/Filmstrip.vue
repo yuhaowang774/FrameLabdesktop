@@ -5,6 +5,7 @@
 import { ref, watch, computed, onBeforeUnmount } from 'vue'
 import { useLibrary } from '../../composables/useLibrary'
 import { useAppState } from '../../composables/useAppState'
+import { useParamClipboard } from '../../composables/useParamClipboard'
 import GlassModal from '../common/GlassModal.vue'
 
 const library = useLibrary()
@@ -58,15 +59,16 @@ watch(() => library.activeId.value, () => {
   requestAnimationFrame(scrollToActive)
 })
 
-// ===== 右键菜单：快速导出该照片 =====
+// ===== 右键菜单：复制/粘贴参数 + 快速导出该照片 =====
 const ctxMenu = ref<{ x: number; y: number; id: string } | null>(null)
+const clip = useParamClipboard()
 function onFrameContextMenu(id: string, e: MouseEvent) {
   e.preventDefault()
-  // 该照片设为当前照片（导出以当前照片为对象），菜单贴边收纳
+  // 该照片设为当前照片（复制/粘贴/导出都以当前照片为对象），菜单贴边收纳
   library.select(id)
   ctxMenu.value = {
     x: Math.min(e.clientX, window.innerWidth - 186),
-    y: Math.min(e.clientY, window.innerHeight - 76),
+    y: Math.min(e.clientY, window.innerHeight - 150),
     id,
   }
   // 关闭监听必须延迟到下一个宏任务安装：若在本次事件派发中（watch 微任务）注册，
@@ -94,10 +96,31 @@ function ctxExport() {
   app.requestSingleExport()
   app.setModule('export')
 }
+
+// 菜单内复制/粘贴参数：作用于当前照片（右键时已切换为该照片）。
+// 粘贴的确认/结果弹窗由全局 ParamClipboardHost 渲染；复制在此处闪现提示。
+const ctxFlashMsg = ref('')
+let ctxFlashTimer = 0
+function ctxFlash(msg: string) {
+  ctxFlashMsg.value = msg
+  clearTimeout(ctxFlashTimer)
+  ctxFlashTimer = window.setTimeout(() => (ctxFlashMsg.value = ''), 1600)
+}
+async function ctxCopyParams() {
+  closeCtxMenu()
+  ctxFlash((await clip.copyParams()) ? '已复制参数' : '复制失败')
+}
+async function ctxPasteParams() {
+  closeCtxMenu()
+  await clip.pasteParams()
+}
 function onCtxKeydown(e: KeyboardEvent) {
   if (e.key === 'Escape') closeCtxMenu()
 }
-onBeforeUnmount(closeCtxMenu)
+onBeforeUnmount(() => {
+  closeCtxMenu()
+  clearTimeout(ctxFlashTimer)
+})
 
 // Delete/Backspace 移除确认（LrC 语义：仅从图库移除，不删磁盘原文件）
 const confirmMsg = computed(
@@ -145,14 +168,18 @@ function onHandleUp() {
         <span v-if="item.selected" class="sel-dot" />
       </button>
     </div>
-    <!-- 右键快捷菜单：快速导出该照片 -->
+    <!-- 右键快捷菜单：复制/粘贴参数 + 快速导出该照片 -->
     <div
       v-if="ctxMenu"
       class="ctx-menu"
       :style="{ left: ctxMenu.x + 'px', top: ctxMenu.y + 'px' }"
     >
+      <button class="ctx-item" title="复制当前照片的相框 / 背景 / INFO 参数到剪贴板" @click="ctxCopyParams">⧉ 复制参数</button>
+      <button class="ctx-item" title="把之前复制的参数粘贴到当前照片" @click="ctxPasteParams">📋 粘贴参数</button>
       <button class="ctx-item" @click="ctxExport">⬇ 导出该照片</button>
     </div>
+    <!-- 菜单内复制结果闪现提示 -->
+    <div v-if="ctxFlashMsg" class="ctx-flash">{{ ctxFlashMsg }}</div>
     <GlassModal
       v-model="library.removalConfirm.value.open"
       title="从图库移除"
@@ -302,5 +329,21 @@ function onHandleUp() {
 }
 .ctx-item:hover {
   background: var(--hover);
+}
+/* 菜单内复制参数的结果闪现提示 */
+.ctx-flash {
+  position: absolute;
+  left: 50%;
+  bottom: 10px;
+  transform: translateX(-50%);
+  z-index: 300;
+  padding: 3px 10px;
+  background: rgba(20, 28, 48, 0.92);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-size: 12px;
+  line-height: 16px;
+  white-space: nowrap;
+  pointer-events: none;
 }
 </style>

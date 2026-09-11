@@ -1,29 +1,16 @@
 <script setup lang="ts">
-// 边框设置模块：编辑模式（简易/自由拖拽）、边框宽度、下边比例（连续+快捷预设）、
+// 边框设置模块：边框宽度、下边比例（连续+快捷预设）、
 // 边框颜色、边框圆角、画面比例（参考图风格预设网格，比例图标 + 选中高亮）。
+// （编辑模式 简易/自由拖拽 切换已取消：只保留简易模式。）
 import { computed } from 'vue'
 import { useFrameConfig } from '../../composables/useFrameConfig'
-import { useAppState } from '../../composables/useAppState'
 import { FRAME_RATIOS, frameRatioOf, frameRatioKey, ratioIconSize, RANGES } from '../../core/constants'
 import RangeSlider from '../common/RangeSlider.vue'
-import ToggleGroup from '../common/ToggleGroup.vue'
 import ControlGroup from '../common/ControlGroup.vue'
 import ColorField from '../common/ColorField.vue'
 
 const { state, patch } = useFrameConfig()
-const app = useAppState()
 const r = RANGES
-
-// 编辑模式：简易 / 自由拖拽（二者互斥）。
-// 优化：模式切换不再清空边框样式，仅影响画布交互行为。
-const freeDrag = computed(() => app.editMode.value === 'free')
-const MODES = [
-  { value: 'simple', label: '简易' },
-  { value: 'free', label: '自由拖拽' },
-]
-function onMode(v: string) {
-  app.setEditMode(v === 'free' ? 'free' : 'simple')
-}
 
 // 画面比例网格：当前选中键 + 选项（含自由占位图标）
 const activeRatioKey = computed(() => frameRatioKey(state.frameRatio))
@@ -36,14 +23,6 @@ function ratioStyle(value: string): Record<string, string> {
 
 <template>
   <div class="block">
-    <!-- 主开关：编辑模式（简易 / 自由拖拽，互斥） -->
-    <ToggleGroup
-      :model-value="freeDrag ? 'free' : 'simple'"
-      :options="MODES"
-      label="编辑模式"
-      @update:model-value="onMode"
-    />
-
     <!-- 边框样式：宽度 / 下边 / 颜色 / 圆角 -->
     <ControlGroup title="边框样式">
       <!-- 边框宽度：两种模式均可调；滑到 0 即无边框 -->

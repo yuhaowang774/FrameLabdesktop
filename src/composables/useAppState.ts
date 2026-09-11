@@ -4,12 +4,6 @@ import { reactive, ref, computed, watch } from 'vue'
 
 export type ModuleTab = 'library' | 'develop' | 'export'
 
-// 编辑工作模式：simple=简易参数调节（默认，界面简洁、隐藏拖拽控制点），free=自由拖拽编辑
-export type EditMode = 'simple' | 'free'
-
-// 简易模式下默认收起的右侧参数分组（仅暴露核心项）
-export const SIMPLE_COLLAPSED_RIGHT: string[] = ['photo', 'info']
-
 export interface PanelState {
   id: string
   open: boolean
@@ -100,26 +94,6 @@ watch(
 // 默认进入图库模块：照片管理是工作流起点，用户从图库选片后再进入编辑/导出
 const activeModule = ref<ModuleTab>('library')
 
-// 编辑工作模式：simple（默认）/ free。持久化到 LocalStorage，下次打开沿用上次选择。
-const EDIT_MODE_KEY = 'frame.editMode'
-const editMode = ref<EditMode>(
-  (() => {
-    try {
-      const v = localStorage.getItem(EDIT_MODE_KEY)
-      return v === 'free' || v === 'simple' ? v : 'simple'
-    } catch {
-      return 'simple'
-    }
-  })(),
-)
-watch(editMode, (v) => {
-  try {
-    localStorage.setItem(EDIT_MODE_KEY, v)
-  } catch {
-    /* ignore */
-  }
-})
-
 // 全局任务进度（导出/合成）
 const task = reactive({
   active: false,
@@ -129,14 +103,6 @@ const task = reactive({
 
 function setModule(m: ModuleTab): void {
   activeModule.value = m
-}
-
-/** 切换编辑工作模式。简易<->自由拖拽。 */
-function setEditMode(m: EditMode): void {
-  editMode.value = m
-}
-function toggleEditMode(): void {
-  editMode.value = editMode.value === 'simple' ? 'free' : 'simple'
 }
 
 function toggleLeft(): void {
@@ -211,9 +177,6 @@ export function useAppState() {
     pendingSingleExport,
     requestSingleExport,
     setModule,
-    editMode,
-    setEditMode,
-    toggleEditMode,
     toggleLeft,
     toggleRight,
     setLeftWidth,

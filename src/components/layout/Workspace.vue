@@ -12,7 +12,7 @@ defineProps<{
   bgImage: ImageBitmap | HTMLImageElement | HTMLCanvasElement | null
 }>()
 
-// 自由拖拽模式启用画布内拖拽交互，简易模式隐藏控制点
+// 画布内拖拽控制点已停用（自由拖拽模式已取消，只保留简易参数模式）
 const app = useAppState()
 const library = useLibrary()
 
@@ -272,7 +272,7 @@ onBeforeUnmount(closeCtxMenu)
           ref="frameRef"
           :photo-src="photoSrc"
           :bg-image="bgImage"
-          :interactive="app.editMode.value === 'free'"
+          :interactive="false"
         />
       </div>
 

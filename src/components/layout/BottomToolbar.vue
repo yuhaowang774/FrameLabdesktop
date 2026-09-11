@@ -2,19 +2,19 @@
 // 底部上层工具栏：撤销/重做（常驻快捷入口，不再折叠在左栏面板内）+ 缩放 + 同步设置。
 // 同步设置（对标 LrC「同步设置」）：把当前照片的全部装饰设置复制到图库中
 // Ctrl/Shift 多选的其他照片（每张照片历史链各记一条「同步设置」节点，可撤销）。
+// 参数复制/粘贴逻辑在 useParamClipboard（与胶片条右键菜单共享；弹窗由 ParamClipboardHost 渲染）。
 import { computed, ref } from 'vue'
 import { useViewer } from '../../composables/useViewer'
 import { useHistory, applyTemplateToPhotos } from '../../composables/useHistory'
-import { useLibrary } from '../../composables/useLibrary'
-import { useTemplates, applyTemplateToState } from '../../composables/useTemplates'
+import { useTemplates } from '../../composables/useTemplates'
+import { useParamClipboard } from '../../composables/useParamClipboard'
 import { useFrameConfig } from '../../composables/useFrameConfig'
-import type { FrameConfig } from '../../core/types'
 import GlassModal from '../common/GlassModal.vue'
 
 const viewer = useViewer()
 const history = useHistory()
-const library = useLibrary()
 const templates = useTemplates()
+const clip = useParamClipboard()
 const { state } = useFrameConfig()
 
 // canUndo/canRedo 是普通函数：包一层 computed 以建立响应式依赖（内部读 cursor/records）
@@ -33,12 +33,8 @@ function fitView() {
 
 // ===== 同步设置（LR 式）：当前照片设置 → 多选照片 =====
 // 目标 = 图库中已多选的其他照片；未多选时按钮禁用并提示操作方式。
-const syncTargets = computed(() =>
-  library.items.filter((i) => i.selected && i.id !== library.activeId.value),
-)
+const syncTargets = clip.syncTargets
 const syncConfirmOpen = ref(false)
-const syncResultOpen = ref(false)
-const syncResultMsg = ref('')
 
 function askSyncSettings() {
   if (!syncTargets.value.length) return
@@ -53,16 +49,13 @@ async function doSyncSettings() {
   // applyTemplateToPhotos 会为每张照片保留其自身 EXIF 并自适应文字/Logo 颜色。
   const cfg = templates.toTemplateConfig(state)
   const anyMissing = await applyTemplateToPhotos(ids, cfg, '同步设置')
-  syncResultMsg.value =
+  clip.showResult(
     `已将当前照片的设置同步到 ${ids.length} 张照片` +
-    (anyMissing ? '；部分照片缺少 EXIF/镜头/日期信息，已用「自定义」占位。' : '。')
-  syncResultOpen.value = true
+    (anyMissing ? '；部分照片缺少 EXIF/镜头/日期信息，已用「自定义」占位。' : '。'),
+  )
 }
 
-// ===== 参数复制 / 粘贴 =====
-// 复制：当前照片的装饰参数（toTemplateConfig，剔除照片内容与 EXIF 文本）序列化为 JSON 进剪贴板；
-// 粘贴：从剪贴板解析并应用到当前照片（loadConfig 自动记入该照片历史链，可撤销）；
-//       存在多选目标时先确认，一并同步过去（与「同步设置」同一链路，保留各自 EXIF）。
+// ===== 参数复制 / 粘贴（共享逻辑见 useParamClipboard） =====
 const flashMsg = ref('')
 let flashTimer = 0
 function flash(msg: string) {
@@ -71,96 +64,12 @@ function flash(msg: string) {
   flashTimer = window.setTimeout(() => (flashMsg.value = ''), 1600)
 }
 
-function parseParams(text: string): Partial<FrameConfig> | null {
-  try {
-    const obj = JSON.parse(text) as { kind?: string; config?: unknown } | unknown
-    const c = (
-      obj && typeof obj === 'object' && (obj as { kind?: string }).kind === 'framelab-params'
-        ? (obj as { config: unknown }).config
-        : obj
-    ) as Record<string, unknown> | null
-    if (c && typeof c === 'object' && !Array.isArray(c) && ('bgMode' in c || 'padding' in c || 'infoLayout' in c)) {
-      return c as Partial<FrameConfig>
-    }
-    return null
-  } catch {
-    return null
-  }
+async function onCopyParams() {
+  flash((await clip.copyParams()) ? '已复制' : '复制失败')
 }
 
-async function copyParams() {
-  const text = JSON.stringify({ kind: 'framelab-params', version: 1, config: templates.toTemplateConfig(state) })
-  let ok = false
-  try {
-    await navigator.clipboard.writeText(text)
-    ok = true
-  } catch {
-    // 剪贴板 API 不可用（权限/上下文）：回退隐藏 textarea + execCommand
-    try {
-      const ta = document.createElement('textarea')
-      ta.value = text
-      ta.style.cssText = 'position:fixed;top:-999px;opacity:0'
-      document.body.appendChild(ta)
-      ta.select()
-      ok = document.execCommand('copy')
-      ta.remove()
-    } catch {
-      ok = false
-    }
-  }
-  flash(ok ? '已复制' : '复制失败')
-}
-
-const pasteConfirmOpen = ref(false)
-let pastedConfig: Partial<FrameConfig> | null = null
-
-async function pasteParams() {
-  let text = ''
-  try {
-    text = await navigator.clipboard.readText()
-  } catch {
-    text = ''
-  }
-  let cfg = parseParams(text)
-  if (!cfg) {
-    // readText 被拒 / 剪贴板非文本：弹输入框手动 Ctrl+V（双保险，保证粘贴路径永远可用）
-    const manual = window.prompt('未从剪贴板读到有效参数。可将参数 JSON 粘贴到输入框后确定（先在 FrameLab 点「复制参数」生成）：')
-    if (manual == null || manual.trim() === '') return
-    cfg = parseParams(manual)
-  }
-  if (!cfg) {
-    window.alert('参数格式无法识别：请先点「复制参数」生成参数 JSON，再进行粘贴。')
-    return
-  }
-  pastedConfig = cfg
-  if (syncTargets.value.length) {
-    // 有多选目标：先确认「当前照片 + 选中照片」一起应用
-    pasteConfirmOpen.value = true
-    return
-  }
-  doApplyPasted()
-}
-
-function confirmPaste() {
-  pasteConfirmOpen.value = false
-  doApplyPasted()
-}
-
-function doApplyPasted() {
-  const cfg = pastedConfig
-  pastedConfig = null
-  if (!cfg) return
-  const missing = applyTemplateToState(cfg)
-  const ids = syncTargets.value.map((i) => i.id)
-  let syncedNote = ''
-  if (ids.length) {
-    void applyTemplateToPhotos(ids, cfg, '粘贴参数')
-    syncedNote = `，并同步到 ${ids.length} 张选中照片`
-  }
-  syncResultMsg.value =
-    '已将粘贴的参数应用到当前照片' + syncedNote +
-    (missing.length ? '；部分 INFO 无数据，已用「自定义」占位。' : '。')
-  syncResultOpen.value = true
+function onPasteParams() {
+  void clip.pasteParams()
 }
 </script>
 
@@ -183,12 +92,12 @@ function doApplyPasted() {
       <button
         class="tool"
         title="复制当前照片的相框 / 背景 / INFO 参数到剪贴板（可粘贴到其它照片或跨窗口使用）"
-        @click="copyParams"
+        @click="onCopyParams"
       >⧉ 复制参数</button>
       <button
         class="tool"
-        title="粘贴之前复制的参数到当前照片（存在多选照片时将询问是否一并同步）"
-        @click="pasteParams"
+        title="粘贴之前复制的参数到当前照片（存在勾选照片时将询问是否一并同步）"
+        @click="onPasteParams"
       >📋 粘贴参数</button>
       <span v-if="flashMsg" class="flash-msg">{{ flashMsg }}</span>
     </div>
@@ -202,7 +111,7 @@ function doApplyPasted() {
     </div>
   </div>
 
-  <!-- 同步设置确认 -->
+  <!-- 同步设置确认（粘贴确认/结果弹窗在 ParamClipboardHost 全局渲染） -->
   <GlassModal
     v-model="syncConfirmOpen"
     title="同步设置"
@@ -211,17 +120,6 @@ function doApplyPasted() {
     cancel-text="取消"
     @confirm="doSyncSettings"
   />
-  <!-- 粘贴参数确认（存在多选目标时） -->
-  <GlassModal
-    v-model="pasteConfirmOpen"
-    title="粘贴参数"
-    :message="`将把粘贴的参数应用到当前照片，并同步到已选中的 ${syncTargets.length} 张照片（各照片保留自身 EXIF 信息，可在各自历史中撤销）。确定继续？`"
-    confirm-text="应用"
-    cancel-text="仅当前照片"
-    @confirm="confirmPaste"
-    @cancel="doApplyPasted"
-  />
-  <GlassModal v-model="syncResultOpen" title="同步完成" :message="syncResultMsg" confirm-text="知道了" />
 </template>
 
 <style scoped>

@@ -64,7 +64,6 @@ const VAR_MAP: CssVarMap = {
   '--logo-display': (c) => (c.showLogo ? 'block' : 'none'),
   '--camera-model-size': (c) => `${c.cameraModelSize}px`,
   '--camera-model-weight': (c) => `${c.cameraModelWeight}`,
-  '--camera-model-gap': (c) => `${c.cameraModelGap}px`,
   '--camera-model-opacity': (c) => `${c.cameraModelOpacity}`,
   '--camera-model-italic': (c) => (c.cameraModelItalic ? 'italic' : 'normal'),
   '--camera-model-display': (c) => (c.showCameraModel ? 'block' : 'none'),

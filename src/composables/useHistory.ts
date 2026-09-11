@@ -127,7 +127,6 @@ const FIELD_LABELS: Record<string, string> = {
   cameraModelFont: '型号字体',
   cameraModelSize: '型号字号',
   cameraModelWeight: '型号字重',
-  cameraModelGap: '型号间距',
   cameraModelOpacity: '型号透明度',
   cameraModelColor: '型号颜色',
   cameraModelItalic: '型号斜体',

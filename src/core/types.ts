@@ -156,7 +156,6 @@ export interface FrameConfig {
   cameraModelFont: string
   cameraModelSize: number
   cameraModelWeight: number
-  cameraModelGap: number
   cameraModelOpacity: number
   cameraModelColor: string | null
   cameraModelItalic: boolean
@@ -300,7 +299,6 @@ export const defaultFrameConfig: FrameConfig = {
   cameraModelFont: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
   cameraModelSize: 40,
   cameraModelWeight: 600,
-  cameraModelGap: 8,
   cameraModelOpacity: 1,
   cameraModelColor: null,
   cameraModelItalic: false,
