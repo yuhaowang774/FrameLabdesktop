@@ -19,6 +19,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # 固定检出默认分支：release 事件的默认 ref 是 tag（detached HEAD），
+          # 会导致下方 git push 直接失败（v0.2.8 发布时首次暴露）
+          ref: main
 
       - uses: actions/setup-node@v4
         with:
