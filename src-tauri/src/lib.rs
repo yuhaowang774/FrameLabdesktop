@@ -95,7 +95,13 @@ fn scan_dir(dir: &Path, depth: usize, out: &mut Vec<ImageEntry>) {
 
 /// 扫描目录内图片；recursive=true 时递归子目录（深度受限）
 #[tauri::command]
-fn list_dir_images(dir: String, recursive: Option<bool>) -> Result<Vec<ImageEntry>, String> {
+async fn list_dir_images(dir: String, recursive: Option<bool>) -> Result<Vec<ImageEntry>, String> {
+    // 审查报告 T5：目录扫描（最多 2000 条 stat + 递归）移出主线程，避免大目录冻结窗口
+    tauri::async_runtime::spawn_blocking(move || list_dir_images_sync(dir, recursive))
+        .await
+        .map_err(|e| format!("扫描任务失败: {e}"))?
+}
+fn list_dir_images_sync(dir: String, recursive: Option<bool>) -> Result<Vec<ImageEntry>, String> {
     let path = Path::new(&dir);
     if !path.is_dir() {
         return Err(format!("不是有效目录: {dir}"));
@@ -110,14 +116,26 @@ fn list_dir_images(dir: String, recursive: Option<bool>) -> Result<Vec<ImageEntr
 
 /// 读取本地文件全部内容并返回 base64（EXIF 解析 / 自定义背景转 dataURL 用）
 #[tauri::command]
-fn read_file_base64(path: String) -> Result<String, String> {
-    let meta = fs::metadata(&path).map_err(|e| format!("读取文件信息失败: {e}"))?;
+async fn read_file_base64(path: String) -> Result<String, String> {
+    // 审查报告 T5：大文件读盘移出主线程
+    tauri::async_runtime::spawn_blocking(move || read_file_base64_sync(path))
+        .await
+        .map_err(|e| format!("读取任务失败: {e}"))?
+}
+fn read_file_base64_sync(path: String) -> Result<String, String> {
+    // 审查报告 T7：单一句柄 + take 限读——先 metadata 再按路径打开存在 TOCTOU
+    //（两步之间文件可被替换为大文件/命名管道，read_to_end 无上限 → 内存爆掉）
+    let file = fs::File::open(&path).map_err(|e| format!("打开文件失败: {e}"))?;
+    let meta = file.metadata().map_err(|e| format!("读取文件信息失败: {e}"))?;
     if meta.len() > READ_MAX_BYTES {
         return Err("文件过大（超过 256MB）".into());
     }
-    let mut file = fs::File::open(&path).map_err(|e| format!("打开文件失败: {e}"))?;
     let mut buf = Vec::with_capacity(meta.len() as usize);
-    file.read_to_end(&mut buf).map_err(|e| format!("读取文件失败: {e}"))?;
+    let mut limited = file.take(READ_MAX_BYTES + 1);
+    limited.read_to_end(&mut buf).map_err(|e| format!("读取文件失败: {e}"))?;
+    if buf.len() as u64 > READ_MAX_BYTES {
+        return Err("文件过大（超过 256MB）".into());
+    }
     Ok(base64::engine::general_purpose::STANDARD.encode(buf))
 }
 
@@ -125,12 +143,25 @@ fn read_file_base64(path: String) -> Result<String, String> {
 /// 与 read_file_base64 相比：不走 base64 编码与 JSON 字符串序列化，
 /// 80MB 照片的 IPC 瞬时内存从 ~1GB 级多副本降到单份 80MB（大图加载/导出主路径）。
 #[tauri::command]
-fn read_file_bytes(path: String) -> Result<tauri::ipc::Response, String> {
-    let meta = fs::metadata(&path).map_err(|e| format!("读取文件信息失败: {e}"))?;
+async fn read_file_bytes(path: String) -> Result<tauri::ipc::Response, String> {
+    // 审查报告 T5：80MB 级读盘移出主线程（大图加载/导出主路径）
+    tauri::async_runtime::spawn_blocking(move || read_file_bytes_sync(path))
+        .await
+        .map_err(|e| format!("读取任务失败: {e}"))?
+}
+fn read_file_bytes_sync(path: String) -> Result<tauri::ipc::Response, String> {
+    // 审查报告 T7：单一句柄 + take 限读（同上防 TOCTOU）
+    let file = fs::File::open(&path).map_err(|e| format!("打开文件失败: {e}"))?;
+    let meta = file.metadata().map_err(|e| format!("读取文件信息失败: {e}"))?;
     if meta.len() > READ_MAX_BYTES {
         return Err("文件过大（超过 256MB）".into());
     }
-    let bytes = fs::read(&path).map_err(|e| format!("读取文件失败: {e}"))?;
+    let mut bytes = Vec::with_capacity(meta.len() as usize);
+    let mut limited = file.take(READ_MAX_BYTES + 1);
+    limited.read_to_end(&mut bytes).map_err(|e| format!("读取文件失败: {e}"))?;
+    if bytes.len() as u64 > READ_MAX_BYTES {
+        return Err("文件过大（超过 256MB）".into());
+    }
     Ok(tauri::ipc::Response::new(bytes))
 }
 
@@ -139,7 +170,13 @@ fn read_file_bytes(path: String) -> Result<tauri::ipc::Response, String> {
 /// PNG 手工解析 IHDR（宽高为大端 u32，偏移 16/20）；其它格式返回 Err，前端回退 Image 解码。
 /// 二进制布局：w u32 LE + h u32 LE + size u64 LE。
 #[tauri::command]
-fn read_image_meta(path: String) -> Result<tauri::ipc::Response, String> {
+async fn read_image_meta(path: String) -> Result<tauri::ipc::Response, String> {
+    // 审查报告 T5：头部解析（批量导入每张一次）移出主线程
+    tauri::async_runtime::spawn_blocking(move || read_image_meta_sync(path))
+        .await
+        .map_err(|e| format!("读取任务失败: {e}"))?
+}
+fn read_image_meta_sync(path: String) -> Result<tauri::ipc::Response, String> {
     use std::io::{BufReader, Read};
     let meta = fs::metadata(&path).map_err(|e| format!("读取文件信息失败: {e}"))?;
     let size = meta.len();
@@ -296,8 +333,13 @@ fn thumb_put(app: AppHandle, path: String, data_base64: String) -> Result<(), St
 /// 只读文件前 len 字节（EXIF 头部解析用）：EXIF 存于 JPEG APP1 段（规格上限 64KB/段），
 /// 只读头部 2MB 即可完成解析，替代大图全量读盘（导入/启动还原提速的关键路径）。
 #[tauri::command]
-fn read_file_head(path: String, len: u32) -> Result<tauri::ipc::Response, String> {
-    use std::io::Read;
+async fn read_file_head(path: String, len: u32) -> Result<tauri::ipc::Response, String> {
+    // 审查报告 T5：批量导入/启动还原的高频路径，移出主线程
+    tauri::async_runtime::spawn_blocking(move || read_file_head_sync(path, len))
+        .await
+        .map_err(|e| format!("读取任务失败: {e}"))?
+}
+fn read_file_head_sync(path: String, len: u32) -> Result<tauri::ipc::Response, String> {
     let mut f = fs::File::open(&path).map_err(|e| format!("打开文件失败: {e}"))?;
     let len = (len as usize).min(8 * 1024 * 1024);
     let mut buf = vec![0u8; len];
@@ -322,7 +364,13 @@ fn read_file_head(path: String, len: u32) -> Result<tauri::ipc::Response, String
 /// 跨 IPC 的只有缩放后的 RGBA（96MP@1/4 ≈ 24MB），渲染进程全程不物化全尺寸位图。
 /// 非 JPEG（PNG/WebP/CMYK 等）返回 Err，由前端回退到 createImageBitmap 路径。
 #[tauri::command]
-fn read_preview_bytes(path: String, long_max: u32) -> Result<tauri::ipc::Response, String> {
+async fn read_preview_bytes(path: String, long_max: u32) -> Result<tauri::ipc::Response, String> {
+    // 审查报告 T5：96MP 解码可达秒级——必须移出主线程（此前会冻结窗口不重绘）
+    tauri::async_runtime::spawn_blocking(move || read_preview_bytes_sync(path, long_max))
+        .await
+        .map_err(|e| format!("解码任务失败: {e}"))?
+}
+fn read_preview_bytes_sync(path: String, long_max: u32) -> Result<tauri::ipc::Response, String> {
     use std::io::BufReader;
     // 扩展名预检：jpeg-decoder 只支持 JPEG，其余格式直接走前端回退
     let ext_ok = Path::new(&path)
@@ -848,6 +896,11 @@ fn reveal_path(path: String) -> Result<(), String> {
             }
             Err(_) => p.to_string_lossy().into_owned(),
         };
+        // 审查报告 T18：raw_arg 不做转义，显式拒绝含引号的路径
+        //（当前依赖「Windows 文件名不含引号」兜底，此处固化为代码保证）
+        if full.contains('"') {
+            return Err("路径包含非法字符".into());
+        }
         // 注意：/select, 与带引号路径必须是两个独立 raw_arg；
         // 整段包在一个引号里 explorer 解析不了，会退化打开默认文件夹（文档）
         hidden_command("explorer")
@@ -915,23 +968,10 @@ struct GreenPendingState(std::sync::Mutex<Option<GreenPending>>);
 /// 3. 其余 → 绿色版
 #[tauri::command]
 fn is_portable() -> Result<bool, String> {
-    let exe = std::env::current_exe().map_err(|e| format!("获取应用路径失败: {e}"))?;
-    let dir = exe
-        .parent()
-        .ok_or_else(|| "无法定位应用目录".to_string())?;
-    if dir.join("uninstall.exe").exists() {
-        return Ok(false);
-    }
-    let installed = installed_dir()?;
-    match (dir.canonicalize(), installed.canonicalize()) {
-        (Ok(a), Ok(b)) => Ok(a != b),
-        _ => Ok(dir != installed.as_path()),
-    }
-}
-
-fn installed_dir() -> Result<std::path::PathBuf, String> {
-    let local = std::env::var("LOCALAPPDATA").map_err(|_| "LOCALAPPDATA 未定义".to_string())?;
-    Ok(std::path::Path::new(&local).join("FrameLab"))
+    // 审查报告 T13：绿色版自 0.1.25 起已停止发布（green-latest.json 404 + 引导下载安装版）。
+    // 原「同目录 uninstall.exe / 位于 %LOCALAPPDATA%\FrameLab」启发式判定容易误判，且已无
+    // 绿色版用户——统一按安装版处理（走官方 updater 链路）。
+    Ok(false)
 }
 
 /// 与前端 compareVersions 一致的分段数值比较
@@ -948,15 +988,37 @@ fn cmp_versions(a: &str, b: &str) -> std::cmp::Ordering {
     std::cmp::Ordering::Equal
 }
 
+/// 共享 HTTP 客户端（审查报告 T10）：显式 30s 超时 + UA——此前 reqwest::get 用默认配置，
+/// 网络异常时请求可长时间悬挂；响应也没有大小上限。
+fn http_client() -> Result<reqwest::Client, String> {
+    reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .user_agent(format!("FrameLab/{}", env!("CARGO_PKG_VERSION")))
+        .build()
+        .map_err(|e| format!("HTTP 客户端初始化失败: {e}"))
+}
+
 async fn http_get_text(url: &str) -> Result<String, String> {
-    reqwest::get(url)
-        .await
-        .map_err(|e| format!("网络请求失败: {e}"))?
-        .error_for_status()
-        .map_err(|e| format!("下载失败: {e}"))?
-        .text()
-        .await
-        .map_err(|e| format!("读取响应失败: {e}"))
+    const MAX_BYTES: u64 = 1024 * 1024;
+    let client = http_client()?;
+    let mut last_err = String::from("请求失败");
+    // 网络抖动立即重试一次；404 等状态错误保持原语义（上层据此识别"停更"）
+    for _ in 0..2 {
+        match client.get(url).send().await {
+            Ok(resp) => match resp.error_for_status() {
+                Ok(resp) => {
+                    let bytes = resp.bytes().await.map_err(|e| format!("读取响应失败: {e}"))?;
+                    if bytes.len() as u64 > MAX_BYTES {
+                        return Err("响应内容超过 1MB 上限".into());
+                    }
+                    return String::from_utf8(bytes.to_vec()).map_err(|e| format!("响应编码异常: {e}"));
+                }
+                Err(e) => last_err = format!("下载失败: {e}"),
+            },
+            Err(e) => last_err = format!("网络请求失败: {e}"),
+        }
+    }
+    Err(last_err)
 }
 
 /// minisign 验签：公钥取自 tauri.conf.json plugins.updater.pubkey。
@@ -992,8 +1054,26 @@ fn verify_green_signature(
         .decode(signature_outer_b64.trim())
         .map_err(|e| format!("签名解码失败: {e}"))?;
     let sig_text = String::from_utf8(decoded_sig).map_err(|e| format!("签名编码异常: {e}"))?;
-    let sig_tmp = std::env::temp_dir().join("framelab-green.sig");
-    std::fs::write(&sig_tmp, sig_text).map_err(|e| format!("写入签名临时文件失败: {e}"))?;
+    // 审查报告 T8：随机文件名 + create_new——固定文件名（%TEMP%\framelab-green.sig）可被
+    // 其它进程抢先创建 / 符号链接覆盖任意用户文件；create_new 保证独占创建
+    let sig_tmp = std::env::temp_dir().join(format!(
+        "framelab-{}-{}.sig",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos() % 1_000_000_000)
+            .unwrap_or(0)
+    ));
+    {
+        use std::io::Write as _;
+        let mut f = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&sig_tmp)
+            .map_err(|e| format!("写入签名临时文件失败: {e}"))?;
+        f.write_all(sig_text.as_bytes())
+            .map_err(|e| format!("写入签名临时文件失败: {e}"))?;
+    }
     let result = minisign_verify::Signature::from_file(&sig_tmp)
         .map_err(|e| format!("签名解析失败: {e}"))
         .and_then(|sig| {
@@ -1064,7 +1144,10 @@ async fn green_update_download(app: tauri::AppHandle) -> Result<(), String> {
         .to_path_buf();
     let tmp = dir.join("FrameLab.exe.new");
 
-    let resp = reqwest::get(&pending.url)
+    // 审查报告 T10：共享客户端（超时 + UA）
+    let resp = http_client()?
+        .get(&pending.url)
+        .send()
         .await
         .map_err(|e| format!("网络请求失败: {e}"))?
         .error_for_status()
@@ -1194,108 +1277,126 @@ struct GpuInfo {
     discrete: bool,
 }
 
-/// 列出系统全部显示适配器（Win32_VideoController，PowerShell CIM），附独显/核显启发式判定。
-#[tauri::command]
-async fn list_gpus() -> Result<Vec<GpuInfo>, String> {
-    #[cfg(windows)]
-    {
-        let out = hidden_command("powershell")
-            .args([
-                "-NoProfile",
-                "-Command",
-                "Get-CimInstance Win32_VideoController | ForEach-Object { $_.Name }",
-            ])
-            .output()
-            .map_err(|e| format!("查询显卡失败: {e}"))?;
-        if !out.status.success() {
-            return Err("查询显卡失败".into());
-        }
-        let text = String::from_utf8_lossy(&out.stdout);
-        let mut gpus: Vec<GpuInfo> = Vec::new();
-        for line in text.lines() {
-            let name = line.trim();
-            if name.is_empty() {
-                continue;
+/// 查询显示适配器名称列表（list_gpus 与 detect_discrete_gpu 共用；审查报告 T6：
+/// 此前两处重复实现且 `.output()` 无超时——企业安全软件 / 系统异常时 PowerShell 卡住
+/// 会永久占住运行时工作线程。适配器名输出量小，不触发管道背压）
+#[cfg(windows)]
+fn query_gpu_names() -> Result<Vec<String>, String> {
+    use std::process::Stdio;
+    let mut child = hidden_command("powershell")
+        .args([
+            "-NoProfile",
+            "-Command",
+            "Get-CimInstance Win32_VideoController | ForEach-Object { $_.Name }",
+        ])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("查询显卡失败: {e}"))?;
+    let start = std::time::Instant::now();
+    loop {
+        match child.try_wait() {
+            Ok(Some(_)) => {
+                let out = child.wait_with_output().map_err(|e| format!("查询显卡失败: {e}"))?;
+                if !out.status.success() {
+                    return Err("查询显卡失败".into());
+                }
+                return Ok(String::from_utf8_lossy(&out.stdout)
+                    .lines()
+                    .map(|l| l.trim().to_string())
+                    .filter(|s| !s.is_empty())
+                    .collect());
             }
-            let lower = name.to_lowercase();
-            // 虚拟/软件适配器（远程桌面会话、系统基础渲染驱动等）不是真实显卡：直接排除
-            let virtual_adapter = lower.contains("basic render")
-                || lower.contains("basic display")
-                || lower.contains("remote")
-                || lower.contains("paravirtual")
-                || lower.contains("hyper-v")
-                || lower.contains("virtual");
-            if virtual_adapter {
-                continue;
+            Ok(None) => {
+                if start.elapsed() > std::time::Duration::from_secs(8) {
+                    let _ = child.kill();
+                    return Err("查询显卡超时（系统响应缓慢）".into());
+                }
+                std::thread::sleep(std::time::Duration::from_millis(80));
             }
-            // 类型启发式：
-            // - Intel（UHD/Iris 等）→ 核显
-            // - NVIDIA（GeForce/Quadro）→ 独显
-            // - AMD Radeon：RX/Pro/HD 型号 → 独显；无型号的 Radeon(TM) Graphics → APU 核显
-            // - 其它未知 → 核显（保守）
-            let discrete = lower.contains("nvidia")
-                || lower.contains("geforce")
-                || lower.contains("quadro")
-                || (lower.contains("radeon")
-                    && (lower.contains("rx") || lower.contains("pro") || lower.contains(" hd ")));
-            gpus.push(GpuInfo {
-                name: name.to_string(),
-                discrete,
-            });
+            Err(e) => return Err(format!("查询显卡失败: {e}")),
         }
-        Ok(gpus)
-    }
-    #[cfg(not(windows))]
-    {
-        Err("仅支持 Windows".into())
     }
 }
 
-/// 检测是否存在独立显卡（dxdiag 输出解析 Card name 行，出现第二块非 Intel 虚拟显卡即视为有独显）。
-/// 返回 (是否有独显, 独显名称列表)。
+/// 列出系统全部显示适配器（Win32_VideoController，PowerShell CIM），附独显/核显启发式判定。
+#[tauri::command]
+async fn list_gpus() -> Result<Vec<GpuInfo>, String> {
+    // 审查报告 T5/T6：查询移出主线程 + 超时保护
+    tauri::async_runtime::spawn_blocking(list_gpus_sync)
+        .await
+        .map_err(|e| format!("查询任务失败: {e}"))?
+}
+#[cfg(windows)]
+fn list_gpus_sync() -> Result<Vec<GpuInfo>, String> {
+    let mut gpus: Vec<GpuInfo> = Vec::new();
+    for name in query_gpu_names()? {
+        let lower = name.to_lowercase();
+        // 虚拟/软件适配器（远程桌面会话、系统基础渲染驱动等）不是真实显卡：直接排除
+        let virtual_adapter = lower.contains("basic render")
+            || lower.contains("basic display")
+            || lower.contains("remote")
+            || lower.contains("paravirtual")
+            || lower.contains("hyper-v")
+            || lower.contains("virtual");
+        if virtual_adapter {
+            continue;
+        }
+        // 类型启发式：
+        // - Intel（UHD/Iris 等）→ 核显
+        // - NVIDIA（GeForce/Quadro）→ 独显
+        // - AMD Radeon：RX/Pro/HD 型号 → 独显；无型号的 Radeon(TM) Graphics → APU 核显
+        // - 其它未知 → 核显（保守）
+        let discrete = lower.contains("nvidia")
+            || lower.contains("geforce")
+            || lower.contains("quadro")
+            || (lower.contains("radeon")
+                && (lower.contains("rx") || lower.contains("pro") || lower.contains(" hd ")));
+        gpus.push(GpuInfo { name, discrete });
+    }
+    Ok(gpus)
+}
+#[cfg(not(windows))]
+fn list_gpus_sync() -> Result<Vec<GpuInfo>, String> {
+    Err("仅支持 Windows".into())
+}
+
+/// 检测是否存在独立显卡（名称启发式）。返回 (是否有独显, 独显名称列表)。
 #[tauri::command]
 async fn detect_discrete_gpu() -> Result<(bool, Vec<String>), String> {
-    #[cfg(windows)]
-    {
-        // dxdiag 输出 UTF-16；WMI 查询更稳，但需引依赖；此处用 PowerShell CIM（系统自带）
-        let out = hidden_command("powershell")
-            .args([
-                "-NoProfile",
-                "-Command",
-                "Get-CimInstance Win32_VideoController | ForEach-Object { $_.Name }",
-            ])
-            .output()
-            .map_err(|e| format!("查询显卡失败: {e}"))?;
-        if !out.status.success() {
-            return Err("查询显卡失败".into());
+    // 审查报告 T5/T6：查询移出主线程 + 超时保护（与 list_gpus 共用同一查询实现）
+    tauri::async_runtime::spawn_blocking(detect_discrete_gpu_sync)
+        .await
+        .map_err(|e| format!("查询任务失败: {e}"))?
+}
+#[cfg(windows)]
+fn detect_discrete_gpu_sync() -> Result<(bool, Vec<String>), String> {
+    let mut dgpus: Vec<String> = Vec::new();
+    for name in query_gpu_names()? {
+        let lower = name.to_lowercase();
+        // 集显/虚拟显卡特征词；NVIDIA/AMD（含 Radeon 独显）视为独显
+        let integrated = lower.contains("intel")
+            || lower.contains("uhd")
+            || lower.contains("iris")
+            || lower.contains("basic display")
+            || lower.contains("microsoft")
+            || lower.contains("paravirtual")
+            || lower.contains("virtual")
+            || lower.contains("remote");
+        if !integrated
+            && (lower.contains("nvidia")
+                || lower.contains("geforce")
+                || lower.contains("radeon")
+                || lower.contains("amd"))
+        {
+            dgpus.push(name);
         }
-        let text = String::from_utf8_lossy(&out.stdout);
-        let mut dgpus: Vec<String> = Vec::new();
-        for line in text.lines() {
-            let name = line.trim();
-            if name.is_empty() {
-                continue;
-            }
-            let lower = name.to_lowercase();
-            // 集显/虚拟显卡特征词；NVIDIA/AMD（含 Radeon 独显）视为独显
-            let integrated = lower.contains("intel")
-                || lower.contains("uhd")
-                || lower.contains("iris")
-                || lower.contains("basic display")
-                || lower.contains("microsoft")
-                || lower.contains("paravirtual")
-                || lower.contains("virtual")
-                || lower.contains("remote");
-            if !integrated && (lower.contains("nvidia") || lower.contains("geforce") || lower.contains("radeon") || lower.contains("amd")) {
-                dgpus.push(name.to_string());
-            }
-        }
-        Ok((!dgpus.is_empty(), dgpus))
     }
-    #[cfg(not(windows))]
-    {
-        Ok((false, Vec::new()))
-    }
+    Ok((!dgpus.is_empty(), dgpus))
+}
+#[cfg(not(windows))]
+fn detect_discrete_gpu_sync() -> Result<(bool, Vec<String>), String> {
+    Ok((false, Vec::new()))
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
