@@ -106,51 +106,81 @@
   applyStats();
 
   if ('fetch' in window) {
-    try {
-      // 最新版本号
-      fetch(GH_API + '/releases/latest', { headers: { Accept: 'application/vnd.github+json' } })
-        .then(function (r) { return r.ok ? r.json() : null; })
-        .then(function (data) {
-          if (data && typeof data.tag_name === 'string' && /^v?\d/.test(data.tag_name)) {
-            curStats.version = data.tag_name.charAt(0) === 'v' ? data.tag_name : 'v' + data.tag_name;
-            cacheStats();
-            setVersion(curStats.version);
-          }
-        })
-        .catch(function () { /* 网络受限时保留兜底值 */ });
+    var lastAttempt = 0;
+    var gotAny = false;
 
-      // star 数
-      fetch(GH_API, { headers: { Accept: 'application/vnd.github+json' } })
-        .then(function (r) { return r.ok ? r.json() : null; })
-        .then(function (data) {
-          if (data && typeof data.stargazers_count === 'number') {
-            curStats.stars = data.stargazers_count;
-            cacheStats();
-            renderStars(curStats.stars);
-          }
-        })
-        .catch(function () { /* 忽略 */ });
+    /* 把远端返回的（部分）字段并入 curStats；至少一个有效字段才算成功 */
+    function applyRemote(d) {
+      var got = false;
+      if (d && typeof d.version === 'string' && /^v?\d/.test(d.version)) {
+        curStats.version = d.version.charAt(0) === 'v' ? d.version : 'v' + d.version;
+        got = true;
+      }
+      if (d && typeof d.stars === 'number' && d.stars > 0) { curStats.stars = d.stars; got = true; }
+      if (d && typeof d.downloads === 'number' && d.downloads > 0) { curStats.downloads = d.downloads; got = true; }
+      if (got) { gotAny = true; cacheStats(); applyStats(); }
+      return got;
+    }
 
-      // 累计下载数（releases 可能多页，逐页汇总）
-      (function sumDownloads() {
-        var total = 0;
-        function page(n) {
-          return fetch(GH_API + '/releases?per_page=100&page=' + n, { headers: { Accept: 'application/vnd.github+json' } })
-            .then(function (r) { return r.ok ? r.json() : []; })
-            .then(function (list) {
-              if (!Array.isArray(list) || !list.length) return total;
-              list.forEach(function (rel) {
-                (rel.assets || []).forEach(function (a) { total += a.download_count || 0; });
+    /* 直连 api.github.com（同域代理失败时的回退；国内常限流/不可达） */
+    function directFetch() {
+      try {
+        // 最新版本号
+        fetch(GH_API + '/releases/latest', { headers: { Accept: 'application/vnd.github+json' } })
+          .then(function (r) { return r.ok ? r.json() : null; })
+          .then(function (data) {
+            if (data) applyRemote({ version: data.tag_name });
+          })
+          .catch(function () { /* 网络受限时保留兜底值 */ });
+
+        // star 数
+        fetch(GH_API, { headers: { Accept: 'application/vnd.github+json' } })
+          .then(function (r) { return r.ok ? r.json() : null; })
+          .then(function (data) {
+            if (data) applyRemote({ stars: data.stargazers_count });
+          })
+          .catch(function () { /* 忽略 */ });
+
+        // 累计下载数（releases 可能多页，逐页汇总）
+        (function sumDownloads() {
+          var total = 0;
+          function page(n) {
+            return fetch(GH_API + '/releases?per_page=100&page=' + n, { headers: { Accept: 'application/vnd.github+json' } })
+              .then(function (r) { return r.ok ? r.json() : []; })
+              .then(function (list) {
+                if (!Array.isArray(list) || !list.length) return total;
+                list.forEach(function (rel) {
+                  (rel.assets || []).forEach(function (a) { total += a.download_count || 0; });
+                });
+                return list.length === 100 ? page(n + 1) : total;
               });
-              return list.length === 100 ? page(n + 1) : total;
-            });
-        }
-        page(1).then(function (total) {
-          curStats.downloads = total;
-          cacheStats();
-          renderTotal(total);
-        }).catch(function () { /* 失败保持兜底值 */ });
-      })();
-    } catch (_) { /* 忽略 */ }
+          }
+          page(1).then(function (total) {
+            applyRemote({ downloads: total });
+          }).catch(function () { /* 失败保持兜底值 */ });
+        })();
+      } catch (_) { /* 忽略 */ }
+    }
+
+    /* 实时刷新：优先同域代理（可达性与页面一致 + 5 分钟边缘缓存），失败回退直连 */
+    function refresh() {
+      lastAttempt = Date.now();
+      fetch('/api/gh-stats', { headers: { Accept: 'application/json' } })
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (d) {
+          if (!applyRemote(d)) directFetch();
+        })
+        .catch(function () { directFetch(); });
+    }
+    refresh();
+
+    /* 补充刷新时机：首拉失败 3 秒重试；切回标签页（距上次 >60s）刷新；停留期间每 10 分钟静默刷新 */
+    setTimeout(function () { if (!gotAny) refresh(); }, 3000);
+    document.addEventListener('visibilitychange', function () {
+      if (!document.hidden && Date.now() - lastAttempt > 60000) refresh();
+    });
+    setInterval(function () {
+      if (Date.now() - lastAttempt > 600000) refresh();
+    }, 600000);
   }
 })();

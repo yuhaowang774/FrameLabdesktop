@@ -1,0 +1,40 @@
+# 定时刷新宣传页兜底统计（website/assets/gh-stats.js）：
+# 每 6 小时 / 手动 / 发 Release 时重跑烘焙脚本，数值有变化自动提交 → push 触发 Cloudflare Pages 重新部署。
+# 效果：即使访客网络完全打不通 GitHub API，宣传页版本号/下载量最多滞后 6 小时，无需人工同步。
+# 注意：GITHUB_TOKEN 的提交不会再次触发本 workflow（防循环），但会正常触发 Pages 部署。
+name: refresh-site-stats
+
+on:
+  schedule:
+    - cron: '37 */6 * * *' # 每 6 小时（UTC，避开整点高峰）
+  workflow_dispatch:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Fetch GitHub stats and bake into gh-stats.js
+        run: node scripts/fetch-gh-stats.mjs
+
+      - name: Commit if changed
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add website/assets/gh-stats.js
+          if git diff --cached --quiet; then
+            echo "统计无变化，跳过提交"
+          else
+            git commit -m "chore(website): 自动刷新宣传页统计数据"
+            git push
+          fi

@@ -18,6 +18,13 @@
 
 > 构建命令产出三部分：`website/`（宣传页 + `_headers`）、`website/app/`（网页版 FrameLab，供 Hero 内嵌 iframe 在线体验，`--base=/app/` 保证子路径资源引用正确）、`website/assets/gh-stats.js`（构建时拉取的 GitHub 星数/累计下载/最新版本兜底值——访客网络下 api.github.com 常被限流或不可达，烘焙值保证数字永不空白，运行时仍会尝试实时更新并写 localStorage 缓存）。
 
+### 统计数据时效架构（三层实时 + 兜底）
+
+1. **同域代理（分钟级）**：`functions/api/gh-stats.js`（仓库根的 Pages Functions 目录，随部署自动生效）提供 `/api/gh-stats`，聚合 GitHub 三个接口并做 5 分钟边缘缓存；访客可达本页即可达该接口。`main.js` 优先请求它，失败回退直连 api.github.com
+2. **定时重烘焙（6 小时兜底）**：`.github/workflows/refresh-site-stats.yml` 每 6 小时 / 发 Release 时自动跑烘焙脚本，数值变化自动提交并触发 Pages 重新部署——发新版后无需手动同步宣传页
+3. **静态兜底链**：localStorage 缓存（6 小时时效）→ 构建烘焙值 → 内置常量，保证任何网络下数字不空白
+4. **补充刷新**：首拉失败 3 秒重试；切回标签页（>60s）刷新；页面停留每 10 分钟静默刷新
+
 代码适配已就绪：`website/_headers` 提供 HTML 免缓存 + 资产长缓存 + 安全头（替代原 Nginx 配置）。
 
 ## 二、绑定自定义域名（可选）
@@ -58,7 +65,7 @@ push 到 main 后 Pages 自动重新构建发布（约 1 分钟）。HTML 已配
 | 场景 | 处理 |
 |---|---|
 | push 后未更新 | Pages 部署记录查看构建日志；确认输出目录为 `/website` |
-| 版本号/下载数显示「—」 | GitHub API 被限流（每小时 60 次匿名额度），页面自动回退内置值，稍后自动恢复 |
+| 版本号/下载数显示「—」 | 三层实时已生效时几乎不出现：`/api/gh-stats` 同域代理（5 分钟边缘缓存）→ 直连 GitHub → 烘焙值。若代理 404 说明 `functions/` 目录未被 Pages 识别（应位于仓库根而非 website/ 内），检查部署日志 |
 | 字体/图片 404 | 检查 `website/assets/` 文件是否已提交进仓库 |
 | 回滚到旧版本 | Pages → Deployments → 选中历史部署 → **Rollback to this deployment**（一键秒回） |
 | 构建额度 | 免费版每月 500 次构建，正常迭代足够 |
