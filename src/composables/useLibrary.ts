@@ -450,21 +450,22 @@ export function useLibrary() {
     return added
   }
 
+  /**
+   * 切换当前照片（激活 + 范围锚点），不改动勾选集合。
+   * 勾选（导出/移除的「对勾」）只由显式操作修改：勾选圆圈、Ctrl+点击、Shift 范围、全选/清空。
+   * 此前 select 会清空其它勾选并只勾被点击项——导出页勾选后只要点一下胶片条/方向键浏览，
+   * 对勾就被静默清空，批量导出回退成「当前照片」，导出结果与勾选不符（用户反馈）。
+   */
   function select(id: string): void {
     const target = items.find((i) => i.id === id)
     if (!target) return
-    items.forEach((i) => (i.selected = false))
-    target.selected = true
     activeId.value = id
     anchorIndex = items.indexOf(target)
   }
 
-  /** 仅切换当前照片（不动勾选集合），并同步范围选择锚点——导出页选片用 */
+  /** select 的语义别名：导出页选片调用处沿用，含义即「不动勾选集合」 */
   function setActiveKeepSelection(id: string): void {
-    const target = items.find((i) => i.id === id)
-    if (!target) return
-    activeId.value = id
-    anchorIndex = items.indexOf(target)
+    select(id)
   }
 
   function selectByIndex(index: number): void {

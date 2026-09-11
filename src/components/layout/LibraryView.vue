@@ -62,7 +62,8 @@ function onDrop(e: DragEvent) {
   }
 }
 
-// 与胶片条一致的多选逻辑：Ctrl/⌘+点击切换选中；Shift+点击从锚点范围多选；普通点击单选
+// 与胶片条一致的多选逻辑：Ctrl/⌘+点击切换勾选；Shift+点击从锚点范围勾选；
+// 普通点击仅切换预览（不改动勾选集合——勾选是导出/移除的凭据，浏览不能静默清掉）
 function onItemClick(item: { id: string }, e: MouseEvent) {
   if (e.metaKey || e.ctrlKey) {
     library.toggleSelect(item.id)
@@ -125,7 +126,7 @@ function onConfirmRemove() {
       <template v-else>
         <div class="lib-toolbar">
           <button class="btn" @click="onImportClick">＋ 导入</button>
-          <span class="count">共 {{ library.items.length }} 张 · 已选 {{ selectedCount }}</span>
+          <span class="count" title="Ctrl+点击勾选/取消 · Shift+点击范围勾选 · 普通点击仅预览，不改变勾选">共 {{ library.items.length }} 张 · 已选 {{ selectedCount }}</span>
           <span class="spacer" />
           <button class="btn" :disabled="!selectedCount" title="仅从图库移除，不删除磁盘原文件" @click="askRemoveSelected">移除选中</button>
           <button class="btn" title="仅从图库移除全部照片，不删除磁盘原文件" @click="askClearAll">清空图库</button>

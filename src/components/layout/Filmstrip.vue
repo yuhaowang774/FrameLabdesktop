@@ -12,7 +12,7 @@ const app = useAppState()
 const trackEl = ref<HTMLElement | null>(null)
 
 // 点击交互：
-//  - 普通点击：单选并切换主图（图库模块下进入编辑）
+//  - 普通点击：切换主图（不动勾选集合，图库模块下进入编辑）
 //  - Ctrl/⌘+点击：切换选中状态（不切换主图、不跳转模块）
 //  - Shift+点击：从锚点到目标项范围多选
 function onItem(id: string, e: MouseEvent) {
