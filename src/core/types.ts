@@ -147,10 +147,6 @@ export interface FrameConfig {
   lensTextColor: string | null
   dateTextColor: string | null
 
-  distPhotoLogo: number
-  distLogoText: number
-  distBottom: number
-
   showCameraModel: boolean
   cameraModel: string
   cameraModelFont: string
@@ -289,10 +285,6 @@ export const defaultFrameConfig: FrameConfig = {
   exifTextColor: null,
   lensTextColor: null,
   dateTextColor: null,
-
-  distPhotoLogo: 40,
-  distLogoText: 15,
-  distBottom: 60,
 
   showCameraModel: false,
   cameraModel: 'A7R V',

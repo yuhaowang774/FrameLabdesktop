@@ -29,10 +29,6 @@ const VAR_MAP: CssVarMap = {
   '--frame-pad-x': (c) => `${c.padding}px`,
   '--frame-pad-top': (c) => `${c.padding}px`,
   '--frame-pad-bottom': (c) => `${c.padding + c.borderRatio}px`,
-  '--img-scale': (c) => `${c.scale}%`,
-  '--dist-photo-logo': (c) => `${c.distPhotoLogo}px`,
-  '--dist-logo-text': (c) => `${c.distLogoText}px`,
-  '--dist-bottom': (c) => `${c.distBottom}px`,
   '--photo-shadow': (c) => {
     const s = c.shadow
     const alpha = Math.min(0.85, s * 0.85).toFixed(3)
@@ -54,14 +50,10 @@ const VAR_MAP: CssVarMap = {
   '--img-radius': (c) => `${c.photoRadius}px`,
   // 整体 INFO 字体：不受某一组字体下拉的悬停预览影响（预览只作用于被悬停的那一组）
   '--font-family': (c) => c.fontFamily,
-  '--font-size': (c) => `${c.fontSize}px`,
-  '--text-weight': (c) => `${c.textWeight}`,
-  '--text-opacity': (c) => `${c.textOpacity}`,
   // INFO 文字颜色随背景自适应：纯色浅底 → 黑字，其余 → 白字
   '--footer-text-color': (c) => footerTextColor(c.bgMode, c.bgColor, 0.95),
   '--logo-size': (c) => `${c.logoSize}px`,
   '--logo-opacity': (c) => `${c.logoOpacity}`,
-  '--logo-display': (c) => (c.showLogo ? 'block' : 'none'),
   '--camera-model-size': (c) => `${c.cameraModelSize}px`,
   '--camera-model-weight': (c) => `${c.cameraModelWeight}`,
   '--camera-model-opacity': (c) => `${c.cameraModelOpacity}`,

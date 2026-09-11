@@ -1,20 +1,9 @@
 :root {
   /* 布局变量（useCssVars 运行时动态写入，此处为回退默认值，与 types.ts 默认值 + useCssVars VAR_MAP 对齐） */
-  --frame-padding: 80px;
-  --img-scale: 90%;
-  --dist-photo-logo: 40px;
-  --dist-logo-text: 15px;
-  --dist-bottom: 60px;
-  --border-radius: 0px;
-  --shadow-opacity: 0.5;
   --font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-  --font-size: 16px;
-  --text-weight: 600;
-  --text-opacity: 1;
   --footer-text-color: rgba(255, 255, 255, 0.95);
   --logo-size: 150px;
   --logo-opacity: 1;
-  --logo-display: block;
   --camera-model-size: 40px;
   --camera-model-weight: 600;
   --camera-model-opacity: 1;

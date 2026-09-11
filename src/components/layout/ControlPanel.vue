@@ -81,7 +81,6 @@ const DEFAULT = {
   textWeight: 400,
   textOpacity: 1,
   overlayBottom: 16,
-  distLogoText: 24,
   // INFO 文本独立样式复位为「跟随整体」（null）
   exifFontFamily: null, exifFontSize: null, exifTextWeight: null, exifTextOpacity: null,
   lensFontFamily: null, lensFontSize: null, lensTextWeight: null, lensTextOpacity: null,
@@ -125,7 +124,7 @@ function resetInfo() { patch({
   dateTextWeight: DEFAULT.dateTextWeight, dateTextOpacity: DEFAULT.dateTextOpacity,
   exifTextColor: DEFAULT.exifTextColor, lensTextColor: DEFAULT.lensTextColor,
   dateTextColor: DEFAULT.dateTextColor, cameraModelColor: DEFAULT.cameraModelColor,
-  overlayBottom: DEFAULT.overlayBottom, distLogoText: DEFAULT.distLogoText,
+  overlayBottom: DEFAULT.overlayBottom,
   // 页脚坐标一并复位为 null（回自动布局），否则旧物化坐标会让复位后布局仍偏移
   logoX: null, logoY: null, modelX: null, modelY: null,
   exifX: null, exifY: null, dateX: null, dateY: null,
