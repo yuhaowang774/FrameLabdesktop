@@ -2,7 +2,7 @@
 // 底部胶片窗格 Filmstrip：跨模块缩略图，点击切换/进入编辑。
 // 支持顶部拖拽调整高度（上推增高），高度/可见性由 useAppState 统一管理。
 // 滚动：显示横向滑动条（覆盖全局隐藏滚动条），鼠标滚轮横滚，切换照片自动跟随当前项。
-import { ref, watch, computed } from 'vue'
+import { ref, watch, computed, onBeforeUnmount } from 'vue'
 import { useLibrary } from '../../composables/useLibrary'
 import { useAppState } from '../../composables/useAppState'
 import GlassModal from '../common/GlassModal.vue'
@@ -58,6 +58,41 @@ watch(() => library.activeId.value, () => {
   requestAnimationFrame(scrollToActive)
 })
 
+// ===== 右键菜单：快速导出该照片 =====
+const ctxMenu = ref<{ x: number; y: number; id: string } | null>(null)
+function onFrameContextMenu(id: string, e: MouseEvent) {
+  e.preventDefault()
+  // 该照片设为当前照片（导出以当前照片为对象），菜单贴边收纳
+  library.select(id)
+  ctxMenu.value = {
+    x: Math.min(e.clientX, window.innerWidth - 186),
+    y: Math.min(e.clientY, window.innerHeight - 76),
+    id,
+  }
+}
+function closeCtxMenu() {
+  ctxMenu.value = null
+}
+function ctxExport() {
+  const id = ctxMenu.value?.id
+  ctxMenu.value = null
+  if (!id) return
+  library.select(id)
+  app.requestSingleExport()
+  app.setModule('export')
+}
+watch(ctxMenu, (v) => {
+  if (v) {
+    window.addEventListener('click', closeCtxMenu, { once: true })
+    window.addEventListener('contextmenu', closeCtxMenu, { once: true })
+    window.addEventListener('keydown', onCtxKeydown, { once: true })
+  }
+})
+function onCtxKeydown(e: KeyboardEvent) {
+  if (e.key === 'Escape') closeCtxMenu()
+}
+onBeforeUnmount(closeCtxMenu)
+
 // Delete/Backspace 移除确认（LrC 语义：仅从图库移除，不删磁盘原文件）
 const confirmMsg = computed(
   () =>
@@ -95,12 +130,22 @@ function onHandleUp() {
         class="frame"
         :class="{ active: item.id === library.activeId.value, sel: item.selected }"
         :title="`${item.name}${item.selected ? '（已选中）' : ''}`"
+        :style="{ aspectRatio: item.width && item.height ? `${item.width} / ${item.height}` : '3 / 2' }"
         @click="onItem(item.id, $event)"
+        @contextmenu="onFrameContextMenu(item.id, $event)"
       >
         <img v-if="item.thumbUrl" :src="item.thumbUrl" :alt="item.name" loading="lazy" />
         <div v-else class="thumb-placeholder" />
         <span v-if="item.selected" class="sel-dot" />
       </button>
+    </div>
+    <!-- 右键快捷菜单：快速导出该照片 -->
+    <div
+      v-if="ctxMenu"
+      class="ctx-menu"
+      :style="{ left: ctxMenu.x + 'px', top: ctxMenu.y + 'px' }"
+    >
+      <button class="ctx-item" @click="ctxExport">⬇ 导出该照片</button>
     </div>
     <GlassModal
       v-model="library.removalConfirm.value.open"
@@ -177,12 +222,11 @@ function onHandleUp() {
 .frame {
   position: relative;
   flex: none;
-  /* 自适应缩略图：宽随高按恒定 3:2 比例伸缩（此前固定 72px 宽在高分辨率/大高度下
-     比例失真、小屏下又过挤），不同屏幕尺寸与胶片条高度下都保持正常观感 */
+  /* 真自适应：高度完整跟随胶片条拖拽高度伸缩（不再设 72px 上限），
+     宽度按每张照片自身宽高比（模板内联 style，未知尺寸回退 3:2）自动计算，
+     竖图/横图都完整显示不裁切，不同屏幕尺寸与胶片条高度下观感一致 */
   height: calc(100% - 12px);
-  max-height: 72px;
   min-height: 32px;
-  aspect-ratio: 3 / 2;
   width: auto;
   border-radius: 0;
   overflow: hidden;
@@ -224,5 +268,33 @@ function onHandleUp() {
   height: 8px;
   border-radius: 50%;
   background: var(--text);
+}
+/* 右键快捷菜单（与 Workspace 同构）：fixed 定位不受 track overflow 裁切 */
+.ctx-menu {
+  position: fixed;
+  z-index: 300;
+  min-width: 176px;
+  padding: 4px;
+  background: rgba(20, 28, 48, 0.92);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+  border: 1px solid var(--border);
+  box-shadow: 0 16px 40px -18px rgba(0, 0, 0, 0.85);
+}
+.ctx-item {
+  display: block;
+  width: 100%;
+  padding: 7px 12px;
+  background: transparent;
+  border: none;
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.ctx-item:hover {
+  background: var(--hover);
 }
 </style>
