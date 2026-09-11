@@ -23,6 +23,9 @@ const SCAN_MAX_DEPTH: usize = 3;
 const SCAN_MAX_ENTRIES: usize = 2000;
 /// 单文件读取上限（256MB，防误读超大文件撑爆内存）
 const READ_MAX_BYTES: u64 = 256 * 1024 * 1024;
+/// 绿色版更新包大小上限（200MB）：防异常/恶意响应撑爆内存（release 为 panic=abort，
+/// 分配失败即进程崩溃；审查报告 T4）
+const GREEN_UPDATE_MAX_BYTES: u64 = 200 * 1024 * 1024;
 /// 项目 GitHub 仓库地址（帮助菜单 → GitHub 项目主页）
 const GITHUB_REPO_URL: &str = "https://github.com/yuhaowang774/FrameLabdesktop";
 /// 意见反馈：GitHub 新建 Issue（帮助菜单 → 意见反馈；邮箱直接显示在菜单中）
@@ -158,7 +161,13 @@ fn read_image_meta(path: String) -> Result<tauri::ipc::Response, String> {
         }
         n += r;
     }
-    let (w, h) = if n >= 24 && head.starts_with(&[0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A]) {
+    let is_png = n >= 24 && head.starts_with(&[0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A]);
+    let (w, h) = if is_png {
+        // 审查报告 T14：确认偏移 12..16 为 IHDR chunk（PNG 规范的首个 chunk），
+        // 否则畸形文件可声明任意尺寸污染图库布局与目录 meta 缓存
+        if &head[12..16] != b"IHDR" {
+            return Err("PNG 头部异常（缺少 IHDR）".into());
+        }
         (
             u32::from_be_bytes([head[16], head[17], head[18], head[19]]),
             u32::from_be_bytes([head[20], head[21], head[22], head[23]]),
@@ -177,6 +186,10 @@ fn read_image_meta(path: String) -> Result<tauri::ipc::Response, String> {
     };
     if w == 0 || h == 0 {
         return Err("图片尺寸无效".into());
+    }
+    // 审查报告 T14：尺寸上界（畸形文件可声明超大尺寸进入排版计算与目录缓存）
+    if w > 100_000 || h > 100_000 {
+        return Err("图片尺寸异常".into());
     }
     let mut out = Vec::with_capacity(24);
     out.extend_from_slice(&w.to_le_bytes());
@@ -251,6 +264,13 @@ fn thumb_put(app: AppHandle, path: String, data_base64: String) -> Result<(), St
     if bytes.is_empty() {
         return Err("缩略图数据为空".into());
     }
+    // 审查报告 T15：大小上限 + JPEG 头尾校验（IPC 对任意调用方开放，防写入大文件填盘）
+    if bytes.len() > 2 * 1024 * 1024 {
+        return Err("缩略图数据超过 2MB 上限".into());
+    }
+    if !(bytes.starts_with(&[0xFF, 0xD8]) && bytes.ends_with(&[0xFF, 0xD9])) {
+        return Err("缩略图数据不是有效 JPEG".into());
+    }
     // 清理同一路径的旧指纹文件（改名/改动后残留），目录内前缀匹配
     let prefix = format!("{:016x}-", fnv1a64(&path));
     if let Some(parent) = f.parent() {
@@ -264,7 +284,13 @@ fn thumb_put(app: AppHandle, path: String, data_base64: String) -> Result<(), St
             }
         }
     }
-    fs::write(f, bytes).map_err(|e| format!("写入缩略图失败: {e}"))
+    // 审查报告 T15：临时文件 + rename 原子替换（并发读取不会读到半截 JPEG）
+    let tmp = f.with_extension("jpg.tmp");
+    fs::write(&tmp, &bytes).map_err(|e| format!("写入缩略图失败: {e}"))?;
+    fs::rename(&tmp, &f).map_err(|e| {
+        let _ = fs::remove_file(&tmp);
+        format!("写入缩略图失败: {e}")
+    })
 }
 
 /// 只读文件前 len 字节（EXIF 头部解析用）：EXIF 存于 JPEG APP1 段（规格上限 64KB/段），
@@ -317,6 +343,9 @@ fn read_preview_bytes(path: String, long_max: u32) -> Result<tauri::ipc::Respons
     if w0 == 0 || h0 == 0 {
         return Err("JPEG 尺寸无效".into());
     }
+    // 审查报告 T9：long_max 由调用方给定，必须 clamp——≥65536 时 `as u16` 会静默截断
+    //（如 100000 → 34464）导致缩放档位选错；0 会退化成 1×1。
+    let long_max = long_max.clamp(1, u16::MAX as u32);
     // 等比目标尺寸：长边压到 long_max 内（不放大）
     let long = w0.max(h0);
     let (tw, th) = if long > long_max {
@@ -381,15 +410,6 @@ fn write_file_base64(path: String, base64_data: String) -> Result<(), String> {
     fs::write(&path, bytes).map_err(|e| format!("写入文件失败: {e}"))
 }
 
-/// 写入纯文本文件（模板另存等）
-#[tauri::command]
-fn write_text_file(path: String, content: String) -> Result<(), String> {
-    if let Some(parent) = Path::new(&path).parent() {
-        fs::create_dir_all(parent).map_err(|e| format!("创建目录失败: {e}"))?;
-    }
-    fs::write(&path, content).map_err(|e| format!("写入文件失败: {e}"))
-}
-
 // ===== AppData JSON 存储（布局/模板/快照/导出偏好） =====
 
 fn data_file(app: &AppHandle, filename: &str) -> Result<PathBuf, String> {
@@ -417,18 +437,30 @@ fn data_file(app: &AppHandle, filename: &str) -> Result<PathBuf, String> {
 /// 启动错误日志：写入 AppData/logs/boot-<时间戳>.log，保留最近 10 个
 #[tauri::command]
 fn write_boot_log(app: AppHandle, content: String) -> Result<(), String> {
+    // 审查报告 T16：截断超长内容（命令对渲染进程开放，防被循环写入超大文本）
+    let content: String = if content.len() > 64 * 1024 {
+        // 按字符边界截断，避免切断 UTF-8 序列
+        let mut end = 64 * 1024;
+        while end > 0 && !content.is_char_boundary(end) {
+            end -= 1;
+        }
+        format!("{}…（已截断）", &content[..end])
+    } else {
+        content
+    };
     let dir = app
         .path()
         .app_data_dir()
         .map_err(|e| format!("无法定位 AppData 目录: {e}"))?
         .join("logs");
     fs::create_dir_all(&dir).map_err(|e| format!("创建日志目录失败: {e}"))?;
-    let secs = std::time::SystemTime::now()
+    let ms = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
+        .map(|d| d.as_millis())
         .unwrap_or(0);
     let ver = app.package_info().version.to_string();
-    fs::write(dir.join(format!("boot-{secs}.log")), format!("version={ver}\n{content}"))
+    // 毫秒时间戳：同秒多次写入（连环错误触发）不再互相覆盖
+    fs::write(dir.join(format!("boot-{ms}.log")), format!("version={ver}\n{content}"))
         .map_err(|e| format!("写入启动日志失败: {e}"))?;
     // 裁剪：仅保留最近 10 个启动日志
     if let Ok(entries) = fs::read_dir(&dir) {
@@ -513,16 +545,18 @@ fn read_app_json(app: AppHandle, filename: String) -> Result<Option<String>, Str
 #[tauri::command]
 fn write_app_json(app: AppHandle, filename: String, content: String) -> Result<(), String> {
     let p = data_file(&app, &filename)?;
-    fs::write(p, content).map_err(|e| format!("写入失败: {e}"))
-}
-
-#[tauri::command]
-fn clear_app_json(app: AppHandle, filename: String) -> Result<(), String> {
-    let p = data_file(&app, &filename)?;
-    if p.exists() {
-        fs::remove_file(p).map_err(|e| format!("删除失败: {e}"))?;
+    // 内容上限：防 IPC 被滥用写入超大数据（目录 JSON 正常量级 KB~MB）
+    if content.len() > 64 * 1024 * 1024 {
+        return Err("内容超过 64MB 上限".into());
     }
-    Ok(())
+    // 原子写：先写同目录临时文件再 rename 替换——进程被杀 / 断电不会留下半截 JSON
+    // （半截文件会被前端宽容解析当空目录，进而把「空目录」写回导致图库丢失）
+    let tmp = p.with_file_name(format!("{filename}.tmp"));
+    fs::write(&tmp, &content).map_err(|e| format!("写入失败: {e}"))?;
+    fs::rename(&tmp, &p).map_err(|e| {
+        let _ = fs::remove_file(&tmp);
+        format!("写入失败: {e}")
+    })
 }
 
 // ===== 原生对话框（blocking 系列必须运行在非主线程 → 命令声明为 async） =====
@@ -556,22 +590,6 @@ async fn pick_image_files(app: AppHandle) -> Result<Vec<String>, String> {
         .collect::<Result<Vec<_>, _>>()
 }
 
-/// 打开本地 JSON 模板文件并读取文本内容
-#[tauri::command]
-async fn open_text_file(app: AppHandle) -> Result<Option<String>, String> {
-    match app
-        .dialog()
-        .file()
-        .add_filter("JSON 模板", &["json"])
-        .blocking_pick_file()
-    {
-        Some(fp) => {
-            let p = fp.into_path().map_err(|e| format!("路径解析失败: {e}"))?;
-            fs::read_to_string(p).map(Some).map_err(|e| format!("读取失败: {e}"))
-        }
-        None => Ok(None),
-    }
-}
 
 /// 另存文件对话框（按默认文件名后缀自动匹配过滤器）
 #[tauri::command]
@@ -1051,14 +1069,22 @@ async fn green_update_download(app: tauri::AppHandle) -> Result<(), String> {
         .map_err(|e| format!("网络请求失败: {e}"))?
         .error_for_status()
         .map_err(|e| format!("下载失败: {e}"))?;
+    // 审查报告 T4：content-length 完全由服务端（或中间人）控制，既不能直接作为
+    // 预分配容量，也不能作为唯一的体积约束——超限即刻中止，避免内存失控。
     let total = resp.content_length().unwrap_or(0);
+    if total > GREEN_UPDATE_MAX_BYTES {
+        return Err("更新包超过 200MB 上限，已中止".into());
+    }
     use futures_util::StreamExt;
     let mut stream = resp.bytes_stream();
-    let mut buf: Vec<u8> = Vec::with_capacity(total as usize);
+    let mut buf: Vec<u8> = Vec::with_capacity(total.min(GREEN_UPDATE_MAX_BYTES) as usize);
     let mut received: u64 = 0;
     while let Some(chunk) = stream.next().await {
         let chunk = chunk.map_err(|e| format!("下载中断: {e}"))?;
         received += chunk.len() as u64;
+        if received > GREEN_UPDATE_MAX_BYTES {
+            return Err("更新包超过 200MB 上限，已中止下载".into());
+        }
         buf.extend_from_slice(&chunk);
         if total > 0 {
             let percent = (received * 100 / total).min(100) as u8;
@@ -1142,15 +1168,21 @@ exit /b\r\n",
 }
 
 /// 打开外部 URL（默认浏览器）。便携版停更引导 / 通用外链场景使用。
+/// 审查报告 T2：只允许 https 链接——此前任意字符串都会交给 ShellExecute 关联执行
+///（`file:///x.exe`、`\\共享\x.bat`、危险协议等），等同于代码执行原语。
 #[tauri::command]
 fn open_external(url: String) -> Result<(), String> {
+    let u = url.trim();
+    if !u.starts_with("https://") {
+        return Err("仅允许打开 https 链接".into());
+    }
     #[cfg(windows)]
     {
-        shell_open(&url).map_err(|e| format!("打开链接失败: {e}"))
+        shell_open(u).map_err(|e| format!("打开链接失败: {e}"))
     }
     #[cfg(not(windows))]
     {
-        let _ = url;
+        let _ = u;
         Err("当前平台不支持".into())
     }
 }
@@ -1344,12 +1376,24 @@ pub fn run() {
 
             // 窗口改为 Rust 侧创建：开发版需要指定独立 WebView2 数据目录
             // （此前开发/正式版共用 EBWebView 目录，并行启动会因目录被占用而白屏）。
-            let browser_args = if disable_gpu {
+            let mut browser_args = String::from(if disable_gpu {
                 // 安全模式：完全禁用 GPU 合成（白屏自救，进系统后可在首选项调显卡）
                 "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --disable-gpu"
             } else {
                 "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --ignore-gpu-blocklist --enable-gpu-rasterization"
-            };
+            });
+            // 开发构建：显式附加参数会覆盖 WebView2 的 WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS
+            // 环境变量（API 优先），此处合并回来，保证 scripts/cdp-shot.mjs 文档中的调试流程
+            // （环境变量指定 --remote-debugging-port）可用；正式构建（release）不生效。
+            if cfg!(debug_assertions) {
+                if let Ok(extra) = std::env::var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS") {
+                    let extra = extra.trim();
+                    if !extra.is_empty() {
+                        browser_args.push(' ');
+                        browser_args.push_str(extra);
+                    }
+                }
+            }
             let mut win = tauri::WebviewWindowBuilder::new(app, "main", tauri::WebviewUrl::App("index.html".into()))
                 // 窗口标题：名字后跟当前版本号（随发版自动更新）
                 .title(format!("FrameLab v{}", app.package_info().version))
@@ -1381,13 +1425,10 @@ pub fn run() {
             read_preview_bytes,
             write_file_base64,
             path_exists,
-            write_text_file,
             read_app_json,
             write_app_json,
-            clear_app_json,
             pick_folder,
             pick_image_files,
-            open_text_file,
             save_file_dialog,
             set_gpu_preference_mode,
             open_graphics_settings,
