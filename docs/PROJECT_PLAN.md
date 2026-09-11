@@ -3,7 +3,7 @@
 > 本文档是项目的**进度跟踪与规划基准**，记录已完成与未完成事务。后续所有规划、推进、验收均以此为对照参考。每完成一项须及时更新状态。
 >
 > 设计依据：[设计文档 spec](./superpowers/specs/2026-08-13-photo-frame-watermark-design.md)
-> 最近更新：2026-09-08
+> 最近更新：2026-09-11
 
 ---
 
@@ -297,3 +297,9 @@
 | 2026-09-08 | 用户反馈 0.2.0 两问题：① 胶片条多选后 OOM 崩溃（WebView2 错误页 Out of Memory）——根因：桌面端缩略图生成因 asset URL 跨域污染 canvas 必然失败，全局回退直接解码原图，多张 96MP 同时解码耗尽内存；修复 makeThumbUrl（读盘转同源源图 + 全局 2 并发限流）+ 四组件移除回退原图改占位。② 报错不可见——新增运行时错误弹窗（脚本/异步/组件/资源错误，详情可复制，自动落盘 AppData/FrameLab/logs）+ 启动看门狗白屏自愈（public/boot-watchdog.js + write_boot_log / queue_webview_cache_clean / queue_disable_gpu 三命令，标记文件 + 重启在 setup 阶段执行）。**发版 v0.2.1** |
 | 2026-09-08 | 用户实测 0.2.1 仍 2GB 常驻/4GB 峰值——根因：Chromium 图像缓存按 URL 滞留全尺寸解码位图（96MP ≈ 400MB/张，Image 元素解码无法主动释放）。内存生命周期改造：① makeThumbUrl 改 createImageBitmap(blob,{resize})（JPEG 解码阶段 DCT 降采样，不物化全尺寸位图）+ bitmap.close() 确定性释放；② 批量导出改 ImageBitmap 全分辨率解码逐张 close（此前 N 张累积 N×400MB 直至 OOM）；③ 预览降采样上限 6144→4096（常驻画布 100→45MB）；④ fs 新增 readLocalBlob。**发版 v0.2.2** |
 | 2026-09-08 | 用户报告 0.2.0 启动白屏（看门狗首次抓到真实错误：useLibrary null.id）——根因：清空图库时 localStorage 键写入 "null"，下次启动 restoreActive 解析 null 后读 .id 崩溃。修复：restoreActive/useTemplates.load/readSnapshots 三处持久化解析判空守卫 + 写入端改 removeItem；看门狗恢复界面新增「清除本地设置并重启」（localStorage.clear，IndexedDB 历史保留）。agent-browser 模拟损坏数据实测正常挂载。**发版 v0.2.3** |
+| 2026-09-09 | 编辑模式内存大幅优化（96MP 峰值 702MB，旧版 5~6.5GB，稳态整机 545MB `84585a5`）**发版 v0.2.4**；缩略图不随生成即时显示修复（`bddf41f`）**发版 v0.2.5**；未缩放可拖动照片 + 基础信息面板文件大小（`a3eef58`）、指针捕获 NotFoundError 修复（`a16f356`）、图库网格 Shift 多选对齐胶片条（`15cb671`）**发版 v0.2.6**（`95d60ae`，updateLog 并行写竞态补回 `3721d39`） |
+| 2026-09-09 | 产品宣传下载页上线（Cloudflare Pages：framelab-studio.pages.dev，内嵌网页版在线体验；导航/反馈/全屏入口/响应式与统计三层兜底系列修复 `72c862d`~`e333b59`）；README 全面优化（徽章栏/截图/官网入口 `1bf282a`）；宣发准备 spec + 实施计划（`ce129b2`/`fd9a603`）；宣发前清理归档（`1618f30`）；CDP 截图驱动脚本（`e6fc66b`）；宣发素材库骨架（手动截图指南 + B站四件套 + README 索引 `0fb3362`） |
+| 2026-09-10 | 官网/README 截图换新（杂志白框模板山林样片 `eb3856a`；改名 screenshot-hero.jpg 破浏览器缓存 `a182677`）；宣传截图首批 9 张入库 QC（`8fabcba`）；B站口播稿三版迭代定稿（AI TTS `51a7867` → 去 AI 味 `d2c8e1c` → 用户实拍整理版 `2ebf352`）；marketing 素材库转本地私有（gitignore `edbf5f5`） |
+| 2026-09-11 | 两轮试用反馈集中修复（`e216558` 六项：INFO 日期/机型解耦、参数复制粘贴、导出行为与选择框、胶片条自适应、导入提速；`b2a868f`/`6dd5857` 右键菜单时有时无/`91670ef` 导出勾选被浏览清空 续修）；三项界面简化（移除自由拖拽模式、删「型号距 Logo」、胶片条右键加复制/粘贴参数 `6adf7d3`）；全局死代码链扫描清理（`d51f0d7`）**发版 v0.2.7**（`dd0c6f9`） |
+| 2026-09-11 | 宣传页统计时效升级：同域代理 + 定时重烘焙 + 补充刷新（`178d5a4`）、GitHub 匿名限额对抗（版本号 302 重定向探测 / GITHUB_TOKEN 支持 / 失败响应不缓存 `1d1da25`）、代理缺字段时访客直连补齐星数/下载量（`58d0124`） |
+| 2026-09-11 | **启动图库零解码还原（171 倍提速，`9d94e61`）**：实测 13 张真实照片（含 2 张 96MP）全部缩略图就绪 42.1s → 246ms、首个条目 ~200ms。三层实现：① 缩略图磁盘持久化（`AppData/thumbs`，指纹 = FNV-1a(路径)+mtime+size；首建落盘、启动直读小 JPEG 完全跳过原图解码；指纹失配自动重生成；dev-thumbs 与正式版隔离；可整目录删除）；② 目录元数据缓存（`framelab-catalog.json` 扩展 `meta` 字段：宽高/大小/EXIF 指纹命中零解析零头部读取，`catalogPruneMeta` 防残留，兼容存量旧格式）；③ 元数据/EXIF 4 路并行 + 每批就绪即入列（渐进入列）。239 测试 / vue-tsc + vite 构建 / cargo check 全过（CodeBuddy 侧复验一致）。**待随 v0.2.8 发版** |
