@@ -120,6 +120,7 @@ function onCtxKeydown(e: KeyboardEvent) {
 onBeforeUnmount(() => {
   closeCtxMenu()
   clearTimeout(ctxFlashTimer)
+  cleanupHandleDrag()
 })
 
 // Delete/Backspace 移除确认（LrC 语义：仅从图库移除，不删磁盘原文件）
@@ -136,15 +137,23 @@ function onHandleDown(e: PointerEvent) {
   startH = app.state.filmstripHeight
   window.addEventListener('pointermove', onHandleMove)
   window.addEventListener('pointerup', onHandleUp)
+  window.addEventListener('pointercancel', onHandleUp)
   e.preventDefault()
 }
 function onHandleMove(e: PointerEvent) {
   // 向上拖拽（clientY 减小）→ 高度增加
   app.setFilmstripHeight(startH + (startY - e.clientY))
 }
-function onHandleUp() {
+/** 统一清理拖拽监听（pointerup / pointercancel / 组件卸载都走这里；
+ *  审查报告 U3：此前只在 pointerup 清理——事件丢失（触控取消、弹窗抢焦点、
+ *  Alt-Tab）后监听器永久驻留：鼠标移动持续改高度，且组件卸载后无法回收） */
+function cleanupHandleDrag() {
   window.removeEventListener('pointermove', onHandleMove)
   window.removeEventListener('pointerup', onHandleUp)
+  window.removeEventListener('pointercancel', onHandleUp)
+}
+function onHandleUp() {
+  cleanupHandleDrag()
 }
 </script>
 

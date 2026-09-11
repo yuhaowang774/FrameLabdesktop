@@ -39,14 +39,21 @@ try {
 const prefOpen = ref(false)
 
 let unlisten: (() => void) | null = null
+let disposed = false
 async function setupPrefMenu() {
   if (!isTauri) return
   const { listen } = await import('@tauri-apps/api/event')
-  unlisten = await listen<string>('framelab://menu', (e) => {
+  const off = await listen<string>('framelab://menu', (e) => {
     if (e.payload === 'preferences') prefOpen.value = true
     // 原生菜单「帮助 → 使用帮助」：打开使用指南弹窗
     if (e.payload === 'show_help') guideOpen.value = true
   })
+  // 审查报告 U7：await 期间组件可能已卸载——立即注销，避免监听泄漏
+  if (disposed) {
+    off()
+    return
+  }
+  unlisten = off
 }
 function openPrefs() {
   prefOpen.value = true
@@ -55,6 +62,7 @@ onMounted(() => {
   void setupPrefMenu()
 })
 onBeforeUnmount(() => {
+  disposed = true
   unlisten?.()
   unlisten = null
 })

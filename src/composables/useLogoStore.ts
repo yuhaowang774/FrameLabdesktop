@@ -172,8 +172,8 @@ function fetchSvgText(id: string): Promise<string> {
 function parseSvgGeometry(
   text: string,
 ): { x: number; y: number; w: number; h: number; vbW: number; vbH: number } | null {
+  const div = document.createElement('div')
   try {
-    const div = document.createElement('div')
     div.style.cssText = 'position:fixed;left:-99999px;top:0;width:400px;height:100px'
     div.innerHTML = text
     document.body.appendChild(div)
@@ -192,11 +192,14 @@ function parseSvgGeometry(
         vbH = p[3]
       }
     }
-    div.remove()
     if (!isFinite(bb.x) || !isFinite(bb.y) || !isFinite(bb.width) || !isFinite(bb.height)) return null
     return { x: bb.x, y: bb.y, w: bb.width, h: bb.height, vbW, vbH }
   } catch {
     return null
+  } finally {
+    // 审查报告 S12：成功 / 提前 return / 异常都必须摘除临时节点
+    //（此前各失败路径都会在 body 留下一个 400×100 隐藏 div，反复解析持续泄漏）
+    div.remove()
   }
 }
 

@@ -337,7 +337,7 @@ onBeforeUnmount(() => {
     </div>
   </Teleport>
 
-  <GlassModal v-model="missingOpen" title="INFO 信息缺失提示" :message="missingMsg" confirm-text="知道了" />
+  <GlassModal v-model="missingOpen" title="INFO 信息缺失提示" :message="missingMsg" confirm-text="知道了" :z-index="1200" />
 
   <!-- 重命名模板 -->
   <GlassModal
@@ -348,6 +348,7 @@ onBeforeUnmount(() => {
     :input-value="renameValue"
     input-placeholder="模板名称"
     confirm-text="确定"
+    :z-index="1200"
     @confirm="doRename"
   />
 </template>

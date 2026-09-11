@@ -159,11 +159,13 @@ function readSize(file: File): Promise<{ width: number; height: number }> {
   return new Promise((resolve) => {
     const img = new Image()
     const url = URL.createObjectURL(file)
-    img.onload = () => {
-      resolve({ width: img.naturalWidth, height: img.naturalHeight })
+    // 审查报告 S3：成功 / 失败都必须释放 objectURL（此前 onerror 分支泄漏全尺寸 URL）
+    const done = (width: number, height: number) => {
       URL.revokeObjectURL(url)
+      resolve({ width, height })
     }
-    img.onerror = () => resolve({ width: 0, height: 0 })
+    img.onload = () => done(img.naturalWidth, img.naturalHeight)
+    img.onerror = () => done(0, 0)
     img.src = url
   })
 }
@@ -306,21 +308,34 @@ export function useLibrary() {
         selected: false,
       })
       items.push(item)
-      // 异步生成缩略图（就绪后 reactive 自动更新列表 UI）
+      // 异步生成缩略图（就绪后 reactive 自动更新列表 UI）；
+      // 回填前判条目存活，避免 objectURL 落在已移除条目上永不释放（审查报告 S3）
       void makeThumbUrl(url, width, height).then((t) => {
-        if (t) item.thumbUrl = t
+        if (!t) return
+        if (!items.includes(item)) {
+          releaseUrl(t)
+          return
+        }
+        item.thumbUrl = t
       })
       // 自动识别该照片的 EXIF（相机型号 / EXIF 文本 / 品牌），失败静默。
-      // EXIF 填充属于导入流程的一部分，不应产生历史节点，故期间挂起提交；
-      // 导入完成后以最终参数建立该照片历史链的 Import 节点。
-      suspendCommit(true)
-      try {
-        item.exif = await applyExif(file)
-      } finally {
-        suspendCommit(false)
+      // 审查报告 S1：补丁不再直接改全局 state——仅并入本照片的导入快照；
+      // 只有本照片将成为导入后的当前照片（此前无选中）时才同步应用到全局画布，
+      // 其余照片在切换到它们时按各自历史恢复，批量导入因此不会互相污染。
+      item.exif = await parseExifQuiet(file)
+      const exifPatch = item.exif ? buildExifPatch(item.exif) : null
+      const { state, patch } = useFrameConfig()
+      let snap = JSON.parse(JSON.stringify(state)) as (typeof state)
+      if (exifPatch) snap = { ...snap, ...exifPatch } as typeof snap
+      const becomesActive = activeId.value === null && firstNewId === id
+      if (becomesActive && exifPatch) {
+        suspendCommit(true)
+        try {
+          patch(exifPatch)
+        } finally {
+          suspendCommit(false)
+        }
       }
-      const { state } = useFrameConfig()
-      const snap = JSON.parse(JSON.stringify(state)) as (typeof state)
       await importPhoto(id, snap, '导入')
     }
     // 导入后若当前无选中照片，自动选中第一张以激活画布与 INFO 层显示
@@ -333,21 +348,26 @@ export function useLibrary() {
     }
   }
 
-  // 自动识别：解析照片 EXIF，自动填充相机型号 / EXIF 文本 / 品牌（不自动显示，
-  // 显示与否由 INFO 面板各板块开关控制），并返回解析结果供挂载到该项。失败静默返回 null。
-  // source：网页端传 File，桌面端本地路径导入传磁盘字节 ArrayBuffer。
-  async function applyExif(source: File | ArrayBuffer): Promise<ExifParseResult | null> {
+  // 自动识别：解析照片 EXIF（不改全局配置；结果供「导入快照」与「成为当前照片时应用」）。
+  // source：网页端传 File，桌面端本地路径导入传磁盘字节 ArrayBuffer。失败静默返回 null。
+  async function parseExifQuiet(source: File | ArrayBuffer): Promise<ExifParseResult | null> {
     try {
-      return await applyExifParsed(await parseExif(source))
+      return await parseExif(source)
     } catch {
       /* 无 EXIF 或解析失败：留空，用户可手动填写 */
       return null
     }
   }
 
-  /** 应用已解析的 EXIF 到全局配置（applyExif 的复用核：目录元数据缓存命中时跳过解析直接应用） */
-  async function applyExifParsed(exif: ExifParseResult): Promise<ExifParseResult> {
-    const { patch, state } = useFrameConfig()
+  /**
+   * 依据 EXIF 解析结果构建参数补丁（纯函数，不修改全局 state）。
+   * 审查报告 S1：此前导入流程直接 patch 全局 state——批量导入 / 启动还原时
+   * 「最后一张的 EXIF」会残留成当前活动照片的显示值，并被后续编辑写进该照片历史链。
+   * 现改为：补丁仅并入「该照片自己的导入快照」，仅当照片成为当前照片时才应用到全局。
+   * 缺字段（无型号 / 无镜头 / 无日期）时显式清空并隐藏，避免继承上一张照片的信息。
+   */
+  function buildExifPatch(exif: ExifParseResult): Record<string, unknown> {
+    const { state } = useFrameConfig()
     // 按当前等效焦距开关拼接（切换开关时由 INFO 面板重拼）
     const text = buildExifText(exif.raw, { eqFocal: state.eqFocal, cropFactor: state.cropFactor })
     const data: Record<string, unknown> = {
@@ -360,6 +380,9 @@ export function useLibrary() {
     if (exif.model) {
       data.cameraModel = exif.model
       data.showCameraModel = true
+    } else {
+      data.cameraModel = ''
+      data.showCameraModel = false
     }
     if (exif.brandId) data.brand = exif.brandId
     if (exif.lens) {
@@ -369,11 +392,16 @@ export function useLibrary() {
       // 无镜头信息（手机照片等）：清空镜头文本，避免继承上一张照片的镜头值
       // （各布局对空 lensText 自动隐藏镜头行，card 白底卡同理）
       data.lensText = ''
+      data.showLens = false
     }
     if (text) data.showExif = true
+    else data.showExif = false
     if (data.dateText) data.showDate = true
-    patch(data)
-    return exif
+    else {
+      data.dateText = ''
+      data.showDate = false
+    }
+    return data
   }
 
   /**
@@ -504,15 +532,26 @@ export function useLibrary() {
         added.push(item)
         known.add(e.path)
         catalogAdd([e.path])
-        // 缩略图：优先磁盘持久化缓存（零解码）；未命中生成后立即落盘供下次启动直读
+        // 缩略图：优先磁盘持久化缓存（零解码）；未命中生成后立即落盘供下次启动直读。
+        // 审查报告 S3：异步回填前先判条目是否已被移除（删除 / 清空），否则 objectURL
+        // 落在游离对象上永不 revoke（批量导入后删除时内存持续累积）。
         void (async () => {
           const cachedThumb = await thumbFor(e.path)
           if (cachedThumb) {
-            item.thumbUrl = URL.createObjectURL(new Blob([cachedThumb], { type: 'image/jpeg' }))
+            const t = URL.createObjectURL(new Blob([cachedThumb], { type: 'image/jpeg' }))
+            if (!items.includes(item)) {
+              releaseUrl(t)
+              return
+            }
+            item.thumbUrl = t
             return
           }
           const t = await makeThumbUrl(url, meta.width, meta.height)
           if (!t) return
+          if (!items.includes(item)) {
+            releaseUrl(t)
+            return
+          }
           item.thumbUrl = t
           try {
             const blob = await (await fetch(t)).blob()
@@ -521,23 +560,32 @@ export function useLibrary() {
             /* 持久化失败仅影响下次启动速度 */
           }
         })()
-        // EXIF 应用到全局配置（缓存命中时 meta.exif 来自缓存，零解析）
-        if (meta.exif) {
+        // 审查报告 S1：EXIF 补丁只并入本照片的导入快照，不直接改全局 state
+        // （缓存命中时 meta.exif 来自目录缓存，零解析）
+        const exifPatch = meta.exif ? buildExifPatch(meta.exif) : null
+        const { state, patch } = useFrameConfig()
+        let snap = JSON.parse(JSON.stringify(state)) as (typeof state)
+        if (exifPatch) snap = { ...snap, ...exifPatch } as typeof snap
+        const becomesActive = activeId.value === null && firstNewId === id
+        if (becomesActive && exifPatch) {
           suspendCommit(true)
           try {
-            await applyExifParsed(meta.exif)
-          } catch {
-            /* EXIF 应用失败静默跳过 */
+            patch(exifPatch)
           } finally {
             suspendCommit(false)
           }
         }
-        const { state } = useFrameConfig()
-        const snap = JSON.parse(JSON.stringify(state)) as (typeof state)
         await importPhoto(id, snap, '导入')
       }
     }
-    if (activeId.value === null && firstNewId) select(firstNewId)
+    // 启动还原：优先恢复目录记录的「上次选中」照片（审查报告 S1 尾注：restoreActive
+    // 在 items 为空时抢先执行找不到目标），无记录时才选中第一张，避免重启后总跳回第一张
+    if (activeId.value === null) {
+      const catActive = loadCatalog()?.activePath ?? null
+      const hit = catActive ? items.find((i) => i.path === catActive) : undefined
+      if (hit) select(hit.id)
+      else if (firstNewId) select(firstNewId)
+    }
     return added
   }
 
@@ -584,6 +632,10 @@ export function useLibrary() {
     })
     items.splice(0, items.length)
     activeId.value = null
+    // 审查报告 S14：重置选中锚点与移除确认——否则重新导入后 Shift 范围选择
+    // 会从陈旧锚点派生（出现「全选 / 漏选」的诡异结果）
+    anchorIndex = -1
+    removalConfirm.value = { open: false, count: 0 }
     catalogClear()
   }
 
@@ -633,7 +685,8 @@ export function useLibrary() {
     activeIndex,
     addFiles,
     addLocalEntries,
-    applyExif,
+    parseExifQuiet,
+    buildExifPatch,
     select,
     selectByIndex,
     setActiveKeepSelection,

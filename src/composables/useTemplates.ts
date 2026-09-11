@@ -425,7 +425,17 @@ function load(): FrameTemplate[] {
       const parsed = JSON.parse(raw) as FrameTemplate[] | null
       // 合并内置（内置始终存在），用户自定义追加；持久化值可能为 "null"/损坏，须判空
       if (Array.isArray(parsed)) {
-        const custom = parsed.filter((t) => !t.builtin)
+        // 审查报告 S9：结构校验——损坏条目（config 缺失 / name 非字符串）直接丢弃，
+        // 避免进入列表后点击即崩溃
+        const custom = parsed.filter(
+          (t) =>
+            t &&
+            !t.builtin &&
+            typeof t.name === 'string' &&
+            t.config &&
+            typeof t.config === 'object' &&
+            !Array.isArray(t.config),
+        )
         return [...BUILTIN, ...custom]
       }
     }
@@ -499,8 +509,38 @@ function toTemplateConfig(cfg: FrameConfig): Partial<FrameConfig> {
  * @returns 缺失的 INFO 字段中文名列表（模板开启了显示但无内容，已用「自定义」占位）；
  *          空数组 = 信息齐全。调用方可据此弹框提示。
  */
-export function applyTemplateToState(config: Partial<FrameConfig>): string[] {
+/**
+ * 输入净化（审查报告 S9/S10）：模板导入 / 剪贴板参数 / 本地存储均为不可信来源。
+ * 按 defaultFrameConfig 的类型模板逐键校验：未知键丢弃、类型不符丢弃、
+ * null 仅保留给原本可为 null 的字段；防止 null.id 类崩溃与 `abcpx` 非法 CSS
+ * 进入渲染、历史链与持久化。
+ */
+export function sanitizeTemplateConfig(raw: Partial<FrameConfig>): Partial<FrameConfig> {
+  const def = defaultFrameConfig as unknown as Record<string, unknown>
+  const out: Record<string, unknown> = {}
+  for (const [k, v] of Object.entries(raw)) {
+    const base = def[k]
+    if (base === undefined) continue // 未知键：丢弃
+    if (v === null) {
+      if (base === null) out[k] = null
+      continue
+    }
+    if (typeof v === 'object') {
+      if (!Array.isArray(v) && base !== null && typeof base === 'object') out[k] = v
+      continue
+    }
+    if (typeof v === typeof base) {
+      if (typeof v === 'number' && !Number.isFinite(v)) continue
+      out[k] = v
+    }
+  }
+  return out as Partial<FrameConfig>
+}
+
+export function applyTemplateToState(rawConfig: Partial<FrameConfig>): string[] {
   const { state, loadConfig } = useFrameConfig()
+  // 审查报告 S9/S10：不可信输入统一在此净化（未知键/类型不符/null 污染均被拦截）
+  const config = sanitizeTemplateConfig(rawConfig ?? {})
   // 模板背景明暗（模板未指定背景时沿用当前背景）：浅色纯色底 → 深色 Logo
   const bgMode = config.bgMode ?? state.bgMode
   const bgColor = config.bgColor ?? state.bgColor
@@ -644,12 +684,17 @@ export function useTemplates() {
       if (obj.kind !== 'frame-template' || !obj.template) {
         return { ok: false, error: '不是有效的模板文件' }
       }
+      // 审查报告 S9：结构校验——损坏/手改文件的 config 缺失或非法会导致应用时崩溃
       const t = obj.template as FrameTemplate
+      const name = typeof t?.name === 'string' ? t.name.trim() : ''
+      if (!name || !t?.config || typeof t.config !== 'object' || Array.isArray(t.config)) {
+        return { ok: false, error: '模板内容不完整（缺少名称或参数）' }
+      }
       templates.unshift({
         id: makeId(),
-        name: t.name + ' (导入)',
-        category: t.category || 'all',
-        config: t.config,
+        name: name + ' (导入)',
+        category: typeof t.category === 'string' && t.category ? t.category : 'all',
+        config: sanitizeTemplateConfig(t.config),
       })
       persist()
       return { ok: true }

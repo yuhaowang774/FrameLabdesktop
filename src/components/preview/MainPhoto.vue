@@ -77,7 +77,12 @@ function render() {
   const c = canvas.value
   // 画布像素 = 显示框尺寸（CSS 已按真实比例铺满，避免被裁切/拉伸）
   const rect = c.getBoundingClientRect()
-  const dpr = Math.min(window.devicePixelRatio || 1, 2)
+  let dpr = Math.min(window.devicePixelRatio || 1, 2)
+  // 审查报告 R14：画布单边上限 16384（Chromium 超限静默失败 → 照片区域空白）。
+  // zoom 8× + 大屏 + dpr2 可达 19200；超限时按比例降 dpr（宁可略糊，不可空白）。
+  const MAX_DIM = 16384
+  const need = Math.max(rect.width, rect.height) * dpr
+  if (need > MAX_DIM) dpr = Math.max(0.5, dpr * (MAX_DIM / need))
   const w = Math.max(1, Math.round(rect.width * dpr))
   const h = Math.max(1, Math.round(rect.height * dpr))
   if (c.width !== w) c.width = w

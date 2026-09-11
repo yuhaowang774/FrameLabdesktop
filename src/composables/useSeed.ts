@@ -1,7 +1,7 @@
 // 开发调试专用：启动时把种子照片内置到图库（便于联调基础信息面板/EXIF 流程）。
 // 仅在 DEV 构建下由 main.ts 动态 import；生产构建经死代码消除后本模块与种子图片均不会进入产物。
 import { reactive } from 'vue'
-import { suspendCommit, useFrameConfig } from './useFrameConfig'
+import { useFrameConfig } from './useFrameConfig'
 import { importPhoto } from './useHistory'
 import { loadPhotoNodes } from './useHistoryDB'
 import { useLibrary, makeThumbUrl, restoreActive, type LibraryItem } from './useLibrary'
@@ -43,6 +43,8 @@ export async function seedBuiltin(): Promise<void> {
     // 重复启动防护（热重载会重新执行）：同名种子已在图库则跳过
     if (lib.items.some((i) => i.id === id)) continue
     const { width, height } = await readSizeFromUrl(s.url)
+    // 宽高守卫：与 addLocalEntries 一致，不产生 0×0 坏条目（审查报告 S20）
+    if (!width || !height) continue
     // 同 useLibrary.addFiles：先 reactive 化再 push，异步缩略图/EXIF 赋值才触发渲染
     const item = reactive<LibraryItem>({
       id,
@@ -56,18 +58,22 @@ export async function seedBuiltin(): Promise<void> {
       selected: false,
     })
     lib.items.push(item)
-    // 异步缩略图：胶片条/图库用小图，避免为 88px 缩略图解码 96MP 原图
+    // 异步缩略图：胶片条/图库用小图，避免为 88px 缩略图解码 96MP 原图；
+    // 回填前判存活，避免 objectURL 落在已移除条目上永不释放（审查报告 S3）
     void makeThumbUrl(s.url, width, height).then((t) => {
-      if (t) item.thumbUrl = t
+      if (!t) return
+      if (!lib.items.includes(item)) {
+        URL.revokeObjectURL(t)
+        return
+      }
+      item.thumbUrl = t
     })
-    suspendCommit(true)
-    try {
-      item.exif = await lib.applyExif(await blob.arrayBuffer())
-    } finally {
-      suspendCommit(false)
-    }
+    // 审查报告 S1：与 addFiles 同改造——EXIF 补丁只并入本照片快照，不污染全局 state
+    item.exif = await lib.parseExifQuiet(await blob.arrayBuffer())
+    const exifPatch = item.exif ? lib.buildExifPatch(item.exif) : null
     const { state } = useFrameConfig()
-    const snap = JSON.parse(JSON.stringify(state)) as typeof state
+    let snap = JSON.parse(JSON.stringify(state)) as typeof state
+    if (exifPatch) snap = { ...snap, ...exifPatch } as typeof snap
     // 链已存在（上次启动导入过该种子）：保留既有历史链不重建，避免每次刷新清掉编辑记录
     const existing = await loadPhotoNodes(id)
     if (!existing.length) await importPhoto(id, snap, '导入')

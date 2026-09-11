@@ -3,7 +3,7 @@
 // 布局参考主流桌面应用（VS Code / Figma）的设置页：标题+描述左置、控件右置、分组卡片分隔；
 // 视觉沿用 FrameLab 的方正极简语言（细边框、直角、小字号），开关控件用圆角胶囊以提升可辨识度。
 // 桌面端由原生菜单「文件 → 首选项…」/ Ctrl+, 触发；网页端通过顶栏 ⚙ 打开，两侧均可访问。
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { isTauri } from '../../platform/env'
 import {
   listGpus,
@@ -247,6 +247,13 @@ onMounted(() => {
     })()
   }
 })
+
+// 审查报告 U2：Esc 关闭（标题栏按钮 title 早已标注「关闭 (Esc)」，此前未实现）
+function onKeydown(e: KeyboardEvent) {
+  if (e.key === 'Escape') emit('close')
+}
+onMounted(() => window.addEventListener('keydown', onKeydown))
+onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 
 // ===== 绿色版自更新：检测 → 下载（进度）→ 验签 → 用户确认重启 → 批处理替换自身 =====
 const portable = ref<boolean | null>(null)

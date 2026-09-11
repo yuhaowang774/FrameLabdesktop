@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // 更新记录弹窗：更新完成后自动弹出本次详情；也可从首选项「关于 → 更新记录」打开查看全部历史。
 // 风格沿用 FrameLab 方正极简语言（细边框、直角、小字号、主题变量）。
-import { computed } from 'vue'
+import { computed, onMounted, onBeforeUnmount } from 'vue'
 import {
   UPDATE_LOG,
   UPDATE_GROUP_LABELS,
@@ -26,6 +26,12 @@ const emit = defineEmits<{ (e: 'update:modelValue', v: boolean): void }>()
 function close() {
   emit('update:modelValue', false)
 }
+// 审查报告 U2：Esc 关闭（标题栏按钮 title 早已标注「关闭 (Esc)」，此前未实现）
+function onKeydown(e: KeyboardEvent) {
+  if (e.key === 'Escape' && props.modelValue) close()
+}
+onMounted(() => window.addEventListener('keydown', onKeydown))
+onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 
 /** 列表条目：按版本号数值化倒序（最新在上，不能用字典序——0.1.10 会被排到 0.1.2 后）；本次更新置顶 */
 const entries = computed(() => {

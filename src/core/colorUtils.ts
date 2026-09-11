@@ -34,7 +34,10 @@ export function hexToRgba(hex: string | null | undefined, alpha: number): string
   const r = parseInt(h.slice(0, 2), 16)
   const g = parseInt(h.slice(2, 4), 16)
   const b = parseInt(h.slice(4, 6), 16)
-  return `rgba(${r},${g},${b},${alpha})`
+  // 审查报告 R17：alpha 非法（null/NaN/undefined，旧模板数据可能存在）时按 1 兜底——
+  // 否则产出 `rgba(r,g,b,null)` 非法串被浏览器静默忽略，fillStyle 沿用上一笔颜色
+  const a = Number.isFinite(alpha) ? Math.min(1, Math.max(0, alpha)) : 1
+  return `rgba(${r},${g},${b},${a})`
 }
 
 /**

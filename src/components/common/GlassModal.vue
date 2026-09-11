@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // 磨砂玻璃弹窗：提示/确认/输入，支持二次按钮
-import { ref, watch } from 'vue'
+import { ref, watch, onMounted, onBeforeUnmount } from 'vue'
 
 const props = withDefaults(
   defineProps<{
@@ -14,6 +14,9 @@ const props = withDefaults(
     confirmText?: string
     cancelText?: string
     showCancel?: boolean
+    /** 遮罩层级（默认 1000）：嵌套在更高层弹窗内时需提高（如模板库 1100 内传 1200，
+     *  审查报告 U4——此前子弹窗被模板库遮罩盖住且吞点击） */
+    zIndex?: number
   }>(),
   {
     title: '',
@@ -24,6 +27,7 @@ const props = withDefaults(
     confirmText: '确定',
     cancelText: '取消',
     showCancel: true,
+    zIndex: 1000,
   },
 )
 
@@ -52,11 +56,17 @@ function onCancel() {
   emit('cancel')
   close()
 }
+// 审查报告 U2：Esc 关闭（取消语义）；顶层遮罩存在时 App 全局快捷键已屏蔽，此处自行响应
+function onKeydown(e: KeyboardEvent) {
+  if (e.key === 'Escape' && props.modelValue) onCancel()
+}
+onMounted(() => window.addEventListener('keydown', onKeydown))
+onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown))
 </script>
 
 <template>
   <Teleport to="body">
-    <div v-if="modelValue" class="modal-mask" @click.self="onCancel">
+    <div v-if="modelValue" class="modal-mask" :style="{ zIndex: zIndex }" @click.self="onCancel">
       <div class="modal">
         <h3 v-if="title" class="title">{{ title }}</h3>
         <p v-if="message" class="msg">{{ message }}</p>

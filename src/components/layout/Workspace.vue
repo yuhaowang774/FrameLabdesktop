@@ -183,6 +183,10 @@ function onDblClick(e: MouseEvent) {
 // 任何缩放倍率下均可拖动（未缩放时也能直接移动照片位置；
 // Esc / 双击 / 底部工具栏「适应屏幕」均可复位视图）
 function onPointerDown(e: PointerEvent) {
+  // 审查报告 U9：仅左键开始平移；右键（打开菜单）/中键 / 点击菜单项本身均不抢指针
+  //（此前按住右键拖动会平移画布；点菜单项时指针被捕获还可能吞掉 click）
+  if (e.button !== 0) return
+  if ((e.target as HTMLElement | null)?.closest('.ctx-menu')) return
   // INFO 面板展开时：点击 INFO 元素由 FooterInfo 处理元素拖拽（已 stopPropagation），
   // 点击元素外区域则正常平移画布。
   dragging.value = true

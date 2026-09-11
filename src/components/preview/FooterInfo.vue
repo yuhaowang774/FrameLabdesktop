@@ -21,10 +21,12 @@ import {
   MAG_SWATCH_COUNT,
   MAG_SWATCH_W,
   MAG_SWATCH_H,
+  DIVIDER_MIN_H,
   type FooterLayout,
   type CardRect,
 } from '../../core/infoLayout'
 import { logoAutoColor, footerTextColor } from '../../core/colorUtils'
+import { applyShowToggles } from '../../core/showToggles'
 import { modelAlias } from '../../core/modelAlias'
 import { paletteFor, paletteVersion } from '../../core/photoPalette'
 import { infoCenterRequest } from '../../composables/useUi'
@@ -208,9 +210,13 @@ function getStage(): HTMLElement | null {
 // footer-layer 覆盖整个画板（含边框留白背景区），元素可在「背景区域（画板 content box）」内自由拖动。
 // 元素坐标仍存「内容区坐标」（x/y 相对内容区左上角），内容区在背景区域中居中（偏移 = bgExpand），
 // 允许负值 / 超出内容区，从而覆盖到边框留白背景区；导出侧需同步该偏移。
-const pad = computed(() => state.padding)
+// 生效配置（审查报告 R1）：showBorder / showBackground 关闭时 padding / bgExpand 等
+// 在此归零（与画板 CSS useCssVars、导出 exporter 同源）。预览几何必须消费生效值，
+// 否则关闭边框/背景后 INFO 会整体偏移一个 padding、拖拽位移与鼠标不符。
+const eff = computed(() => applyShowToggles(state))
+const pad = computed(() => eff.value.padding)
 // 背景区域扩展量（px，>0 时背景/边框/画布同步扩大）
-const bgExpand = computed(() => state.bgExpand)
+const bgExpand = computed(() => eff.value.bgExpand)
 // 画板（整个 frame-container）设计宽 = 背景区域 + 左右边框留白
 const canvasW = computed(() => DESIGN_CONTAINER + 2 * bgExpand.value + pad.value * 2)
 
@@ -382,8 +388,8 @@ const bottomBandCenter = computed<number | null>(() => {
   if (state.borderRatio <= 0) return null
   const containerH = frameContainerH.value > 0
     ? frameContainerH.value
-    : contentH.value + state.padding * 2 + state.borderRatio + bgExpand.value * 2 + state.bgBottomRatio
-  return containerH - (pad.value + state.borderRatio) / 2 - pad.value - bgExpand.value
+    : contentH.value + eff.value.padding * 2 + eff.value.borderRatio + bgExpand.value * 2 + eff.value.bgBottomRatio
+  return containerH - (pad.value + eff.value.borderRatio) / 2 - pad.value - bgExpand.value
 })
 
 /** 下边白框带中线在画板中的位置样式（内容区坐标 → 画板坐标） */
@@ -396,9 +402,9 @@ const bottomBandStyle = computed(() => {
 /** 画板中心在「内容区坐标系」中的位置（footer-layer 覆盖整个画板） */
 function canvasCenterInContent(): { x: number; y: number } {
   const cH = contentH.value
-  // canvasH = cH + bgExpand + bgBottomExpand + pad + padBottom
+  // canvasH = cH + bgExpand + bgBottomExpand + pad + padBottom（全部取生效值，含显示开关归零）
   const cy =
-    (cH + bgExpand.value + state.bgExpand + state.bgBottomRatio + pad.value + pad.value + state.borderRatio) / 2 -
+    (cH + bgExpand.value + eff.value.bgExpand + eff.value.bgBottomRatio + pad.value + pad.value + eff.value.borderRatio) / 2 -
     pad.value -
     bgExpand.value
   return { x: DESIGN_CONTAINER / 2, y: cy }
@@ -464,10 +470,10 @@ function onPointerUp() {
 
 // 内容区设计高度（用于默认底部定位）
 const contentH = computed(() => state.canvasH
-  ? state.canvasH - state.padding - (state.padding + state.borderRatio)
+  ? state.canvasH - eff.value.padding - (eff.value.padding + eff.value.borderRatio)
   : (frameContainerH.value > 0
-    ? frameContainerH.value - state.padding - (state.padding + state.borderRatio)
-    : state.canvasH - state.padding - (state.padding + state.borderRatio)),
+    ? frameContainerH.value - eff.value.padding - (eff.value.padding + eff.value.borderRatio)
+    : state.canvasH - eff.value.padding - (eff.value.padding + eff.value.borderRatio)),
 )
 const frameContainerH = ref(0)
 // 通过 ResizeObserver 同步画板设计高
@@ -491,7 +497,17 @@ onBeforeUnmount(() => { _ro?.disconnect(); _ro = null })
 // 画板 DOM 高度在渲染完成后才更新，ResizeObserver 存在时序缺口——主动 nextTick 重测，
 // 消除模板切换瞬间用旧画布高度计算 INFO 位置的竞态（复古 CCD 日期戳出画布的根因）。
 watch(
-  () => [state.canvasH, state.padding, state.borderRatio, state.bgExpand, state.bgBottomRatio, state.photoSrc],
+  () => [
+    state.canvasH,
+    state.padding,
+    state.borderRatio,
+    state.bgExpand,
+    state.bgBottomRatio,
+    // 显示开关切换时几何同样变化（applyShowToggles 归零生效值），必须触发重测
+    state.showBorder,
+    state.showBackground,
+    state.photoSrc,
+  ],
   () => {
     nextTick(syncFrameContainerH)
   },
@@ -570,7 +586,7 @@ function cardPos(r: CardRect) {
 // duo 双栏分隔竖线：右栏文字左侧浅灰线（与 exporter 一致，几何来自共享布局计算）；
 // x 支持水平拖动（infoDividerX），上/下端手柄调高度（infoDividerTop/Bottom），
 // null = 跟随默认布局（默认高度自动等于下边白框带全高）
-const MIN_DIVIDER_H = 20 // 竖线最小高度（设计 px）
+
 
 /** 竖线当前几何（内容区坐标）：手动值优先，null 回退默认布局 */
 function dividerGeom(): { x: number; top: number; bottom: number } | null {
@@ -595,7 +611,7 @@ const duoDividerStyle = computed(() => {
     // left 恒 0、以 transform 定位：拖动只触发合成不重排（消除拖影的关键）
     transform: `translateX(${pad.value + bgExpand.value + g.x}px)`,
     top: pad.value + bgExpand.value + g.top + 'px',
-    height: Math.max(MIN_DIVIDER_H, g.bottom - g.top) + 'px',
+    height: Math.max(DIVIDER_MIN_H, g.bottom - g.top) + 'px',
   }
 })
 
@@ -638,14 +654,14 @@ function onDividerMove(e: PointerEvent) {
     patch({ infoDividerX: Math.max(boardLo, Math.min(hi, divStart.x + dx)) })
   } else if (dividerEdge.value === 'top') {
     // 顶端跟随鼠标，但不越过底端（保底最小高度）
-    const nt = Math.min(divStart.top + dy, divStart.bottom - MIN_DIVIDER_H)
+    const nt = Math.min(divStart.top + dy, divStart.bottom - DIVIDER_MIN_H)
     patch({ infoDividerTop: Math.max(boardLo, nt) })
   } else {
     // 底端跟随鼠标，但不越过顶端，且不超过画板底缘
     const canvasBottom = frameContainerH.value > 0
       ? frameContainerH.value - pad.value - bgExpand.value
       : contentH.value
-    const nb = Math.max(divStart.bottom + dy, divStart.top + MIN_DIVIDER_H)
+    const nb = Math.max(divStart.bottom + dy, divStart.top + DIVIDER_MIN_H)
     patch({ infoDividerBottom: Math.min(canvasBottom, nb) })
   }
 }
@@ -1023,7 +1039,8 @@ function absStyle(key: ItemKey) {
   top: 0;
   bottom: 0;
   width: 1px;
-  background: rgba(0, 0, 0, 0.18);
+  /* 透明度与导出绘制（DIVIDER_ALPHA）统一，审查报告 R15 */
+  background: rgba(0, 0, 0, 0.2);
 }
 .footer-layer.editing .duo-divider {
   pointer-events: auto;

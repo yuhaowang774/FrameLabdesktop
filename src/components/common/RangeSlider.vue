@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // FrameLab 滑块：轨道 6px / 手柄 12px / 数字冷灰 / 字重 400
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 
 const props = withDefaults(
   defineProps<{
@@ -26,6 +26,17 @@ const fillPercent = computed(() => {
 function onInput(e: Event) {
   emit('update:modelValue', Number((e.target as HTMLInputElement).value))
 }
+
+const inputEl = ref<HTMLInputElement | null>(null)
+// 审查报告 U14：父级钳制/取整导致 modelValue 未实际变化时，Vue 不会 patch DOM——
+// 手柄会停在拖动位置、与右侧数值长期漂移；watch 强制回写保证两者一致
+watch(
+  () => props.modelValue,
+  (v) => {
+    const el = inputEl.value
+    if (el && el.value !== String(v)) el.value = String(v)
+  },
+)
 </script>
 
 <template>
@@ -33,6 +44,7 @@ function onInput(e: Event) {
   <div class="range-slider" :class="{ disabled }">
     <span class="label" v-if="label">{{ label }}</span>
     <input
+      ref="inputEl"
       class="track"
       type="range"
       :min="min"

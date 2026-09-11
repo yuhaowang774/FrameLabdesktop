@@ -276,6 +276,16 @@ function confirm() {
   emit('close')
 }
 
+/** 取消：丢弃本地旋转/裁剪改动（审查报告 U18：Esc 关闭；遮罩点击不再误提交） */
+function cancel() {
+  editingPhoto.value = false
+  emit('close')
+}
+
+function onKeydown(e: KeyboardEvent) {
+  if (e.key === 'Escape') cancel()
+}
+
 // 监听 photoImage 变化：重建工作副本（编辑器打开期间切换照片的场景）
 watch(
   () => photoImage.value,
@@ -288,6 +298,7 @@ watch(
 let stageRo: ResizeObserver | null = null
 onMounted(() => {
   window.addEventListener('resize', onStageResize)
+  window.addEventListener('keydown', onKeydown)
   if (stage.value && 'ResizeObserver' in window) {
     stageRo = new ResizeObserver(onStageResize)
     stageRo.observe(stage.value)
@@ -298,13 +309,16 @@ onBeforeUnmount(() => {
   buildSeq++ // 异步缩放中的过期结果直接丢弃
   disposeWorkSource()
   window.removeEventListener('resize', onStageResize)
+  window.removeEventListener('keydown', onKeydown)
   stageRo?.disconnect()
   stageRo = null
 })
 </script>
 
 <template>
-  <div class="editor-mask" @pointerdown.self="confirm">
+  <!-- 审查报告 U18：遮罩点击不再"即确认提交"（误点会提交未检查的裁剪）；
+       完成 = 顶部「完成」按钮，取消 = Esc（丢弃本地改动） -->
+  <div class="editor-mask">
     <div class="editor">
       <div class="editor-head">
         <span class="title">编辑照片</span>

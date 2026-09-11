@@ -112,7 +112,9 @@ watch(
   inset: 0;
   width: 100%;
   height: 100%;
-  z-index: 4;
+  /* 审查报告 R2：效果层（暗角/颗粒/水印）与导出一致应位于照片与信息层之上。
+     此前 z-index:4 低于照片(5)/INFO(6)，预览只看得到背景部分的效果，成片却全图覆盖。 */
+  z-index: 7;
   pointer-events: none;
 }
 </style>

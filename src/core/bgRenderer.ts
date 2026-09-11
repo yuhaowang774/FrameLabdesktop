@@ -263,9 +263,18 @@ export function drawVignette(ctx: CanvasRenderingContext2D, w: number, h: number
 }
 
 /**
+ * 颗粒瓦片尺寸（px）：噪声按固定瓦片生成后 Pattern 平铺，与画布尺寸解耦。
+ * 审查报告 R3：此前按「w×h 整幅」缓存噪点——导出画布可达 12800×8800（≈450MB/张），
+ * 多张缓存即 GB 级常驻，且每次重建要跑 w*h/4 次主线程随机循环。
+ * 瓦片方案：缓存与生成成本恒定（1024² ≈ 4MB/瓦片），平铺密度与原实现一致；
+ * 高频噪点的周期性在 1024px 下视觉不可感知（预览与导出共用本函数，两端一致）。
+ */
+const GRAIN_TILE = 1024
+
+/**
  * 绘制颗粒（grain）。强度 0~1：随机噪点叠加。
- * 性能：逐点 fillRect 会产生数十万次独立绘制调用（每次都是一次 GPU draw + 状态切换），
- * 改为离屏 ImageData 像素直写后单次合成，快 1~2 个数量级。
+ * 性能：逐点 fillRect 会产生数十万次独立绘制调用，改为离屏 ImageData 像素直写；
+ * 再按瓦片缓存 + Pattern 单次合成（滑块拖动零重建）。
  */
 export function drawGrain(
   ctx: CanvasRenderingContext2D,
@@ -275,16 +284,13 @@ export function drawGrain(
   seed = 1,
 ): void {
   if (strength <= 0) return
-  // 噪点离屏缓存：同尺寸同强度（seed 默认恒定）的噪点内容不变，
-  // 重建 ImageData 是 w*h/4 次随机采样，缓存后滑块拖动仅一次 drawImage。
-  const key = `${w}x${h}:${strength}:${seed}`
-  let c = grainCache.get(key)
-  if (!c) {
-    const count = Math.floor((w * h) / 4) * strength
-    c = createOffscreen(w, h)
-    const cx = (c as any).getContext('2d') as CanvasRenderingContext2D
+  const key = `${strength}:${seed}`
+  let tile = grainTileCache.get(key)
+  if (!tile) {
+    tile = createOffscreen(GRAIN_TILE, GRAIN_TILE)
+    const cx = (tile as any).getContext('2d') as CanvasRenderingContext2D
     if (!cx) return
-    const img = cx.createImageData(w, h)
+    const img = cx.createImageData(GRAIN_TILE, GRAIN_TILE)
     const d = img.data
     let s = seed * 9301 + 49297
     const rnd = () => {
@@ -292,27 +298,33 @@ export function drawGrain(
       return s / 233280
     }
     const alpha = Math.round(0.06 * strength * 255)
+    const count = Math.floor((GRAIN_TILE * GRAIN_TILE) / 4) * strength
     for (let i = 0; i < count; i++) {
-      const x = Math.floor(rnd() * w)
-      const y = Math.floor(rnd() * h)
+      const x = Math.floor(rnd() * GRAIN_TILE)
+      const y = Math.floor(rnd() * GRAIN_TILE)
       const v = rnd() > 0.5 ? 255 : 0
-      const p = (y * w + x) * 4
+      const p = (y * GRAIN_TILE + x) * 4
       d[p] = v
       d[p + 1] = v
       d[p + 2] = v
       d[p + 3] = alpha
     }
     cx.putImageData(img, 0, 0)
-    grainCache.set(key, c)
-    // 防膨胀：只保留最近 4 张噪点
-    if (grainCache.size > 4) {
-      const first = grainCache.keys().next().value
-      if (first !== undefined) grainCache.delete(first)
+    grainTileCache.set(key, tile)
+    // 防膨胀：只保留最近 3 个强度的瓦片（≈12MB 上限）
+    if (grainTileCache.size > 3) {
+      const first = grainTileCache.keys().next().value
+      if (first !== undefined) grainTileCache.delete(first)
     }
   }
-  ctx.drawImage(c as CanvasImageSource, 0, 0)
+  const pat = ctx.createPattern(tile as CanvasImageSource, 'repeat')
+  if (!pat) return
+  ctx.save()
+  ctx.fillStyle = pat
+  ctx.fillRect(0, 0, w, h)
+  ctx.restore()
 }
-const grainCache = new Map<string, HTMLCanvasElement | OffscreenCanvas>()
+const grainTileCache = new Map<string, HTMLCanvasElement | OffscreenCanvas>()
 
 /**
  * 绘制水印（文本/图片，单一或平铺）。

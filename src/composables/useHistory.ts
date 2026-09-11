@@ -28,6 +28,7 @@ import { getHistoryLimitPref } from './usePrefs'
 import { useFrameConfig, registerCommit, isCommitSuspended } from './useFrameConfig'
 import { backfillInfoFromRaw, isInfoMissing, INFO_PLACEHOLDER, parseDisplayDate, formatDate } from './useExif'
 import { recalcCanvasHAfterTemplate } from './useTemplates'
+import { reportRuntimeError } from './useUi'
 import { hexLuminance } from '../core/colorUtils'
 import {
   loadPhotoNodes,
@@ -61,6 +62,20 @@ const cursors = reactive<Record<string, number>>({})
 // 懒加载标记：保证每张照片的链表只从 DB 载入一次
 const loaded = new Set<string>()
 const loading = new Map<string, Promise<void>>()
+
+/** 历史持久层失败上报（同一会话只提示一次，避免配额满时每次编辑都弹窗刷屏） */
+let dbErrorReported = false
+function reportDbError(e: unknown): void {
+  if (dbErrorReported) return
+  dbErrorReported = true
+  const msg = String((e as Error)?.message ?? e)
+  const quota = /quota|quotaexceeded/i.test(msg)
+  reportRuntimeError(
+    '历史记录保存失败',
+    `${quota ? '本地存储空间不足（配额超限）' : '编辑历史无法写入本地数据库'}；本次会话的撤销 / 重做可能不会在重启后保留。可到「首选项 → 数据」清理历史或降低历史上限。\n${msg}`,
+  )
+}
+
 export function ensureChain(photoId: string): Promise<void> {
   if (loaded.has(photoId)) return Promise.resolve()
   const pending = loading.get(photoId)
@@ -71,6 +86,14 @@ export function ensureChain(photoId: string): Promise<void> {
     cursors[photoId] = recs.length > 0 ? recs.length - 1 : -1
     loaded.add(photoId)
   })()
+    .catch((e) => {
+      reportDbError(e)
+      throw e
+    })
+    .finally(() => {
+      // 成功 / 失败都移除加载中缓存：失败后允许重试（此前 rejected promise 被永久持有）
+      loading.delete(photoId)
+    })
   loading.set(photoId, p)
   return p
 }
@@ -286,21 +309,24 @@ export function recordEdit(photoId: string, state: FrameConfig, name: string, sk
   if (chain.length > limit) {
     // 防膨胀：保留 Import（index 0），裁剪最旧编辑节点
     overflow = chain.splice(1, chain.length - limit)
-    if (cur >= 1 && cursors[photoId] != null) cursors[photoId] = Math.max(0, (cursors[photoId] ?? 0) - overflow.length)
   }
   cursors[photoId] = chain.length - 1
-  void putHistoryNode(node).catch(() => { /* IndexedDB 写入失败静默 */ })
+  void putHistoryNode(node).catch(reportDbError)
   const del = [...removed, ...overflow]
-  if (del.length) void deleteHistoryNodes(del.map((n) => n.id)).catch(() => {})
+  if (del.length) void deleteHistoryNodes(del.map((n) => n.id)).catch(reportDbError)
 }
 
-/** 建立 Import 导入节点（照片导入时调用）；已有链则整体重建 */
+/**
+ * 建立 Import 导入节点（照片首次导入时调用）。
+ * 审查报告新发现：启动还原会对目录内每张照片调用本函数，此前「已有链则整体重建」
+ * 会把用户的编辑历史清空（历史持久化形同虚设）；现改为——链已存在则原样保留，
+ * 仅当该照片尚无任何节点时才创建 Import 节点。移除照片会先删除其链（删后重新导入 = 新链）。
+ */
 export async function importPhoto(photoId: string, state: FrameConfig, name = '导入'): Promise<void> {
   await flushPending()
   await ensureChain(photoId)
   const chain = chains[photoId]
-  const oldIds = chain.map((n) => n.id)
-  chain.splice(0, chain.length)
+  if (chain.length > 0) return // 已有历史（含 Import）：保留原链，不重建
   const node: HistoryNodeRecord = {
     id: makeId(),
     photoId,
@@ -311,8 +337,7 @@ export async function importPhoto(photoId: string, state: FrameConfig, name = '�
   }
   chain.push(node)
   cursors[photoId] = 0
-  void putHistoryNode(node).catch(() => {})
-  if (oldIds.length) void deleteHistoryNodes(oldIds).catch(() => {})
+  void putHistoryNode(node).catch(reportDbError)
 }
 
 /** 点击历史节点：将该照片全部参数替换为此节点快照并刷新预览 */
@@ -597,8 +622,13 @@ export function canRedo(): boolean {
 // ===== 批量清除接口（防数据库无限膨胀） =====
 /** 删除单张照片的整条历史链表（照片移除时调用） */
 export async function removePhotoHistory(photoId: string): Promise<void> {
-  // 若该照片有未提交的操作，先提交，避免删链后 pending 又把节点写回数据库
-  if (pendingCommit?.photoId === photoId) await flushPending()
+  // 该照片的待提交内容直接丢弃（含已拍快照与 rAF 待拍登记）：删链后若残留，
+  // 防抖到期 / flush 会把节点重新写回数据库——表现为历史链「复活」且永不回收
+  // （审查报告 S2：此前只判 pendingCommit，未判 pendingKey，rAF 未及触发时必漏）。
+  if (pendingKey?.photoId === photoId) pendingKey = null
+  if (pendingCommit?.photoId === photoId) pendingCommit = null
+  // 其余照片的待提交历史按正常时机落定（flush 内部会清 rAF 与定时器）
+  await flushPending()
   loaded.delete(photoId)
   loading.delete(photoId)
   delete chains[photoId]

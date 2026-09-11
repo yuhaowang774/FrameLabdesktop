@@ -164,3 +164,24 @@ export function useUpdater() {
     skipUpdateVersion,
   }
 }
+
+// ===== 开发演示（仅 DEV 构建，不进入正式包）=====
+// 用途：本地预览「发现新版本」提醒卡片 UI（线上无更高版本时真实检查不会命中）。
+// 用法：控制台执行 localStorage.setItem('framelab-demo-update','0.2.9') 后刷新页面；
+// 清除：localStorage.removeItem('framelab-demo-update')。
+// 注意：演示数据不触发真实下载——点「立即更新」会重新联网检查，线上无更高版本时卡片自动收起。
+if (import.meta.env.DEV) {
+  try {
+    const demo = localStorage.getItem('framelab-demo-update')
+    if (demo) {
+      available.value = {
+        version: demo,
+        notes:
+          '（演示数据）「发现新版本」提醒卡片预览。正式环境由更新源（latest.json）提供真实版本号与更新说明。',
+        date: new Date().toISOString(),
+      }
+    }
+  } catch {
+    /* localStorage 不可用：忽略 */
+  }
+}

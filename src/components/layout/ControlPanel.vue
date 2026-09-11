@@ -2,6 +2,7 @@
 // 右侧可折叠参数面板组：
 // 顶部单行线性图标工具栏 + 四个可折叠面板（照片/背景/边框/INFO信息设置）
 // + 底部两个扁平功能按钮（上一张 / 复位）。
+import { onBeforeUnmount } from 'vue'
 import { useAppState } from '../../composables/useAppState'
 import { useLibrary } from '../../composables/useLibrary'
 import { useFrameConfig } from '../../composables/useFrameConfig'
@@ -138,16 +139,24 @@ function onResizeDown(e: PointerEvent) {
   startW = app.state.rightWidth
   window.addEventListener('pointermove', onResizeMove)
   window.addEventListener('pointerup', onResizeUp)
+  window.addEventListener('pointercancel', onResizeUp)
   e.preventDefault()
 }
 function onResizeMove(e: PointerEvent) {
   // 向左拖拽（clientX 减小）→ 宽度增加
   app.setRightWidth(startW + (startX - e.clientX))
 }
-function onResizeUp() {
+/** 统一清理拖拽监听（pointerup / pointercancel / 组件卸载都走这里；
+ *  审查报告 U3：此前只在 pointerup 清理，事件丢失后监听器永久驻留 → 幽灵拖拽） */
+function cleanupResize() {
   window.removeEventListener('pointermove', onResizeMove)
   window.removeEventListener('pointerup', onResizeUp)
+  window.removeEventListener('pointercancel', onResizeUp)
 }
+function onResizeUp() {
+  cleanupResize()
+}
+onBeforeUnmount(cleanupResize)
 </script>
 
 <template>

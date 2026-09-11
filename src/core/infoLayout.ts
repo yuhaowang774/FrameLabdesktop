@@ -10,6 +10,7 @@
 //   行2 = 参数(18)，行距 21 / 信息底边距 29（相对画布底缘）
 import type { FrameConfig } from './types'
 import { DESIGN_CONTAINER, phoneBrandOf } from './constants'
+import { modelAlias } from './modelAlias'
 
 /** 单个 INFO 元素的默认位置（内容区坐标，左上角） */
 export interface FooterRect {
@@ -174,7 +175,8 @@ export function computeFooterLayout(cfg: FrameConfig, canvasBottom: number, logo
   const dateY = showDate ? cursor - dateS.size : bottom
   if (showDate) cursor -= dateS.size + INLINE_ROW_GAP
   const exifY = cursor - exifH
-  const modelW = measureTextWidth(cfg.cameraModel, toCanvasFont(modelS, cfg.cameraModelItalic))
+  // 审查报告 R10：测宽必须与绘制同源（营销名映射），否则 inline 居中行偏移、右对齐宽度失真
+  const modelW = measureTextWidth(modelAlias(cfg.cameraModel), toCanvasFont(modelS, cfg.cameraModelItalic))
   const showModel = cfg.showCameraModel && !!cfg.cameraModel
   // 手机品牌的 Logo 是文字标记（HUAWEI/XIAOMI…），与机型文本（通常含品牌名）并排显示会重复，
   // 行1 仅保留机型居中；相机品牌的图形 Logo 正常内联。
@@ -324,8 +326,8 @@ export function computeCardLayout(cfg: FrameConfig, canvasBottom: number): CardL
   const showExif = cfg.showExif && !!cfg.exifText
   const showLens = cfg.showLens && !!cfg.lensText
 
-  // 型号统一走营销名映射（与导出/预览一致）
-  const modelText = cfg.cameraModel
+  // 型号统一走营销名映射（与导出/预览一致）；审查报告 R10：此前仅注释声称、代码未做
+  const modelText = modelAlias(cfg.cameraModel)
   const modelW = showModel ? measureTextWidth(modelText, toCanvasFont(modelS, cfg.cameraModelItalic)) : 0
   const exifW = showExif ? measureTextWidth(cfg.exifText, toCanvasFont(exifS)) : 0
   const lensW = showLens ? measureTextWidth(cfg.lensText, toCanvasFont(lensS)) : 0
@@ -390,6 +392,10 @@ export const MAG_TITLE_SIZE = 44 // 标题字号（设计 px）
 // 标题专用衬线字体（预览/导出同源）：杂志刊头气质，与正文无衬线形成对比；
 // 同时与最初参考样张（"Nature's poetry" 无衬线粗体）拉开区分度
 export const MAG_TITLE_FONT = "Didot, 'Bodoni MT', 'Playfair Display', Georgia, 'Times New Roman', serif"
+/** duo 分隔竖线最小高度（设计 px）：预览与导出共用（审查报告 R15，此前两端下限不一致） */
+export const DIVIDER_MIN_H = 20
+/** duo 分隔竖线透明度：预览 CSS 与导出绘制共用（审查报告 R15，此前 0.18/0.2 不一致） */
+export const DIVIDER_ALPHA = 0.2
 export const MAG_SUB_SIZE = 16 // 副标题字号（"PHOTOGRAPHED IN : 日期"）
 export const MAG_SUB_GAP = 16 // 副标题与标题行距
 export const MAG_SUB_LETTER_SPACING = 3 // 副标题字距
@@ -420,7 +426,9 @@ export interface MagazineLayout {
  */
 export function magazineTitleFontSize(cfg: FrameConfig): number {
   if (!cfg.infoTitle) return MAG_TITLE_SIZE
-  const w = measureTextWidth(cfg.infoTitle, `700 ${MAG_TITLE_SIZE}px ${cfg.fontFamily}`)
+  // 审查报告 R11：测宽字体必须与绘制完全一致（MAG_TITLE_FONT + italic 700），
+  // 此前用 cfg.fontFamily 常规体测宽 → 自适应缩小量失准，长标题仍可能溢出右缘
+  const w = measureTextWidth(cfg.infoTitle, `italic 700 ${MAG_TITLE_SIZE}px ${MAG_TITLE_FONT}`)
   const maxW = DESIGN_CONTAINER - MAG_TITLE_INSET - MAG_RIGHT_INSET
   if (w <= 0 || w <= maxW) return MAG_TITLE_SIZE
   return Math.max(22, Math.floor(MAG_TITLE_SIZE * (maxW / w)))

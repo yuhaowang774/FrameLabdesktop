@@ -3,7 +3,7 @@
 // （原「批量同步 → 保存当前配置为模板」入口已移至编辑页左栏「我的模板」面板。）
 // 导出成功后弹出预览（图片 + 保存按钮），确保用户「看得到」导出结果。
 // 桌面端（Tauri）：保存走系统对话框 + Rust 写盘；批量导出先选目录再逐张写入。
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useLibrary, type LibraryItem } from '../../composables/useLibrary'
 import { useFrameConfig } from '../../composables/useFrameConfig'
 import { useAppState } from '../../composables/useAppState'
@@ -124,6 +124,19 @@ function closePreview() {
   preview.value = null
 }
 
+// Esc 关闭导出预览（审查报告 U2：弹窗打开时 App 全局快捷键已屏蔽，此处自行响应）
+function onKeydown(e: KeyboardEvent) {
+  if (e.key === 'Escape' && preview.value) closePreview()
+}
+onMounted(() => window.addEventListener('keydown', onKeydown))
+// 审查报告 U5：切模块卸载时释放预览 objectURL（PNG 可达数十 MB，此前只在替换/手动
+// 关闭时释放），并终止仍在进行的批量循环（否则后台继续导出、结束时又新建永不释放的 URL）
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', onKeydown)
+  closePreview()
+  batch.value.cancelled = true
+})
+
 // ===== 输出预估：当前照片尺寸懒加载缓存 + 任务卡实时估算（与 exporter 同源公式） =====
 const sizeCache = new Map<string, { w: number; h: number }>()
 const activeItem = computed(() => library.items.find((i) => i.id === library.activeId.value) ?? null)
@@ -241,10 +254,17 @@ function ensureExportFolder(): boolean {
   return false
 }
 
+/** 单张导出进行中标志（审查报告 R13：与批量导出互斥，防止连点并发合成） */
+const singleRunning = ref(false)
+
 /** 导出并弹出预览；选定了导出文件夹时直接写盘（重名自动加序号） */
 async function exportSingle() {
   const active = library.items.find((i) => i.id === library.activeId.value)
   if (!active || !ensureExportFolder()) return
+  // 审查报告 R13：与批量导出 / 上一次单张导出互斥——此前连点会并发两次合成，
+  // 两条链路共用全局任务条与同一个预览（后完成者覆盖、提前 endTask 清空进度条）
+  if (batch.value.running || singleRunning.value) return
+  singleRunning.value = true
   app.startTask('导出单张 · ' + active.name)
   try {
     // 单张导出 = 当前编辑器所见即所得：state 已随照片切换恢复该照片参数，不回填
@@ -264,6 +284,7 @@ async function exportSingle() {
   } catch (e) {
     window.alert('导出失败：' + (e as Error).message)
   } finally {
+    singleRunning.value = false
     setTimeout(() => app.endTask(), 400)
   }
 }
@@ -332,24 +353,31 @@ async function exportBatch() {
       if (batch.value.cancelled) break
       const item = list[i]
       batch.value.label = item.name
-      const blob = await renderOne(item, backfillExif.value)
-      const name = makeExportFilename(format.value, item.name.replace(/\.[^.]+$/, ''))
-      if (folder) {
-        const { writeBlobTo } = await import('../../platform/fs')
-        const written = await writeBlobTo(folder, name, blob)
-        last = { blob, name, written }
-      } else {
-        downloadBlob(blob, name)
-        last = { blob, name }
+      // 审查报告 R4：单张失败不得中断整批（此前第 5 张失败则其余全部不导出，
+      // 且失败明细只记 1 条）。逐张 try/catch，失败记录后继续下一张。
+      try {
+        const blob = await renderOne(item, backfillExif.value)
+        const name = makeExportFilename(format.value, item.name.replace(/\.[^.]+$/, ''))
+        if (folder) {
+          const { writeBlobTo } = await import('../../platform/fs')
+          const written = await writeBlobTo(folder, name, blob)
+          last = { blob, name, written }
+        } else {
+          downloadBlob(blob, name)
+          last = { blob, name }
+        }
+        batch.value.success++
+      } catch (e) {
+        batch.value.failed.push({ name: item.name, reason: (e as Error)?.message ?? String(e) })
       }
       batch.value.done = i + 1
-      batch.value.success++
       app.setTaskProgress((i + 1) / list.length)
       await new Promise((r) => setTimeout(r, 30))
     }
     batch.value.finished = true
   } catch (e) {
-    batch.value.failed.push({ name: batch.value.label, reason: (e as Error).message })
+    // 意外异常（列表迭代本身出错等）：记录后仍走 finally 收尾
+    batch.value.failed.push({ name: batch.value.label, reason: `批量流程异常：${(e as Error)?.message ?? e}` })
     batch.value.finished = true
   } finally {
     batch.value.running = false
@@ -536,8 +564,8 @@ watch(
       </div>
 
       <div class="btns">
-        <button class="btn primary big" :disabled="!library.activeId.value || batch.running" @click="exportSingle">导出当前照片</button>
-        <button class="btn" :disabled="!targetCount || batch.running" @click="exportBatch">
+        <button class="btn primary big" :disabled="!library.activeId.value || batch.running || singleRunning" @click="exportSingle">导出当前照片</button>
+        <button class="btn" :disabled="!targetCount || batch.running || singleRunning" @click="exportBatch">
           批量导出（{{ selectedCount ? selectedCount + ' 张选中' : '当前照片' }}）
         </button>
       </div>

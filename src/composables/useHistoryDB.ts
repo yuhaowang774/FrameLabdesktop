@@ -39,9 +39,23 @@ function openDB(): Promise<IDBDatabase> {
     }
     req.onsuccess = () => {
       globalSeq = 0 // 重新打开后由 load 阶段重建
-      resolve(req.result)
+      const db = req.result
+      // 其它标签页请求升级 / 清理站点数据时主动关闭本连接（否则阻塞对端，本端事务也开始报错）
+      db.onversionchange = () => {
+        db.close()
+        dbPromise = null
+      }
+      resolve(db)
     }
-    req.onerror = () => reject(req.error)
+    // 失败不缓存 rejected promise——否则本次会话所有历史读写永久失败且无重试机会
+    req.onerror = () => {
+      dbPromise = null
+      reject(req.error)
+    }
+    // 被其它标签页旧连接阻塞：等待其收到 versionchange 后自行关闭（不 reject，避免误报）
+    req.onblocked = () => {
+      /* 等待对端关闭连接 */
+    }
   })
   return dbPromise
 }

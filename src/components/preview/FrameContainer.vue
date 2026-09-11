@@ -381,7 +381,7 @@ defineExpose({
   border-radius: var(--frame-radius-inner);
   overflow: hidden;
   z-index: 0;
-  /* 形成独立层叠上下文，确保内部 effect-overlay(z-index:4) 不会溢出到照片之上 */
+  /* 形成独立层叠上下文：背景层内部元素不溢出到照片/信息层之上 */
   isolation: isolate;
 }
 /* 纯色相框边框层：用 border 模拟 padding 留白区，包裹背景区域的一圈（画板之上、背景之下）。
@@ -427,11 +427,11 @@ defineExpose({
   outline: 1px dashed var(--text);
   outline-offset: -2px;
 }
-/* 未选择照片提示：居中覆盖在画板上方，不拦截交互 */
+/* 未选择照片提示：居中覆盖在画板上方（最顶层，含效果层之上），不拦截交互 */
 .no-photo-hint {
   position: absolute;
   inset: 0;
-  z-index: 7;
+  z-index: 8;
   display: flex;
   align-items: center;
   justify-content: center;

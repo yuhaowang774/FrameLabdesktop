@@ -87,26 +87,65 @@ function isEmpty(d: CatalogData): boolean {
   return !d.paths.length && !d.folder && !d.activePath
 }
 
-/** 把缓存写入持久层：网页端 localStorage；桌面端 AppData JSON（fire-and-forget，不阻塞 UI） */
+// ===== 持久化写入调度：去抖合并 + 单飞串行 =====
+// 背景（审查报告 T3）：此前每次变更（catalogAdd / catalogSetMeta / catalogSetActive）都
+// fire-and-forget 发起一次全量写；批量导入上千张 = 数千次互不等待的 IPC 写同一文件，
+// 并发截断写互相交错会产出半截 JSON（解析失败被当空目录 → 下次写回即图库丢失）。
+// 现改为：250ms 去抖合并 + 单飞串行（同一时刻至多一个在飞写入，写完若有新变更再补一轮）。
+const WRITE_DEBOUNCE_MS = 250
+let writeTimer: ReturnType<typeof setTimeout> | null = null
+let writeInFlight: Promise<void> | null = null
+let dirty = false
+
+/** 把缓存写入持久层：网页端 localStorage；桌面端 AppData JSON（不阻塞 UI） */
 function persist(): void {
   if (!cache) return
-  const json = JSON.stringify(cache)
-  if (!isTauri) {
-    try {
-      localStorage.setItem(CATALOG_KEY, json)
-    } catch {
-      /* ignore */
-    }
-    return
+  dirty = true
+  if (writeTimer) return
+  writeTimer = setTimeout(() => {
+    writeTimer = null
+    void flushPersist()
+  }, WRITE_DEBOUNCE_MS)
+}
+
+/** 立即落盘（去抖到期 / 退出前调用）。单飞串行：写入期间的新变更会在完成后自动补写一轮。 */
+export function flushPersist(): Promise<void> {
+  if (writeInFlight) return writeInFlight
+  if (!dirty) return Promise.resolve()
+  if (writeTimer) {
+    clearTimeout(writeTimer)
+    writeTimer = null
   }
-  void (async () => {
+  dirty = false
+  const json = cache ? JSON.stringify(cache) : null
+  writeInFlight = (async () => {
+    if (json === null) return
+    if (!isTauri) {
+      try {
+        localStorage.setItem(CATALOG_KEY, json)
+      } catch {
+        /* ignore */
+      }
+      return
+    }
     try {
       const { invoke } = await import('@tauri-apps/api/core')
       await invoke('write_app_json', { filename: CATALOG_FILE, content: json })
     } catch {
       /* 写盘失败仅影响下次恢复，不打断导入流程 */
     }
-  })()
+  })().finally(() => {
+    writeInFlight = null
+    if (dirty) void flushPersist() // 写入期间又有变更：补一轮
+  })
+  return writeInFlight
+}
+
+// 退出前尽量落盘（覆盖去抖窗口内的变更；网页端 localStorage 为同步写入，必然成功）
+if (typeof window !== 'undefined') {
+  window.addEventListener('beforeunload', () => {
+    void flushPersist()
+  })
 }
 
 /**

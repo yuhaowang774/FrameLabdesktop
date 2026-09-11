@@ -23,6 +23,8 @@ import {
   CARD_RADIUS,
   CARD_BADGE_FONT_SIZE,
   MAG_TITLE_FONT,
+  DIVIDER_MIN_H,
+  DIVIDER_ALPHA,
   MAG_SUB_SIZE,
   MAG_SUB_LETTER_SPACING,
   MAG_SWATCH_COUNT,
@@ -216,6 +218,9 @@ function drawMagazineFooter(
     ctx.textBaseline = 'top'
     if (letterSpacing > 0) canvasCtx.letterSpacing = `${letterSpacing * s}px`
     ctx.fillText(text, ox + x * s, ox + y * s)
+    // 审查报告 R19：显式复位字距——部分宿主未将其纳入 save/restore 绘制状态，
+    // 不复位会泄漏到后续文本行（右对齐文字被拉长）
+    if (letterSpacing > 0) canvasCtx.letterSpacing = '0px'
     ctx.restore()
   }
 
@@ -300,7 +305,9 @@ async function drawFooter(
   // ===== 默认排版：与预览共用同一套共享布局计算 =====
   // classic = 经典纵向堆叠（日期 / EXIF+镜头 / 型号 / Logo）；duo = 杂志双栏；inline = 悬浮双行。
   // 行高与宽度测量均取各组生效样式，单独修改某组字体/字号后导出与预览保持一致。
-  const logoRatioForLayout = logo ? sourceSize(logo).w / sourceSize(logo).h : 2.6
+  // 审查报告 R8：占位/未就绪的自定义 Logo（1×1）不能参与比例计算与绘制，否则被拉伸成方块
+  const logoDims = logo ? sourceSize(logo) : { w: 0, h: 0 }
+  const logoRatioForLayout = logoDims.w > 1 && logoDims.h > 1 ? logoDims.w / logoDims.h : 2.6
   const layout: FooterLayout =
     config.infoLayout === 'duo' || config.infoLayout === 'inline'
       ? computeFooterLayout(config, canvasBottomY, logoRatioForLayout)
@@ -331,7 +338,8 @@ async function drawFooter(
         return {
           x: config.infoDividerX ?? layout.divider.x,
           y: top,
-          h: Math.max(0, bottom - top),
+          // 审查报告 R15：最小高度与预览统一（此前导出可缩到 0、预览下限 20）
+          h: Math.max(DIVIDER_MIN_H, bottom - top),
         }
       })()
     : null
@@ -340,7 +348,7 @@ async function drawFooter(
   // duo 分隔竖线：右栏文字左侧（浅灰，颜色随底色自适应）
   if (duoDivider) {
     ctx.save()
-    ctx.fillStyle = `rgba(${themeColor},${themeColor},${themeColor},0.2)`
+    ctx.fillStyle = `rgba(${themeColor},${themeColor},${themeColor},${DIVIDER_ALPHA})`
     ctx.fillRect(
       ox + duoDivider.x * unitScale,
       ox + duoDivider.y * unitScale,
@@ -362,9 +370,15 @@ async function drawFooter(
     hexToRgba(custom, opacity) ?? `rgba(${themeColor},${themeColor},${themeColor},${opacity})`
 
   // inline 布局：手机品牌 Logo 为文字标记，与机型文本（多含品牌名）并排重复，跳过绘制
-  const showLogoDraw = config.showLogo && logo && !(config.infoLayout === 'inline' && phoneBrandOf(config.brand))
-  if (showLogoDraw) {
-    const lw = logoH * (sourceSize(logo).w / sourceSize(logo).h)
+  // 审查报告 R8：占位（≤1px，自定义 Logo 冷缓存）时跳过绘制——与 infoRenderer 行为统一
+  const showLogoDraw =
+    config.showLogo &&
+    logo &&
+    logoDims.w > 1 &&
+    logoDims.h > 1 &&
+    !(config.infoLayout === 'inline' && phoneBrandOf(config.brand))
+  if (showLogoDraw && logo) {
+    const lw = logoH * (logoDims.w / logoDims.h)
     // classic 水平锚点语义与文本行一致：center = 行中心（Logo 左移半宽）、right = 右缘（左移全宽）、
     // left 与 duo/inline 的 x 为左缘锚点。预览端由 absStyle 的 translate 等价实现。
     const logoShift = config.infoLayout === 'classic' ? (config.overlayAlign === 'center' ? -lw / 2 : config.overlayAlign === 'right' ? -lw : 0) : 0
@@ -477,6 +491,11 @@ export function computeExportMetrics(
     const canvasWD = DESIGN_CONTAINER + 2 * bgExpand + 2 * effectivePad
     const padsV = bgExpand + bgBottomExpand + effectivePad + effectivePadBottom
     designContentH = Math.max(0, canvasWD / frameRatio - padsV)
+    // 审查报告 R12：比例极宽 + 大留白时内容高可归 0 → 后续会退化为 1px 内容宽并抛出
+    // 「请降低 scale」的误导文案；此处给出准确原因
+    if (designContentH < 1) {
+      throw new Error('画面比例与边框留白冲突：请减小边框宽度 / 背景扩展，或改用更方的画面比例')
+    }
     const contentAspect = DESIGN_CONTAINER / Math.max(1, designContentH)
     photoBaseW = displayAspect >= contentAspect ? DESIGN_CONTAINER : designContentH * displayAspect
   }
@@ -527,6 +546,24 @@ export async function exportFrame(
   const jpgQuality = options.jpgQuality ?? 0.95
   const supersample = options.scale && options.scale > 0 ? options.scale : 1
   const isJpg = format === 'jpg'
+  // 审查报告 R5：入口数值校验——NaN / 非法旋转或裁剪会让后续计算一路 NaN
+  //（Math.max(1, NaN) 仍为 NaN），直到 toBlob 才报「canvas.toBlob 失败」；
+  // 此处快速失败给出明确原因。
+  if (!Number.isFinite(config.photoRotation) || !Number.isFinite(config.scale)) {
+    throw new Error('导出参数异常（旋转 / 缩放数值非法），请重置参数后重试')
+  }
+  const cropCheck = config.photoCrop
+  if (
+    cropCheck &&
+    (!Number.isFinite(cropCheck.x) ||
+      !Number.isFinite(cropCheck.y) ||
+      !Number.isFinite(cropCheck.w) ||
+      !Number.isFinite(cropCheck.h) ||
+      cropCheck.w <= 0 ||
+      cropCheck.h <= 0)
+  ) {
+    throw new Error('导出参数异常（裁剪区域非法），请重置裁剪后重试')
+  }
   // 显示开关 → 生效配置（隐藏边框/背景时 padding/bgMode 等归零），导出与预览缩放同源
   config = applyShowToggles(config)
   // Logo 着色：'auto' 时随背景明暗取黑/白，保证浅色相框下 Logo 不与底色融为一体
@@ -539,7 +576,13 @@ export async function exportFrame(
   // 预加载自定义水印图（若存在），保证导出时可用
   let watermarkImg: ImgSource | null = null
   if (config.watermarkImage) {
-    watermarkImg = await loadImage(config.watermarkImage)
+    // 审查报告 R6：水印图加载失败不阻断导出（与预览端一致——预览失败静默跳过水印），
+    // 此前 onerror 直接 reject 会让整张导出失败
+    try {
+      watermarkImg = await loadImage(config.watermarkImage)
+    } catch {
+      watermarkImg = null
+    }
   }
 
   const { w: sw, h: sh } = sourceSize(source)
@@ -548,6 +591,10 @@ export async function exportFrame(
   // 以原生分辨率排版：度量计算已提取为 computeExportMetrics（与任务卡预估同源）
   const M = computeExportMetrics(sw, sh, config, supersample)
   const { canvasW, canvasH, designCanvasH, unitScale, photoW, photoH } = M
+  // 审查报告 R5：总面积上限（部分引擎按面积而非仅单边限制；Chromium 单边 16384 且面积有限）
+  if (canvasW * canvasH > 200_000_000) {
+    throw new Error('导出尺寸过大（超过 2 亿像素），请降低照片缩放或超采样倍数')
+  }
   const { photoDesignW, photoDesignH, designContentH, availW, bgExpand, effectivePad, effectivePadBottom } = M
 
   // 照片在内容区左上角坐标（null 时水平居中；自由模式垂直贴顶、比例模式垂直居中）
@@ -664,7 +711,9 @@ export async function exportFrame(
     // 旋转+裁剪：把源图对应区域旋转为正向后绘制到 photoW×photoH
     drawRotatedCropped(pctx, source, sw, sh, config.photoRotation, config.photoCrop, photoW, photoH)
     if (config.infoLayout === 'magazine' && config.showPalette) {
-      magazinePalette = extractPalette(photoCanvas, photoW, photoH) ?? FALLBACK_PALETTE
+      // 审查报告 R7：取色源与预览统一为「原图」——此前用旋转+裁剪后的照片画布，
+      // 用户旋转/裁剪后色卡颜色与预览不一致
+      magazinePalette = extractPalette(source, sw, sh) ?? FALLBACK_PALETTE
     }
 
     ctx.save()

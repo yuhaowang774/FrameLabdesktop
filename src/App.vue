@@ -148,11 +148,18 @@ async function loadActive() {
     resetBlurCaches()
     releasePreviewSource(bgImage.value)
     bgImage.value = null
+    // 审查报告 U11：同步清空全局 photoImage——否则照片编辑器/模板库会拿到已 close
+    // 的 ImageBitmap（sourceSize 为 0×0 或 drawImage 抛 InvalidStateError）
+    photoImage.value = null
     return
   }
   // 同照片守卫：进入编辑模块等场景会再次触发本函数，照片源未变时跳过完整的
   // 读盘+解码链（96MP 一次全链的瞬时分配可达 GB 级，重复执行纯属浪费），仅恢复参数。
   if (bgImage.value && photoSrc.value === active.url) {
+    // 审查报告 U1：存在「进行中的其它照片加载」时作废它——A→B→A 快速切换下，
+    // 守卫命中会直接 return，B 的加载完成后按 seq 校验通过会把画布切到 B
+    //（图库选中 A、画布却是 B）。自增切换序号让在飞加载失配丢弃。
+    if (loadingUrl && loadingUrl !== active.url) switchSeq++
     history.loadCursorFor(active.id)
     return
   }
@@ -172,12 +179,19 @@ async function loadActive() {
   try {
     // 1) 先预加载新图（期间不切换画面，避免旧背景+新主图错位 / 图片未就绪导致的空白闪烁）
     const im = await loadImage(active.url)
-    if (seq !== switchSeq) return // 已切换到其他照片，丢弃本次结果
+    if (seq !== switchSeq) {
+      // 已切换到其他照片：丢弃本次结果，位图需显式释放（审查报告 U10：此前直接 return 泄漏 ~25MB）
+      releasePreviewSource(im)
+      return
+    }
     // 2) 恢复该照片历史链当前步骤的参数
     //    先落盘待提交历史（此刻 state 仍是旧照片参数），避免切图后惰性快照误拍新照片参数
     await history.flushPending()
     await history.ensureChain(active.id)
-    if (seq !== switchSeq) return
+    if (seq !== switchSeq) {
+      releasePreviewSource(im)
+      return
+    }
     // 3) 原子切换：图源、背景、历史参数在同一同步块内更新 → 单次渲染、单次 fit
     //    导入/切换属非编辑流程，历史提交在整个切换期间均被挂起
     history.loadCursorFor(active.id)
@@ -204,9 +218,26 @@ watch(() => app.activeModule.value, (m) => {
 }, { immediate: true })
 
 // ===== 快捷键 =====
+/** 顶层弹窗（遮罩）是否可见：打开时不响应全局快捷键（各弹窗自行处理 Esc 关闭） */
+function hasOpenModal(): boolean {
+  const sel =
+    '.modal-mask, .pref-mask, .upd-mask, .tp-mask, .editor-mask, .preview-mask, .guide-mask, .rt-err-mask'
+  for (const el of document.querySelectorAll(sel)) {
+    // getClientRects 为空说明元素未实际渲染（display:none），不视为打开
+    if ((el as HTMLElement).getClientRects().length > 0) return true
+  }
+  return false
+}
+
 function onKey(e: KeyboardEvent) {
-  const tag = (e.target as HTMLElement)?.tagName
-  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
+  const el = e.target as HTMLElement | null
+  const tag = el?.tagName
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el?.isContentEditable) return
+  // 审查报告 U2：弹窗打开时不响应全局快捷键——此前 Esc 会被吃成「看不见的视图复位」，
+  // 弹窗内 ←/→/Delete 还会操作背后的图库与画布（照片编辑器里按 → 甚至把旧照片的
+  // 裁剪提交到新照片）；焦点在按钮上时 Delete/Backspace 也不触发移除确认。
+  if (hasOpenModal()) return
+  if (tag === 'BUTTON' && (e.key === 'Delete' || e.key === 'Backspace')) return
   if (e.key === 'ArrowRight') {
     library.next()
     e.preventDefault()

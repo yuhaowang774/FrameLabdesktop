@@ -30,9 +30,10 @@ async function onImportClick(): Promise<void> {
 // 拖拽：桌面端监听 Tauri 原生拖放（真实磁盘路径导入），网页端走 HTML5 drop（addFiles）。
 // 桌面端 drag_and_drop 开启后 HTML5 drop 事件不再触发，模板上的 @drop 仅网页端生效。
 let unlistenDrop: (() => void) | null = null
+let disposed = false
 onMounted(async () => {
   if (!isTauri) return
-  unlistenDrop = await onDropImageFiles(
+  const off = await onDropImageFiles(
     (over) => {
       dragOver.value = over
     },
@@ -40,8 +41,15 @@ onMounted(async () => {
       void addLocalEntries(entries)
     },
   )
+  // 审查报告 U7：注册期间组件可能已卸载（await 竞态）——此时立即注销，避免监听泄漏
+  if (disposed) {
+    off()
+    return
+  }
+  unlistenDrop = off
 })
 onBeforeUnmount(() => {
+  disposed = true
   unlistenDrop?.()
   unlistenDrop = null
 })
