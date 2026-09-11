@@ -32,6 +32,18 @@ const GITHUB_ISSUES_URL: &str = "https://github.com/yuhaowang774/FrameLabdesktop
 pub struct ImageEntry {
     pub path: String,
     pub name: String,
+    /// 修改时间（Unix 秒）：启动还原时校验目录缓存指纹用（宽高/EXIF/缩略图是否可复用）
+    pub mtime: u64,
+    /// 文件大小（字节）：同上，与 mtime 共同构成「文件未变」指纹
+    pub len: u64,
+}
+
+/// Unix 秒时间戳（metadata.modified() 失败时返回 0，指纹不匹配仅导致缓存未命中，无害）
+fn epoch_secs(t: std::io::Result<std::time::SystemTime>) -> u64 {
+    t.ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
 }
 
 fn is_image(p: &Path) -> bool {
@@ -61,9 +73,15 @@ fn scan_dir(dir: &Path, depth: usize, out: &mut Vec<ImageEntry>) {
         if p.is_dir() {
             subdirs.push(p);
         } else if is_image(&p) {
+            let (mtime, len) = match entry.metadata() {
+                Ok(m) => (epoch_secs(m.modified()), m.len()),
+                Err(_) => (0, 0),
+            };
             out.push(ImageEntry {
                 path: p.to_string_lossy().to_string(),
                 name,
+                mtime,
+                len,
             });
         }
     }
@@ -160,11 +178,93 @@ fn read_image_meta(path: String) -> Result<tauri::ipc::Response, String> {
     if w == 0 || h == 0 {
         return Err("图片尺寸无效".into());
     }
-    let mut out = Vec::with_capacity(16);
+    let mut out = Vec::with_capacity(24);
     out.extend_from_slice(&w.to_le_bytes());
     out.extend_from_slice(&h.to_le_bytes());
     out.extend_from_slice(&size.to_le_bytes());
+    out.extend_from_slice(&epoch_secs(meta.modified()).to_le_bytes());
     Ok(tauri::ipc::Response::new(out))
+}
+
+// ===== 缩略图磁盘缓存（启动还原零解码的关键） =====
+// 首次生成的缩略图（长边 ≤320 JPEG）按「路径哈希 + mtime + 大小」指纹落盘 AppData/thumbs/；
+// 下次启动直接读小文件回 objectURL，完全跳过原图解码。原图改动（mtime/大小变化）指纹失配
+// 自动失效重生成；目录可整体删除（纯缓存，无权威数据）。
+
+/// FNV-1a 64 位（跨构建稳定，不作安全用途）：路径 → 缩略图文件名前缀
+fn fnv1a64(s: &str) -> u64 {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in s.as_bytes() {
+        h ^= u64::from(*b);
+        h = h.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    h
+}
+
+/// 缩略图缓存目录（AppData/thumbs；开发版 dev-thumbs 与正式版隔离）
+fn thumbs_dir(app: &AppHandle) -> Result<PathBuf, String> {
+    let dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("无法定位 AppData 目录: {e}"))?
+        .join(if cfg!(debug_assertions) { "dev-thumbs" } else { "thumbs" });
+    fs::create_dir_all(&dir).map_err(|e| format!("创建缩略图缓存目录失败: {e}"))?;
+    Ok(dir)
+}
+
+/// 按当前文件指纹推导缩略图文件路径（文件不存在时返回 None）
+fn thumb_file_for(app: &AppHandle, path: &str) -> Result<Option<PathBuf>, String> {
+    let meta = match fs::metadata(path) {
+        Ok(m) => m,
+        Err(_) => return Ok(None),
+    };
+    let dir = thumbs_dir(app)?;
+    let name = format!("{:016x}-{}-{}.jpg", fnv1a64(path), epoch_secs(meta.modified()), meta.len());
+    Ok(Some(dir.join(name)))
+}
+
+/// 读取持久化缩略图（指纹命中返回 JPEG 字节；未命中/文件已变返回空字节——
+/// 注意 tauri::ipc::Response 不能包 Option 返回，特型解析不支持，空即「未命中」）
+#[tauri::command]
+fn thumb_get(app: AppHandle, path: String) -> Result<tauri::ipc::Response, String> {
+    let miss = || Ok(tauri::ipc::Response::new(Vec::new()));
+    let Some(f) = thumb_file_for(&app, &path)? else {
+        return miss();
+    };
+    if !f.exists() {
+        return miss();
+    }
+    let bytes = fs::read(f).map_err(|e| format!("读取缩略图失败: {e}"))?;
+    Ok(tauri::ipc::Response::new(bytes))
+}
+
+/// 持久化缩略图（data_base64 = 缩略图 JPEG 的 base64）；同时清理同路径旧指纹文件
+#[tauri::command]
+fn thumb_put(app: AppHandle, path: String, data_base64: String) -> Result<(), String> {
+    let Some(f) = thumb_file_for(&app, &path)? else {
+        return Err("源文件不存在，无法持久化缩略图".into());
+    };
+    use base64::Engine as _;
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(data_base64)
+        .map_err(|e| format!("缩略图数据解码失败: {e}"))?;
+    if bytes.is_empty() {
+        return Err("缩略图数据为空".into());
+    }
+    // 清理同一路径的旧指纹文件（改名/改动后残留），目录内前缀匹配
+    let prefix = format!("{:016x}-", fnv1a64(&path));
+    if let Some(parent) = f.parent() {
+        if let Ok(rd) = fs::read_dir(parent) {
+            let current = f.file_name().map(|n| n.to_string_lossy().to_string());
+            for e in rd.flatten() {
+                let name = e.file_name().to_string_lossy().to_string();
+                if name.starts_with(&prefix) && Some(name.clone()) != current {
+                    let _ = fs::remove_file(e.path());
+                }
+            }
+        }
+    }
+    fs::write(f, bytes).map_err(|e| format!("写入缩略图失败: {e}"))
 }
 
 /// 只读文件前 len 字节（EXIF 头部解析用）：EXIF 存于 JPEG APP1 段（规格上限 64KB/段），
@@ -1276,6 +1376,8 @@ pub fn run() {
             read_file_bytes,
             read_image_meta,
             read_file_head,
+            thumb_get,
+            thumb_put,
             read_preview_bytes,
             write_file_base64,
             path_exists,

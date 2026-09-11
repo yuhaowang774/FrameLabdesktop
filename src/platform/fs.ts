@@ -8,7 +8,7 @@
 import { isTauri } from './env'
 import { downloadBlob } from '../core/exporter'
 import type { LibraryItem, LocalImageEntry } from '../composables/useLibrary'
-import { loadCatalog, setCatalogFolder } from './catalog'
+import { loadCatalog, setCatalogFolder, catalogPruneMeta } from './catalog'
 
 // Tauri API 一律惰性动态加载：网页端构建/运行不依赖 @tauri-apps/api 包
 let convertFileSrcFn: ((path: string) => string) | null = null
@@ -133,6 +133,8 @@ export interface ImageMeta {
   width: number
   height: number
   size: number
+  /** 修改时间（Unix 秒）：目录元数据缓存指纹用 */
+  mtime: number
 }
 
 /** 桌面端：仅解析图片头拿宽高与文件大小（不解码像素，毫秒级）——导入提速关键路径。
@@ -146,6 +148,7 @@ export async function readImageMeta(path: string): Promise<ImageMeta | null> {
       width: v.getUint32(0, true),
       height: v.getUint32(4, true),
       size: Number(v.getBigUint64(8, true)),
+      mtime: v.byteLength >= 24 ? Number(v.getBigUint64(16, true)) : 0,
     }
   } catch {
     return null
@@ -160,6 +163,39 @@ export async function readLocalHead(path: string, len: number): Promise<ArrayBuf
   const ab = new ArrayBuffer(u8.byteLength)
   new Uint8Array(ab).set(u8)
   return ab
+}
+
+/**
+ * 桌面端：读取持久化缩略图（指纹 = 路径 + mtime + 大小，Rust 侧自行校验）。
+ * 命中返回 JPEG ArrayBuffer（Rust 约定未命中返回空字节），启动还原零解码显示缩略图。
+ */
+export async function thumbFor(path: string): Promise<ArrayBuffer | null> {
+  try {
+    const buf = await tauriInvoke<ArrayBuffer>('thumb_get', { path })
+    if (buf instanceof ArrayBuffer) return buf.byteLength ? buf : null
+    const u8 = buf as unknown as Uint8Array
+    if (!u8.byteLength) return null
+    const ab = new ArrayBuffer(u8.byteLength)
+    new Uint8Array(ab).set(u8)
+    return ab
+  } catch {
+    return null
+  }
+}
+
+/** 桌面端：持久化缩略图（blob 转 base64 上传，Rust 按当前文件指纹落盘并清理旧指纹） */
+export async function saveThumb(path: string, blob: Blob): Promise<void> {
+  try {
+    const buf = new Uint8Array(await blob.arrayBuffer())
+    let bin = ''
+    const CHUNK = 0x8000
+    for (let i = 0; i < buf.length; i += CHUNK) {
+      bin += String.fromCharCode(...buf.subarray(i, i + CHUNK))
+    }
+    await tauriInvoke('thumb_put', { path, dataBase64: btoa(bin) })
+  } catch {
+    /* 持久化失败仅影响下次启动速度，不打断当前流程 */
+  }
 }
 
 /** 桌面端：读取本地图片并转为 dataURL（自定义背景持久化用） */
@@ -339,9 +375,13 @@ export async function restoreLibrary(): Promise<void> {
   const entries: LocalImageEntry[] = []
   for (const [dir, paths] of byDir) {
     let existing: Set<string> | null = null
+    let existingStats: Map<string, { mt: number; sz: number }> | null = null
     if (dir) {
       try {
-        existing = new Set((await listDirImages(dir, false)).map((i) => i.path))
+        const listing = await listDirImages(dir, false)
+        existing = new Set(listing.map((i) => i.path))
+        // 目录扫描顺带拿到 mtime/size 指纹：元数据缓存命中即可零解码零读盘还原
+        existingStats = new Map(listing.map((i) => [i.path, { mt: i.mtime ?? 0, sz: i.size ?? 0 }]))
       } catch {
         existing = null // 目录暂不可访问：容错，该组全部还原
       }
@@ -349,10 +389,13 @@ export async function restoreLibrary(): Promise<void> {
     for (const p of paths) {
       if (existing && !existing.has(p)) continue // 文件已不在磁盘：跳过加载
       if (!dir && !(await pathExists(p).catch(() => false))) continue
-      entries.push({ path: p, name: p.split(/[\\/]/).pop() || p })
+      const stat = existingStats?.get(p)
+      entries.push({ path: p, name: p.split(/[\\/]/).pop() || p, mtime: stat?.mt, size: stat?.sz })
     }
   }
   if (entries.length) await addLocalEntries(entries)
+  // 还原收尾：清掉已不在目录内的元数据缓存残留
+  catalogPruneMeta()
 }
 
 /** 旧版「启动重扫上次文件夹 + 墓碑过滤」数据一次性迁移为目录 */

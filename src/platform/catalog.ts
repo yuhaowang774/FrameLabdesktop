@@ -22,6 +22,23 @@ export interface CatalogData {
   paths: string[]
   /** 上次选中的照片路径（恢复选中态用；桌面端随目录文件持久化，比 localStorage 可靠） */
   activePath?: string | null
+  /**
+   * 每路径元数据缓存（宽高/大小/mtime/EXIF 解析结果）：启动还原时指纹命中即零解码、
+   * 零头部读取直接还原图库。纯加速缓存，可整体丢弃——缺失/失配走原解析路径并回写。
+   * mtime+size 与文件指纹一致才视为有效；条目删除时同步清理。
+   */
+  meta?: Record<string, CatalogMeta>
+}
+
+/** 单路径元数据缓存（ExifParseResult 纯 JSON 结构，可安全序列化） */
+export interface CatalogMeta {
+  w: number
+  h: number
+  sz: number
+  /** 修改时间（Unix 秒），与文件 mtime 比对判定缓存有效性 */
+  mt: number
+  /** EXIF 解析结果（无 EXIF 照片为 null：命中时同样跳过解析尝试） */
+  exif: unknown
 }
 
 // 进程内缓存：持久层只在首次读取时解析，后续读改写全走缓存
@@ -40,13 +57,30 @@ function parse(raw: string | null | undefined): CatalogData {
           : []
         const activePath =
           typeof obj.activePath === 'string' && obj.activePath ? obj.activePath : null
-        return { folder, paths, activePath }
+        // meta 缓存宽容解析：非对象/字段缺型按无缓存处理（存量旧格式自然兼容）
+        const meta: Record<string, CatalogMeta> = {}
+        if (obj.meta && typeof obj.meta === 'object') {
+          for (const [p, m] of Object.entries(obj.meta as Record<string, unknown>)) {
+            const v = m as Partial<CatalogMeta> | null
+            if (
+              v &&
+              typeof v === 'object' &&
+              typeof v.w === 'number' &&
+              typeof v.h === 'number' &&
+              typeof v.sz === 'number' &&
+              typeof v.mt === 'number'
+            ) {
+              meta[p] = { w: v.w, h: v.h, sz: v.sz, mt: v.mt, exif: v.exif ?? null }
+            }
+          }
+        }
+        return { folder, paths, activePath, meta }
       }
     }
   } catch {
     /* 损坏数据按空目录处理 */
   }
-  return { folder: null, paths: [], activePath: null }
+  return { folder: null, paths: [], activePath: null, meta: {} }
 }
 
 function isEmpty(d: CatalogData): boolean {
@@ -123,7 +157,12 @@ function read(): CatalogData {
 /** 读取目录快照（返回副本，调用方修改不影响存储） */
 export function loadCatalog(): CatalogData {
   const d = read()
-  return { folder: d.folder, paths: [...d.paths], activePath: d.activePath ?? null }
+  return {
+    folder: d.folder,
+    paths: [...d.paths],
+    activePath: d.activePath ?? null,
+    meta: { ...(d.meta ?? {}) },
+  }
 }
 
 /** 追加路径（已存在则忽略，保持顺序）；导入图库成功后调用 */
@@ -141,13 +180,14 @@ export function catalogAdd(paths: Iterable<string>): void {
   if (changed) persist()
 }
 
-/** 删除单个路径：从图库移除照片时调用 */
+/** 删除单个路径：从图库移除照片时调用（同步清理该路径的元数据缓存） */
 export function catalogRemove(path?: string): void {
   if (!path) return
   const d = read()
   const i = d.paths.indexOf(path)
   if (i >= 0) {
     d.paths.splice(i, 1)
+    if (d.meta && d.meta[path]) delete d.meta[path]
     persist()
   }
 }
@@ -155,7 +195,7 @@ export function catalogRemove(path?: string): void {
 /** 清空目录（路径与关联文件夹全部重置）：清除图库时调用。
  *  桌面端必须把空目录写回文件（目录是权威数据库，否则重启恢复旧目录） */
 export function catalogClear(): void {
-  cache = { folder: null, paths: [], activePath: null }
+  cache = { folder: null, paths: [], activePath: null, meta: {} }
   persist()
   if (!isTauri) {
     try {
@@ -164,6 +204,34 @@ export function catalogClear(): void {
       /* ignore */
     }
   }
+}
+
+/** 读取路径的元数据缓存（无则 null） */
+export function catalogGetMeta(path: string): CatalogMeta | null {
+  return read().meta?.[path] ?? null
+}
+
+/** 写入路径的元数据缓存（导入/还原时解析成功后回写，下次启动零解析） */
+export function catalogSetMeta(path: string, meta: CatalogMeta): void {
+  const d = read()
+  if (!d.meta) d.meta = {}
+  d.meta[path] = meta
+  persist()
+}
+
+/** 裁剪元数据缓存：只保留仍在目录内的路径（启动还原末尾调用，防已移除路径残留） */
+export function catalogPruneMeta(): void {
+  const d = read()
+  if (!d.meta) return
+  const keep = new Set(d.paths)
+  let changed = false
+  for (const p of Object.keys(d.meta)) {
+    if (!keep.has(p)) {
+      delete d.meta[p]
+      changed = true
+    }
+  }
+  if (changed) persist()
 }
 
 /** 记录目录关联的根文件夹（元数据，记录最后导入的文件夹） */

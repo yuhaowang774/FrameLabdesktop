@@ -7,12 +7,24 @@ import { useFrameConfig, suspendCommit } from './useFrameConfig'
 import { importPhoto, removePhotoHistory } from './useHistory'
 import { parseExif, buildExifText, formatDate, type ExifParseResult } from './useExif'
 import { isTauri } from '../platform/env'
-import { catalogAdd, catalogClear, catalogRemove, catalogSetActive, loadCatalog } from '../platform/catalog'
+import {
+  catalogAdd,
+  catalogClear,
+  catalogRemove,
+  catalogSetActive,
+  catalogGetMeta,
+  catalogSetMeta,
+  loadCatalog,
+} from '../platform/catalog'
 
-/** 桌面端本地图片条目（磁盘绝对路径） */
+/** 桌面端本地图片条目（磁盘绝对路径）。
+ *  mtime/size 来自目录扫描（list_dir_images），启动还原时用于校验元数据缓存指纹；
+ *  文件对话框导入（pick_image_files）无此二者，回退 read_image_meta 取指纹。 */
 export interface LocalImageEntry {
   path: string
   name: string
+  mtime?: number
+  size?: number
 }
 
 export interface LibraryItem {
@@ -326,125 +338,204 @@ export function useLibrary() {
   // source：网页端传 File，桌面端本地路径导入传磁盘字节 ArrayBuffer。
   async function applyExif(source: File | ArrayBuffer): Promise<ExifParseResult | null> {
     try {
-      const { patch, state } = useFrameConfig()
-      const exif = await parseExif(source)
-      // 按当前等效焦距开关拼接（切换开关时由 INFO 面板重拼）
-      const text = buildExifText(exif.raw, { eqFocal: state.eqFocal, cropFactor: state.cropFactor })
-      const data: Record<string, unknown> = {
-        exifText: text,
-        exifRaw: exif.raw,
-        dateText: formatDate(exif.raw.dateTimeOriginal, state.dateFormat),
-      }
-      // 导入照片并解析到对应字段后，自动打开画板上的 INFO 元素显示开关。
-      // 之前用户反馈「相机型号显示有问题」，常见情况就是解析到了型号但画板未显示。
-      if (exif.model) {
-        data.cameraModel = exif.model
-        data.showCameraModel = true
-      }
-      if (exif.brandId) data.brand = exif.brandId
-      if (exif.lens) {
-        data.lensText = exif.lens
-        data.showLens = true
-      } else {
-        // 无镜头信息（手机照片等）：清空镜头文本，避免继承上一张照片的镜头值
-        // （各布局对空 lensText 自动隐藏镜头行，card 白底卡同理）
-        data.lensText = ''
-      }
-      if (text) data.showExif = true
-      if (data.dateText) data.showDate = true
-      patch(data)
-      return exif
+      return await applyExifParsed(await parseExif(source))
     } catch {
       /* 无 EXIF 或解析失败：留空，用户可手动填写 */
       return null
     }
   }
 
+  /** 应用已解析的 EXIF 到全局配置（applyExif 的复用核：目录元数据缓存命中时跳过解析直接应用） */
+  async function applyExifParsed(exif: ExifParseResult): Promise<ExifParseResult> {
+    const { patch, state } = useFrameConfig()
+    // 按当前等效焦距开关拼接（切换开关时由 INFO 面板重拼）
+    const text = buildExifText(exif.raw, { eqFocal: state.eqFocal, cropFactor: state.cropFactor })
+    const data: Record<string, unknown> = {
+      exifText: text,
+      exifRaw: exif.raw,
+      dateText: formatDate(exif.raw.dateTimeOriginal, state.dateFormat),
+    }
+    // 导入照片并解析到对应字段后，自动打开画板上的 INFO 元素显示开关。
+    // 之前用户反馈「相机型号显示有问题」，常见情况就是解析到了型号但画板未显示。
+    if (exif.model) {
+      data.cameraModel = exif.model
+      data.showCameraModel = true
+    }
+    if (exif.brandId) data.brand = exif.brandId
+    if (exif.lens) {
+      data.lensText = exif.lens
+      data.showLens = true
+    } else {
+      // 无镜头信息（手机照片等）：清空镜头文本，避免继承上一张照片的镜头值
+      // （各布局对空 lensText 自动隐藏镜头行，card 白底卡同理）
+      data.lensText = ''
+    }
+    if (text) data.showExif = true
+    if (data.dateText) data.showDate = true
+    patch(data)
+    return exif
+  }
+
   /**
    * 桌面端：把本地图片加入图库（asset 协议 URL 引用磁盘路径，不拷贝原图）。
-   * 流程与 addFiles 完全一致：EXIF 自动回填（挂起提交）→ 建立该照片历史链 Import 节点。
    * 目录权威（LrC 语义）：同一路径已在图库则跳过；成功加入的路径逐条写入目录
    * （随加随记，导入中断也不丢失已导入部分），是启动还原的唯一依据。
+   *
+   * 提速三层（启动还原零解码的关键）：
+   * 1. 目录元数据缓存（catalog meta）：指纹（mtime+size）命中 → 宽高/大小/EXIF 直接取缓存，
+   *    零读盘零解析；未命中才走头解析/头部读取，成功后回写缓存供下次命中；
+   * 2. 缩略图磁盘缓存（AppData/thumbs）：指纹命中 → 直接读小 JPEG 回 objectURL，
+   *    完全跳过原图解码（启动还原最大头）；未命中生成后立即持久化；
+   * 3. 元数据/EXIF 解析按 4 路并行批量预取（原逐张串行，首图出现更慢）。
    */
   async function addLocalEntries(entries: LocalImageEntry[]): Promise<LibraryItem[]> {
     if (!isTauri || !entries.length) return []
-    const { assetUrl, readLocalBytes, readLocalHead, readImageMeta } = await import('../platform/fs')
+    const {
+      assetUrl,
+      readLocalBytes,
+      readLocalHead,
+      readImageMeta,
+      thumbFor,
+      saveThumb,
+    } = await import('../platform/fs')
     const added: LibraryItem[] = []
     let firstNewId: string | null = null
     const known = new Set(items.map((i) => i.path))
-    for (const e of entries) {
-      if (known.has(e.path)) continue // 已在图库：跳过，避免重复导入产生重复条目
-      const url = assetUrl(e.path)
-      // 导入提速关键路径：宽高/文件大小走 Rust 头解析（毫秒级，不解码像素），
-      // 替代旧 Image 全尺寸解码（96MP 只为读宽高就物化数百 MB 位图）；
-      // 非 JPEG/PNG 或解析失败时回退旧 Image 路径
+    const fresh = entries.filter((e) => e.path && !known.has(e.path))
+
+    /** 单条解析：优先目录元数据缓存（指纹校验），未命中走头解析并回写缓存 */
+    async function resolveMeta(e: LocalImageEntry): Promise<{
+      width: number
+      height: number
+      fileSize: number
+      exif: ExifParseResult | null
+    }> {
+      let cached = catalogGetMeta(e.path)
+      let mt = e.mtime
+      let sz = e.size
+      // 条目缺指纹（文件对话框导入）→ read_image_meta 补取（毫秒级，不解码）
+      if (cached && (mt === undefined || sz === undefined)) {
+        const m = await readImageMeta(e.path)
+        if (m) {
+          mt = m.mtime
+          sz = m.size
+        } else {
+          cached = null
+        }
+      }
+      // 指纹失配（文件被外部修改）→ 缓存作废走原解析
+      if (cached && mt !== undefined && sz !== undefined && (cached.mt !== mt || cached.sz !== sz)) {
+        cached = null
+      }
+      if (cached) {
+        return { width: cached.w, height: cached.h, fileSize: cached.sz, exif: (cached.exif ?? null) as ExifParseResult | null }
+      }
+      // 未命中：宽高/大小走 Rust 头解析（替代旧 Image 全尺寸解码），EXIF 只读头部 2MB
       let width = 0
       let height = 0
       let fileSize = 0
-      if (isTauri) {
-        const meta = await readImageMeta(e.path)
-        if (meta) {
-          width = meta.width
-          height = meta.height
-          fileSize = meta.size
-        }
+      let metaMtime = 0
+      const m = await readImageMeta(e.path)
+      if (m) {
+        width = m.width
+        height = m.height
+        fileSize = m.size
+        metaMtime = m.mtime
       }
       if (!width || !height) {
-        const dim = await readSizeFromUrl(url)
+        const dim = await readSizeFromUrl(assetUrl(e.path))
         width = dim.width
         height = dim.height
       }
-      const id = makeId()
-      if (firstNewId === null) firstNewId = id
-      // 同 addFiles：先 reactive 化再 push，异步缩略图/EXIF 赋值才触发渲染
-      const item = reactive<LibraryItem>({
-        id,
-        name: e.name,
-        url,
-        width,
-        height,
-        file: null,
-        size: 0,
-        exif: null,
-        path: e.path,
-        selected: false,
-      })
-      items.push(item)
-      added.push(item)
-      known.add(e.path)
-      catalogAdd([e.path])
-      // 异步生成缩略图（asset URL 若污染 canvas 会失败回退原图）
-      void makeThumbUrl(url, width, height).then((t) => {
-        if (t) item.thumbUrl = t
-      })
-      suspendCommit(true)
+      let exif: ExifParseResult | null = null
       try {
-        // EXIF 只读头部 2MB 解析（EXIF 存于 APP1 段，规格上限 64KB/段，2MB 绰绰有余），
-        // 替代旧全文件读盘（84MB 照片全量 IO 是导入慢的主因之一）；
+        exif = await parseExif(await readLocalHead(e.path, EXIF_HEAD_BYTES))
+      } catch {
         // 头部解析失败且文件更大时才回退全量重试一次
-        let bytes: ArrayBuffer | null = null
-        let parsed: ExifParseResult | null = null
-        try {
-          bytes = await readLocalHead(e.path, EXIF_HEAD_BYTES)
-          parsed = await parseExif(bytes)
-        } catch {
-          if (fileSize > EXIF_HEAD_BYTES) {
-            bytes = await readLocalBytes(e.path)
-            parsed = await parseExif(bytes)
+        if (fileSize > EXIF_HEAD_BYTES) {
+          try {
+            exif = await parseExif(await readLocalBytes(e.path))
+          } catch {
+            /* 无 EXIF 或解析失败：留空 */
           }
         }
-        if (bytes) {
-          item.size = fileSize || bytes.byteLength
-          item.exif = parsed ? await applyExif(bytes) : null
-        }
-      } catch {
-        /* 读取失败静默跳过 EXIF */
-      } finally {
-        suspendCommit(false)
       }
-      const { state } = useFrameConfig()
-      const snap = JSON.parse(JSON.stringify(state)) as (typeof state)
-      await importPhoto(id, snap, '导入')
+      // 回写缓存（有指纹才写：指纹不可知时缓存无法校验有效性，宁可不写）
+      if (mt !== undefined || metaMtime) {
+        catalogSetMeta(e.path, { w: width, h: height, sz: fileSize, mt: mt ?? metaMtime, exif })
+      }
+      return { width, height, fileSize, exif }
+    }
+
+    // 4 路并行解析 + 每批就绪即入列（渐进显示：首批就绪图库即开始出现，不等全部解析完）
+    const pending = [...fresh]
+    while (pending.length) {
+      const batch = pending.splice(0, 4)
+      const metas = await Promise.all(
+        batch.map((e) =>
+          resolveMeta(e).catch(() => {
+            /* 单条失败：宽高 0 的坏条目由下方守卫跳过 */
+            return null
+          }),
+        ),
+      )
+      for (let i = 0; i < batch.length; i++) {
+        const e = batch[i]
+        const meta = metas[i]
+        // 解码失败（该格式不支持或文件损坏）：不加入图库，避免产生 0×0 的坏条目
+        if (!meta || !meta.width || !meta.height) continue
+        const url = assetUrl(e.path)
+        const id = makeId()
+        if (firstNewId === null) firstNewId = id
+        // 同 addFiles：先 reactive 化再 push，异步缩略图/EXIF 赋值才触发渲染
+        const item = reactive<LibraryItem>({
+          id,
+          name: e.name,
+          url,
+          width: meta.width,
+          height: meta.height,
+          file: null,
+          size: meta.fileSize,
+          exif: meta.exif,
+          path: e.path,
+          selected: false,
+        })
+        items.push(item)
+        added.push(item)
+        known.add(e.path)
+        catalogAdd([e.path])
+        // 缩略图：优先磁盘持久化缓存（零解码）；未命中生成后立即落盘供下次启动直读
+        void (async () => {
+          const cachedThumb = await thumbFor(e.path)
+          if (cachedThumb) {
+            item.thumbUrl = URL.createObjectURL(new Blob([cachedThumb], { type: 'image/jpeg' }))
+            return
+          }
+          const t = await makeThumbUrl(url, meta.width, meta.height)
+          if (!t) return
+          item.thumbUrl = t
+          try {
+            const blob = await (await fetch(t)).blob()
+            void saveThumb(e.path, blob)
+          } catch {
+            /* 持久化失败仅影响下次启动速度 */
+          }
+        })()
+        // EXIF 应用到全局配置（缓存命中时 meta.exif 来自缓存，零解析）
+        if (meta.exif) {
+          suspendCommit(true)
+          try {
+            await applyExifParsed(meta.exif)
+          } catch {
+            /* EXIF 应用失败静默跳过 */
+          } finally {
+            suspendCommit(false)
+          }
+        }
+        const { state } = useFrameConfig()
+        const snap = JSON.parse(JSON.stringify(state)) as (typeof state)
+        await importPhoto(id, snap, '导入')
+      }
     }
     if (activeId.value === null && firstNewId) select(firstNewId)
     return added
