@@ -168,7 +168,9 @@
       fetch('/api/gh-stats', { headers: { Accept: 'application/json' } })
         .then(function (r) { return r.ok ? r.json() : null; })
         .then(function (d) {
-          if (!applyRemote(d)) directFetch();
+          applyRemote(d);
+          /* 代理可能只带回部分字段（如仅版本号）：星数/下载量仍缺时用访客自身 IP 直连补齐 */
+          if (!curStats.downloads || !curStats.stars) directFetch();
         })
         .catch(function () { directFetch(); });
     }
