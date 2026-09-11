@@ -3,17 +3,22 @@
   'use strict';
 
   var GH_API = 'https://api.github.com/repos/yuhaowang774/FrameLabdesktop';
-  var FALLBACK_VERSION = 'v0.2.6';
+  var FALLBACK_VERSION = 'v0.2.7';
 
   /* ---------- 统计数据三层兜底：localStorage 上次实时值 → 构建烘焙值 → 内置常量 ----------
      GitHub API 在部分访客网络下会限流（未认证 60 次/时/IP）或不可达，实时拉取可能失败；
      构建时 scripts/fetch-gh-stats.mjs 把当时的值烘焙进 assets/gh-stats.js，
-     叠加本地缓存，保证任何网络环境下数字都不空白。 */
+     叠加本地缓存，保证任何网络环境下数字都不空白。
+     缓存带 6 小时时效：过期后退回烘焙值/常量，避免发新版后老访客长期停留在旧版本号。 */
   var LS_STATS_KEY = 'gh-stats-cache';
+  var CACHE_TTL_MS = 6 * 60 * 60 * 1000;
   function readCache() {
     try {
       var v = JSON.parse(localStorage.getItem(LS_STATS_KEY) || 'null');
-      return (v && typeof v === 'object') ? v : null;
+      // 无时间戳的旧格式缓存视为过期（发新版后不被旧值长期压制）
+      if (!(v && typeof v === 'object' && typeof v.ts === 'number')) return null;
+      if (Date.now() - v.ts > CACHE_TTL_MS) return null;
+      return v;
     } catch (_) { return null; }
   }
   var bakedStats = (typeof window.GH_STATS_BAKED === 'object' && window.GH_STATS_BAKED) || {};
@@ -24,7 +29,7 @@
     version: cachedStats.version || bakedStats.version || FALLBACK_VERSION
   };
   function cacheStats() {
-    try { localStorage.setItem(LS_STATS_KEY, JSON.stringify(curStats)); } catch (_) {}
+    try { localStorage.setItem(LS_STATS_KEY, JSON.stringify({ ts: Date.now(), stars: curStats.stars, downloads: curStats.downloads, version: curStats.version })); } catch (_) {}
   }
   function applyStats() {
     setVersion(curStats.version);
