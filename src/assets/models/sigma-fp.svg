@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 300">
+  <!-- FrameLab 机型字标：Sigma fp（可替换为官方矢量字标，运行时自动裁剪边界并套色） -->
+  <g fill="#000000">
+  
+  <text x="40.0" y="200" text-anchor="start" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif" font-size="120" font-weight="600" letter-spacing="1" fill="#000000"><tspan>fp</tspan></text>
+  </g>
+</svg>

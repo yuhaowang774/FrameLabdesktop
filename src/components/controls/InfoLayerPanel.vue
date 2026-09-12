@@ -10,6 +10,7 @@ import { BRANDS, PHONE_BRANDS, RANGES, MAX_CUSTOM_LOGOS, CROP_FACTORS, BRAND_LOG
 import { buildExifText, formatDate, parseDisplayDate, parseExif, cleanLens, type DateFormat } from '../../composables/useExif'
 import { footerTextColor } from '../../core/colorUtils'
 import { cardBadgeColors } from '../../core/infoLayout'
+import { modelMarkOf } from '../../core/modelMarks'
 import ColorField from '../common/ColorField.vue'
 import { useLogoStore, CUSTOM_PREFIX } from '../../composables/useLogoStore'
 import RangeSlider from '../common/RangeSlider.vue'
@@ -41,6 +42,8 @@ function onBrandChange() {
   const accent = BRAND_LOGO_COLORS[state.brand] ?? phoneBrandOf(state.brand)?.accent
   if (accent && state.logoColor !== accent) patch({ logoColor: accent })
 }
+// 机型字标：当前机型是否有内置字标（面板提示文案用）
+const hasModelMark = computed(() => !!modelMarkOf(state.cameraModel))
 // card 联名标块默认配色（当前品牌无标块时为 null，不显示调节项）
 const badgeDefault = computed(() => {
   if (!phoneBrandOf(state.brand)?.badge.text) return null
@@ -394,6 +397,18 @@ async function onCreateTextLogo() {
         <span class="sw-tag">显示型号</span>
       </label>
       <input v-model="state.cameraModel" class="text-input" placeholder="相机型号，如 A7R V" />
+      <label
+        class="show-switch"
+        title="当前机型有内置矢量字标时优先显示（字体 / 字重 / 斜体不再生效，颜色与透明度仍生效）；无字标或关闭时显示文字。"
+      >
+        <input
+          type="checkbox"
+          :checked="state.modelMark !== false"
+          @change="patch({ modelMark: ($event.target as HTMLInputElement).checked })"
+        />
+        <span class="box" />
+        <span class="sw-tag">机型字标{{ hasModelMark ? '' : '（暂无内置）' }}</span>
+      </label>
       <TextStyleGroup
         label="型号样式"
         font-field="cameraModelFont"

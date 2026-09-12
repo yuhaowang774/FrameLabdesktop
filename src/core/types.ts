@@ -153,6 +153,8 @@ export interface FrameConfig {
   cameraModelSize: number
   cameraModelWeight: number
   cameraModelOpacity: number
+  /** 机型字标：有内置矢量字标时优先渲染（字体 / 字重 / 斜体不生效，颜色与透明度仍生效）；false = 始终文字 */
+  modelMark: boolean
   cameraModelColor: string | null
   cameraModelItalic: boolean
   cameraModelOffsetX: number
@@ -292,6 +294,7 @@ export const defaultFrameConfig: FrameConfig = {
   cameraModelSize: 40,
   cameraModelWeight: 600,
   cameraModelOpacity: 1,
+  modelMark: true,
   cameraModelColor: null,
   cameraModelItalic: false,
   cameraModelOffsetX: 0,

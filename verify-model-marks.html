@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="zh">
+<head>
+  <meta charset="utf-8" />
+  <title>机型字标预览（dev）</title>
+  <style>
+    body { background: #f4f2ee; font: 14px/1.5 'Segoe UI', 'Microsoft YaHei', sans-serif; padding: 20px 24px; color: #333; }
+    h1 { font-size: 18px; margin: 0 0 4px; }
+    .tip { color: #888; font-size: 12px; margin-bottom: 14px; }
+    h2 { font-size: 13px; color: #666; margin: 16px 0 6px; }
+    .row { display: flex; align-items: center; flex-wrap: wrap; gap: 26px; padding: 14px 18px; background: #fff; border-radius: 8px; }
+    .row.dark { background: #17181b; }
+    .cell { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+    .cell .meta { color: #9a9a9a; font-size: 10px; letter-spacing: 0.3px; }
+    .row.dark .cell .meta { color: #6b6b6b; }
+    img { display: block; width: auto; }
+    #log { white-space: pre-wrap; color: #b00020; font-size: 12px; min-height: 0; }
+  </style>
+</head>
+<body>
+  <h1>机型字标预览（dev 页：npm run dev 后访问 /verify-model-marks.html）</h1>
+  <div class="tip">渲染路径：SVG 文本 → getBBox 实测墨迹边界 → 重写 viewBox（4% 内边距）→ Blob 渲染 → source-in 套色。下方同时验证 Store 的异步就绪流转。</div>
+  <div id="log"></div>
+  <h2>常规尺寸（黑字 / 白字，高 = 40px × 0.84 = 33.6px）</h2>
+  <div class="row" id="rowDarkInk"></div>
+  <div class="row dark" id="rowLightInk"></div>
+  <h2>放大细节（高 96px）</h2>
+  <div class="row" id="rowBig"></div>
+  <h2>Store 异步就绪流转（resolveModelMarkDataURL，蓝色 #3b6ea5）</h2>
+  <div class="row" id="rowStore"></div>
+  <script type="module">
+    import { renderSvgMark, tintCanvas } from '/src/core/svgMark.ts'
+    import { resolveModelMarkDataURL } from '/src/composables/useModelMarkStore.ts'
+
+    const CASES = [
+      // Nikon Z 全谱（官方锁排版 + 官方字形合成）+ D 系官方
+      ['nikon-z5', 'Z 5'], ['nikon-z5m2', 'Z 5II'], ['nikon-z6', 'Z 6'], ['nikon-z6m2', 'Z 6II'],
+      ['nikon-z6iii', 'Z 6III'], ['nikon-z7', 'Z 7'], ['nikon-z7m2', 'Z 7II'], ['nikon-z8', 'Z 8'],
+      ['nikon-z9', 'Z 9'], ['nikon-zf', 'Z f'], ['nikon-zfc', 'Z fc'], ['nikon-z30', 'Z 30'],
+      ['nikon-z50', 'Z 50'], ['nikon-z50m2', 'Z 50II'], ['nikon-d850', 'D850'], ['nikon-d780', 'D780'],
+      // 其余品牌抽样
+      ['sony-a7r5', 'α7R V'], ['sony-a1', 'α1'], ['sony-zv1', 'ZV-1'], ['sony-rx10m4', 'RX10 IV'],
+      ['sony-rx100m3', 'RX100 III'], ['canon-eosr5', 'EOS R5'], ['canon-eosr6m2', 'EOS R6 Mark II'],
+      ['canon-eos5dm4', 'EOS 5D Mark IV'], ['canon-eos5dm2', 'EOS 5D Mark II'], ['canon-eos7dm2', 'EOS 7D Mark II'],
+      ['canon-eosm6', 'EOS M6'], ['nikon-d850', 'D850'], ['nikon-d810', 'D810'], ['nikon-d700', 'D700'],
+      ['nikon-df', 'Df'], ['fujifilm-xt5', 'X-T5'], ['fujifilm-xt2', 'X-T2'], ['fujifilm-x100t', 'X100T'],
+      ['fujifilm-gfx50r', 'GFX 50R'], ['lumix-s5m2', 'S5 II'], ['lumix-gh5s', 'GH5S'], ['lumix-gx9', 'GX9'],
+      ['om-em1', 'E-M1'], ['om-penf', 'PEN-F'], ['pentax-k1', 'K-1'], ['pentax-kp', 'KP'],
+      ['leica-q', 'Q'], ['leica-m10r', 'M10-R'], ['leica-cl', 'CL'], ['dji-mavic4pro', 'Mavic 4 Pro'],
+      ['dji-pocket3', 'Pocket 3'], ['ricoh-gr2', 'GR II'], ['sigma-fpl', 'fp L'], ['sigma-bf', 'BF'],
+      ['hasselblad-907x', '907X & CFV 100C'], ['hasselblad-x1d', 'X1D-50c'],
+      // 三轮抽样
+      ['sony-a5000', 'α5000'], ['sony-rx100', 'RX100'], ['sony-rx10m2', 'RX10 II'],
+      ['canon-eos5ds', 'EOS 5Ds'], ['canon-eos5d', 'EOS 5D'], ['canon-eos1dxm3', 'EOS-1D X Mark III'],
+      ['canon-g7xm2', 'G7 X Mark II'], ['canon-g5xm2', 'G5 X Mark II'], ['nikon-d600', 'D600'],
+      ['nikon-d90', 'D90'], ['nikon-d3200', 'D3200'], ['nikon-d3300', 'D3300'],
+      ['fujifilm-x100', 'X100'], ['fujifilm-xe2', 'X-E2'], ['lumix-s5', 'S5'], ['lumix-gx8', 'GX8'],
+      ['lumix-lx100', 'LX100'], ['om-em10', 'E-M10'], ['om-epl10', 'E-PL10'], ['om-tg6', 'TG-6'],
+      ['pentax-k3', 'K-3'], ['pentax-k5m2', 'K-5 II'], ['leica-sl', 'SL'], ['leica-dlux7', 'D-Lux 7'],
+      ['dji-spark', 'Spark'], ['dji-mavicpro', 'Mavic Pro'], ['dji-mavicmini', 'Mavic Mini'],
+      ['dji-mavic3classic', 'Mavic 3 Classic'], ['dji-minise', 'Mini SE'], ['dji-pocket2', 'Pocket 2'],
+      // 四轮抽样
+      ['sony-nex7', 'NEX-7'], ['sony-nex5n', 'NEX-5N'], ['sony-a77', 'α77'], ['sony-a99m2', 'α99 II'],
+      ['canon-eos200d', 'EOS 200D'], ['canon-eosm100', 'EOS M100'], ['canon-eos1dx', 'EOS-1D X'],
+      ['canon-g7x', 'G7 X'], ['canon-g9xm2', 'G9 X Mark II'], ['nikon-d5', 'D5'], ['nikon-d4s', 'D4s'],
+      ['nikon-d300s', 'D300s'], ['nikon-p1000', 'P1000'], ['fujifilm-xpro1', 'X-Pro1'],
+      ['fujifilm-xt200', 'X-T200'], ['fujifilm-xa7', 'X-A7'], ['fujifilm-gfx100rf', 'GFX100RF'],
+      ['lumix-g7', 'G7'], ['lumix-gx85', 'GX85'], ['lumix-gh3', 'GH3'], ['om-epl8', 'E-PL8'],
+      ['om-tg5', 'TG-5'], ['pentax-k50', 'K-50'], ['pentax-ks2', 'K-S2'], ['pentax-645z', '645Z'],
+      ['dji-mavic2zoom', 'Mavic 2 Zoom'],
+    ]
+    const url = (f) => `/src/assets/models/${f}.svg`
+    const log = document.getElementById('log')
+    window.addEventListener('error', (e) => {
+      log.textContent += `[window.error] ${e.message}\n`
+    })
+    window.addEventListener('unhandledrejection', (e) => {
+      log.textContent += `[unhandled] ${e.reason}\n`
+    })
+    const cell = (labelText, metaText, dataUrl, h) => {
+      const div = document.createElement('div')
+      div.className = 'cell'
+      const img = document.createElement('img')
+      img.src = dataUrl
+      img.style.height = h + 'px'
+      div.appendChild(img)
+      const l = document.createElement('span')
+      l.className = 'meta'
+      l.textContent = metaText
+      div.appendChild(l)
+      return div
+    }
+    const rowDark = document.getElementById('rowDarkInk')
+    const rowLight = document.getElementById('rowLightInk')
+    const rowBig = document.getElementById('rowBig')
+
+    for (const [file, label] of CASES) {
+      try {
+        const base = await renderSvgMark(url(file), 320)
+        const ratio = (base.width / base.height).toFixed(2)
+        const black = tintCanvas(base, '#141414')
+        const white = tintCanvas(base, '#ffffff')
+        rowDark.appendChild(cell(label, `${label} · ${file} · ${ratio}`, black.toDataURL('image/png'), 33.6))
+        rowLight.appendChild(cell(label, `${label} · ${ratio}`, white.toDataURL('image/png'), 33.6))
+        if (['nikon-z8', 'nikon-z6iii', 'nikon-zf', 'nikon-z50m2', 'nikon-d850', 'canon-eos5dm4'].includes(file)) {
+          rowBig.appendChild(cell(label, `${label} · ${ratio}`, black.toDataURL('image/png'), 96))
+        }
+      } catch (e) {
+        log.textContent += `${file}: ${e}\n`
+      }
+    }
+
+    // Store：首次调用返回空（未就绪）→ 异步渲染完成后经版本号刷新拿到 dataURL（轮询等待）
+    const rowStore = document.getElementById('rowStore')
+    const first = resolveModelMarkDataURL('sony-a7r5', '#3b6ea5')
+    let second = ''
+    for (let i = 0; i < 30 && !second; i++) {
+      await new Promise((r) => setTimeout(r, 200))
+      second = resolveModelMarkDataURL('sony-a7r5', '#3b6ea5')
+    }
+    rowStore.appendChild(cell('α7R V', `首次：${first === '' ? '空（预期：异步加载中）' : '已就绪'}`, first, 33.6))
+    rowStore.appendChild(cell('α7R V', `${second ? '轮询后就绪（#3b6ea5 套色）' : '轮询后仍空（异常）'}`, second, 33.6))
+
+    document.title = log.textContent ? '机型字标验证（有错误）' : '机型字标验证（全部通过）'
+  </script>
+</body>
+</html>

@@ -585,6 +585,8 @@ export function applyTemplateToState(rawConfig: Partial<FrameConfig>): string[] 
     lensTextColor: config.lensTextColor ?? null,
     dateTextColor: config.dateTextColor ?? null,
     cameraModelColor: config.cameraModelColor ?? null,
+    // 机型字标开关：模板未显式定义时保留用户当前值（不被 defaultFrameConfig 的默认 true 覆盖）
+    modelMark: config.modelMark ?? state.modelMark,
     logoColor: config.logoColor ?? (lightSolid ? '#1a1a1a' : '#ffffff'),
     // ===== INFO 文本：先保留现值，缺失的从 exifRaw 回填 =====
     exifText: state.exifText,

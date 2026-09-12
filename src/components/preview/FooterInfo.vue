@@ -28,6 +28,8 @@ import {
 import { logoAutoColor, footerTextColor } from '../../core/colorUtils'
 import { applyShowToggles } from '../../core/showToggles'
 import { modelAlias } from '../../core/modelAlias'
+import { activeModelMark, modelMarkTintColor, MODEL_MARK_SCALE, MODEL_MARK_TOP_RATIO } from '../../core/modelMarks'
+import { resolveModelMark, resolveModelMarkDataURL } from '../../composables/useModelMarkStore'
 import { paletteFor, paletteVersion } from '../../core/photoPalette'
 import { infoCenterRequest } from '../../composables/useUi'
 
@@ -72,6 +74,24 @@ const logoRatio = computed(() => {
   const c = resolveLogo(state.brand, logoColor.value)
   return c.height > 0 ? c.width / c.height : 2.6
 })
+
+// ===== 机型字标：有内置矢量字标时优先渲染（与导出同源），无则回退文字 =====
+const modelMark = computed(() => activeModelMark(state))
+const modelMarkColor = computed(() => modelMarkTintColor(state))
+const modelMarkUrl = computed(() =>
+  modelMark.value ? resolveModelMarkDataURL(modelMark.value.file, modelMarkColor.value) : '',
+)
+// 字标宽高比（inline 布局行1 居中需要；读取 modelMarkUrl 建立异步加载后的响应式依赖）
+const modelMarkRatio = computed<number | null>(() => {
+  if (!modelMark.value) return null
+  void modelMarkUrl.value
+  const c = resolveModelMark(modelMark.value.file, modelMarkColor.value)
+  return c.width > 1 && c.height > 1 ? c.width / c.height : null
+})
+// 深色背景（模糊/照片填充）下字标加柔和投影（与文字投影同参数）
+const modelMarkShadow = computed(() =>
+  state.bgMode === 'solid' ? 'none' : 'drop-shadow(0 1px 3px rgba(0, 0, 0, 0.5))',
+)
 
 // 通用拖拽逻辑（每项独立）
 const dragging = ref<ItemKey | null>(null)
@@ -526,7 +546,7 @@ function defaultPos(key: ItemKey): { x: number; y: number } {
   // classic = 经典纵向堆叠；duo = 杂志双栏；inline = 悬浮双行
   const L: FooterLayout =
     state.infoLayout === 'duo' || state.infoLayout === 'inline'
-      ? computeFooterLayout(state, canvasBottom, logoRatio.value)
+      ? computeFooterLayout(state, canvasBottom, logoRatio.value, modelMarkRatio.value)
       : computeClassicLayout(state, canvasBottom)
   return L[key]
 }
@@ -826,10 +846,30 @@ function absStyle(key: ItemKey) {
       draggable="false"
       @pointerdown="onPointerDown($event, 'logo')"
     />
-    <span
-      class="camera-model drag-item"
+    <!-- 机型字标（有内置矢量字标时）：图像渲染，与导出同源；无字标 / 未就绪回退文字 -->
+    <img
+      v-if="modelMark && modelMarkUrl && state.showCameraModel && state.infoLayout !== 'card' && state.infoLayout !== 'magazine'"
+      class="model-mark drag-item"
       data-item="model"
-      v-if="state.showCameraModel && state.infoLayout !== 'card' && state.infoLayout !== 'magazine'"
+      :class="{ dragging: dragging === 'model' }"
+      :src="modelMarkUrl"
+      :alt="modelMark.label"
+      :style="[
+        absStyle('model'),
+        {
+          display: 'var(--camera-model-display)',
+          height: `calc(var(--camera-model-size) * ${MODEL_MARK_SCALE})`,
+          marginTop: `calc(var(--camera-model-size) * ${MODEL_MARK_TOP_RATIO})`,
+          opacity: 'var(--camera-model-opacity)',
+          filter: modelMarkShadow,
+          transform: modelTransform,
+        },
+      ]"
+      draggable="false"
+      @pointerdown="onPointerDown($event, 'model')"
+    />
+    <span
+      v-if="state.showCameraModel && !modelMarkUrl && state.infoLayout !== 'card' && state.infoLayout !== 'magazine'"
       :class="{ dragging: dragging === 'model' }"
       :style="[
         absStyle('model'),
@@ -1005,6 +1045,14 @@ function absStyle(key: ItemKey) {
      content-box 让 8px padding 只作拖拽热区，Logo 本体恢复为完整 logoSize */
   box-sizing: content-box;
   filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.25));
+}
+/* 机型字标：与品牌 Logo 同规则（content-box 让 4px 拖拽热区 padding 不压缩字标本体；
+   投影由内联样式按背景明暗控制，与文字投影同参数） */
+.model-mark {
+  display: block;
+  object-fit: contain;
+  width: auto;
+  box-sizing: content-box;
 }
 .exif-text {
   color: var(--footer-text-color);

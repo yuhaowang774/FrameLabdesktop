@@ -11,6 +11,7 @@
 import type { FrameConfig } from './types'
 import { DESIGN_CONTAINER, phoneBrandOf } from './constants'
 import { modelAlias } from './modelAlias'
+import { MODEL_MARK_SCALE } from './modelMarks'
 
 /** 单个 INFO 元素的默认位置（内容区坐标，左上角） */
 export interface FooterRect {
@@ -109,8 +110,14 @@ export function toCanvasFont(s: TextStyle, italic = false): string {
  * @param cfg 相框配置
  * @param canvasBottom 画布底缘（内容区坐标系 y 值 = 实测画板高 − padding − bgExpand）
  * @param logoRatio Logo 宽高比（w/h；无 Logo 时用 2.6 兜底）
+ * @param modelMarkRatio 机型字标宽高比（w/h；null = 未启用字标或未就绪，按文字测宽）
  */
-export function computeFooterLayout(cfg: FrameConfig, canvasBottom: number, logoRatio: number): FooterLayout {
+export function computeFooterLayout(
+  cfg: FrameConfig,
+  canvasBottom: number,
+  logoRatio: number,
+  modelMarkRatio: number | null = null,
+): FooterLayout {
   const center = DESIGN_CONTAINER / 2
   const exifS = exifTextStyle(cfg)
   const lensS = lensTextStyle(cfg)
@@ -175,8 +182,12 @@ export function computeFooterLayout(cfg: FrameConfig, canvasBottom: number, logo
   const dateY = showDate ? cursor - dateS.size : bottom
   if (showDate) cursor -= dateS.size + INLINE_ROW_GAP
   const exifY = cursor - exifH
-  // 审查报告 R10：测宽必须与绘制同源（营销名映射），否则 inline 居中行偏移、右对齐宽度失真
-  const modelW = measureTextWidth(modelAlias(cfg.cameraModel), toCanvasFont(modelS, cfg.cameraModelItalic))
+  // 审查报告 R10：测宽必须与绘制同源（营销名映射），否则 inline 居中行偏移、右对齐宽度失真。
+  // 机型字标启用且已就绪（modelMarkRatio 非空）时按字标实际宽高比测宽，行1 居中与字标渲染一致
+  const modelW =
+    modelMarkRatio != null
+      ? cfg.cameraModelSize * MODEL_MARK_SCALE * modelMarkRatio
+      : measureTextWidth(modelAlias(cfg.cameraModel), toCanvasFont(modelS, cfg.cameraModelItalic))
   const showModel = cfg.showCameraModel && !!cfg.cameraModel
   // 手机品牌的 Logo 是文字标记（HUAWEI/XIAOMI…），与机型文本（通常含品牌名）并排显示会重复，
   // 行1 仅保留机型居中；相机品牌的图形 Logo 正常内联。

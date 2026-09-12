@@ -171,6 +171,7 @@ const FIELD_LABELS: Record<string, string> = {
   cameraModelOpacity: '型号透明度',
   cameraModelColor: '型号颜色',
   cameraModelItalic: '型号斜体',
+  modelMark: '机型字标',
   exifTextColor: 'EXIF 颜色',
   lensTextColor: '镜头颜色',
   dateTextColor: '日期颜色',

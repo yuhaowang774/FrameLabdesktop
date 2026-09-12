@@ -35,6 +35,8 @@ import {
 } from './infoLayout'
 import { extractPalette, FALLBACK_PALETTE } from './photoPalette'
 import { modelAlias } from './modelAlias'
+import { activeModelMark, modelMarkTintColor, MODEL_MARK_SCALE, MODEL_MARK_TOP_RATIO } from './modelMarks'
+import { resolveModelMark, preloadModelMark } from '../composables/useModelMarkStore'
 import { rotatedSize, drawRotatedCropped } from './photoEdit'
 
 export type ExportFormat = 'png' | 'jpg'
@@ -308,9 +310,16 @@ async function drawFooter(
   // 审查报告 R8：占位/未就绪的自定义 Logo（1×1）不能参与比例计算与绘制，否则被拉伸成方块
   const logoDims = logo ? sourceSize(logo) : { w: 0, h: 0 }
   const logoRatioForLayout = logoDims.w > 1 && logoDims.h > 1 ? logoDims.w / logoDims.h : 2.6
+  // 机型字标（若有且启用）：布局测宽与绘制共用同一画布（导出前已预载，比例稳定；
+  // 占位 1×1 视为未就绪 → 回退文字排版与文字绘制）
+  const markDef = activeModelMark(config)
+  const markColor = modelMarkTintColor(config)
+  const markRaw = markDef ? resolveModelMark(markDef.file, markColor) : null
+  const markCanvas = markRaw && markRaw.width > 1 && markRaw.height > 1 ? markRaw : null
+  const markRatioForLayout = markCanvas ? markCanvas.width / markCanvas.height : null
   const layout: FooterLayout =
     config.infoLayout === 'duo' || config.infoLayout === 'inline'
-      ? computeFooterLayout(config, canvasBottomY, logoRatioForLayout)
+      ? computeFooterLayout(config, canvasBottomY, logoRatioForLayout, markRatioForLayout)
       : computeClassicLayout(config, canvasBottomY)
   // classic 文本水平对齐：center = 行中心锚点（textAlign:center，与预览 -50% 平移等价）；
   // right = 右缘锚点（textAlign:right，与预览 -100% 平移等价）；left 与 duo/inline 均为左锚点。
@@ -390,7 +399,32 @@ async function drawFooter(
   }
   // 与预览一致：存储值可能是旧版本写入的机身代号，导出前统一翻译成营销名（映射幂等）
   const modelText = modelAlias(config.cameraModel)
-  if (config.showCameraModel && modelText) {
+  if (config.showCameraModel && modelText && markCanvas) {
+    // 机型字标：按「字号 × MODEL_MARK_SCALE」等比绘制（视觉高度与文字一致），
+    // 画布上下各留 MODEL_MARK_TOP_RATIO 行内边距；classic 水平锚点语义与文本行一致
+    // （center = 行中心 / right = 右缘，对应左移自身宽度），inline/duo 的 x 为左缘锚点
+    const mh = modelH * MODEL_MARK_SCALE
+    const mw = mh * (markCanvas.width / markCanvas.height)
+    const markShift =
+      config.infoLayout === 'classic'
+        ? config.overlayAlign === 'center'
+          ? -mw / 2
+          : config.overlayAlign === 'right'
+            ? -mw
+            : 0
+        : 0
+    ctx.save()
+    ctx.globalAlpha = config.cameraModelOpacity
+    applyTextShadow()
+    ctx.drawImage(
+      markCanvas,
+      ox + dModelX * unitScale + config.cameraModelOffsetX * unitScale + markShift,
+      ox + dModelY * unitScale + config.cameraModelOffsetY * unitScale + modelH * MODEL_MARK_TOP_RATIO,
+      mw,
+      mh,
+    )
+    ctx.restore()
+  } else if (config.showCameraModel && modelText) {
     ctx.save()
     ctx.fillStyle = paint(config.cameraModelColor, config.cameraModelOpacity)
     ctx.font = fontStr(config.cameraModelWeight, modelH, config.cameraModelFont, config.cameraModelItalic)
@@ -573,6 +607,11 @@ export async function exportFrame(
   if (document.fonts?.ready) await document.fonts.ready
   // 确保内置品牌真实图形 Logo 已加载完成（带颜色缓存键，避免导出拿到占位画布）
   await preloadBrandLogo(config.brand, logoColor)
+  // 机型字标（若有且启用）同步预载：保证绘制阶段拿到完整画布而非占位
+  const markDefForPreload = activeModelMark(config)
+  if (markDefForPreload && config.showCameraModel) {
+    await preloadModelMark(markDefForPreload.file, modelMarkTintColor(config))
+  }
   // 预加载自定义水印图（若存在），保证导出时可用
   let watermarkImg: ImgSource | null = null
   if (config.watermarkImage) {
