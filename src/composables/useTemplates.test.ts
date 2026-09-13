@@ -140,6 +140,39 @@ describe('内置模板清单结构校验', () => {
   })
 })
 
+describe('全量内置模板应用冒烟（40 套逐套过真实应用链路）', () => {
+  it('逐套 applyTemplateToState：不抛错、画布高合法、布局/锚点字段合法、EXIF 回填不破坏', () => {
+    const { templates } = useTemplates()
+    const builtin = templates.filter((t) => t.builtin)
+    const { state, loadConfig } = useFrameConfig()
+    // 模拟导入照片后的状态：EXIF 就绪 + canvasH 已初始化（800 照片高 + 60 pad + 60 底带）
+    loadConfig({ exifRaw: RAW, canvasH: 920, padding: 60, borderRatio: 0 })
+    const VALID_LAYOUTS = ['classic', 'duo', 'inline', 'card', 'magazine', 'vertical']
+    for (const t of builtin) {
+      expect(() => applyTemplateToState(t.config), `${t.id} 应用抛错`).not.toThrow()
+      expect(state.canvasH, `${t.id} 画布高非法`).toBeGreaterThanOrEqual(0)
+      expect(Number.isFinite(state.canvasH), `${t.id} 画布高非有限数`).toBe(true)
+      expect(VALID_LAYOUTS, `${t.id} 布局值非法: ${state.infoLayout}`).toContain(state.infoLayout)
+      expect(['bottom', 'top'], `${t.id} 锚点值非法: ${state.overlayAnchor}`).toContain(state.overlayAnchor)
+      expect(Number.isFinite(state.padding), `${t.id} padding 非法`).toBe(true)
+      // EXIF 回填链路未被模板破坏（模板只带开关不带文本）
+      if (t.config.showExif) expect(state.exifText.length, `${t.id} EXIF 文本缺失`).toBeGreaterThan(0)
+    }
+  })
+
+  it('连续应用全部模板（模拟用户逐套切换）：状态始终可渲染', () => {
+    const { templates } = useTemplates()
+    const builtin = templates.filter((t) => t.builtin)
+    const { state, loadConfig } = useFrameConfig()
+    loadConfig({ exifRaw: RAW, canvasH: 920 })
+    for (const t of builtin) applyTemplateToState(t.config)
+    // 连续切换后仍处于合法状态（收尾为最后一套：报头式·顶部题注）
+    expect(state.infoLayout).toBe('classic')
+    expect(state.overlayAnchor).toBe('top')
+    expect(state.canvasH).toBeGreaterThan(0)
+  })
+})
+
 describe('sanitizeTemplateConfig 可空字段保留（回归 2026-09-12）', () => {
   it('默认值为 null 的字段显式赋具体值时不得丢弃（日期样式/独立字体/标块配色/拖拽坐标）', () => {
     const out = sanitizeTemplateConfig({

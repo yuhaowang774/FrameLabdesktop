@@ -218,8 +218,12 @@ describe('inline 悬浮：日期行独立占位（回归：与 EXIF 参数行同
 })
 
 describe('overlayAnchor 顶部锚点（报头式）', () => {
-  it('classic 顶部锚点：阅读序自顶向下堆叠，首行贴 overlayBottom', () => {
-    const c = cfg({ ...INFO_ON, showLogo: true, overlayAnchor: 'top', overlayBottom: 26 })
+  // 语义：overlayBottom 自「画布顶缘」向下量（画布顶缘 = -(pad + bgExpand)），
+  // 与底部锚点「画布底缘」对称——overlayBottom 恒以画布边缘为基准。
+  const FLUSH = { padding: 0, bgExpand: 0 } // pad=0 时画布顶缘 = 照片顶缘，便于断言
+
+  it('classic 顶部锚点：阅读序自顶向下堆叠，首行贴画布顶缘 + overlayBottom', () => {
+    const c = cfg({ ...INFO_ON, ...FLUSH, showLogo: true, overlayAnchor: 'top', overlayBottom: 26 })
     const L = computeClassicLayout(c, CANVAS_BOTTOM)
     // 阅读序：Logo → 型号 → EXIF(+镜头) → 日期，自顶向下
     expect(L.logo.y).toBe(26)
@@ -227,21 +231,24 @@ describe('overlayAnchor 顶部锚点（报头式）', () => {
     expect(L.exif.y).toBeCloseTo(L.model.y + c.cameraModelSize + CLASSIC_ROW_GAP, 6)
     expect(L.lens.y).toBeCloseTo(L.exif.y + exifTextStyle(c).size + LENS_LINE_GAP, 6)
     expect(L.date.y).toBeCloseTo(L.exif.y + exifBlockH(c) + CLASSIC_ROW_GAP, 6)
-    // 与底部锚点互为镜像：同一行序，行间距一致
-    const bottom = computeClassicLayout(cfg({ ...INFO_ON, showLogo: true }), CANVAS_BOTTOM)
-    expect(L.date.y - L.exif.y - exifBlockH(c)).toBeCloseTo(CLASSIC_ROW_GAP, 6)
-    expect(bottom.exif.y + exifBlockH(c)).toBeCloseTo(bottom.date.y - CLASSIC_ROW_GAP, 6)
   })
 
-  it('classic 顶部锚点：隐藏 Logo 时不占位，型号行直接贴顶', () => {
-    const c = cfg({ ...INFO_ON, showLogo: false, overlayAnchor: 'top', overlayBottom: 20 })
+  it('classic 顶部锚点：隐藏 Logo 时不占位，型号行直接贴锚位', () => {
+    const c = cfg({ ...INFO_ON, ...FLUSH, showLogo: false, overlayAnchor: 'top', overlayBottom: 20 })
     const L = computeClassicLayout(c, CANVAS_BOTTOM)
     expect(L.model.y).toBe(20)
     expect(L.exif.y).toBeCloseTo(20 + c.cameraModelSize + CLASSIC_ROW_GAP, 6)
   })
 
-  it('inline 顶部锚点：视觉行序不变（镜头/行1/参数/日期），整块搬到顶缘下方', () => {
-    const c = cfg({ ...INFO_ON, overlayAnchor: 'top', overlayBottom: 30 })
+  it('classic 顶部锚点：有 padding 时锚位在顶边留白带内（负内容坐标）', () => {
+    // pad 60 / overlayBottom 26 → 画布顶缘(内容坐标 -60) + 26 = -34：型号行落在上边留白带内
+    const c = cfg({ ...INFO_ON, showLogo: false, overlayAnchor: 'top', overlayBottom: 26 })
+    const L = computeClassicLayout(c, CANVAS_BOTTOM)
+    expect(L.model.y).toBe(-34)
+  })
+
+  it('inline 顶部锚点：视觉行序不变（镜头/行1/参数/日期），整块搬到画布顶缘下方', () => {
+    const c = cfg({ ...INFO_ON, ...FLUSH, overlayAnchor: 'top', overlayBottom: 30 })
     const L = computeFooterLayout(c, CANVAS_BOTTOM, 2.6)
     // 镜头行贴顶（inline 自底向上中镜头行在最上方，镜像后仍居首）
     expect(L.lens.y).toBe(30)

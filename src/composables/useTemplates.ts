@@ -1746,7 +1746,7 @@ const BUILTIN: FrameTemplate[] = [
   {
     id: 'm_masthead_top',
     name: '报头式·顶部题注',
-    desc: '信息块贴顶缘的报头式排版（机型+日期），下边留白收底',
+    desc: '信息块落在顶边留白带内的报头式排版（机型+日期），四边等宽留白收底',
     group: '创意排版',
     category: 'frame',
     builtin: true,
@@ -1754,7 +1754,7 @@ const BUILTIN: FrameTemplate[] = [
       bgMode: 'solid',
       bgColor: '#ffffff',
       borderColor: '#ffffff',
-      padding: 30,
+      padding: 90,
       borderRatio: 90,
       photoRadius: 0,
       borderRadius: 0,
@@ -1764,7 +1764,8 @@ const BUILTIN: FrameTemplate[] = [
       infoLayout: 'classic',
       overlayAnchor: 'top',
       overlayAlign: 'center',
-      overlayBottom: 26,
+      // 信息块（22+16+16=54）在 90 顶边带内垂直居中：锚位 = 画布顶缘 + 18
+      overlayBottom: 18,
       showLogo: false,
       showCameraModel: true,
       cameraModelSize: 22,

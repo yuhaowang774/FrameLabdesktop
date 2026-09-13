@@ -117,6 +117,10 @@ export function templateThumbSvg(config: Partial<FrameConfig>, opts: ThumbOption
   const logoW = c.logoSize * logoRatio
 
   let info = ''
+  // 引擎（computeFooterLayout/computeMagazineLayout/computeVerticalLayout/computeCardLayout 之外的
+  // 共享布局函数）输出的是内容区坐标系（照片左上角为原点）；SVG 其余图层为画布坐标系。
+  // 这三个分支的元素先写入 infoContent，最后统一平移 (pad + bgExpand) 对齐到画布坐标。
+  let infoContent = ''
   if (c.infoLayout === 'duo' || c.infoLayout === 'inline') {
     // duo / inline：直接复用预览与导出共用的默认排版
     const layout = computeFooterLayout(
@@ -124,15 +128,15 @@ export function templateThumbSvg(config: Partial<FrameConfig>, opts: ThumbOption
       canvasH - pad - bgExpand,
       logoRatio,
     )
-    if (c.showExif) info += bar(layout.exif.x, layout.exif.y, c.fontSize, exifW, c.textOpacity, text)
-    if (c.showDate) info += bar(layout.date.x, layout.date.y, c.cameraModelSize, dateW, c.cameraModelOpacity, text)
-    if (c.showCameraModel) info += bar(layout.model.x, layout.model.y, c.cameraModelSize, modelW, c.cameraModelOpacity, text)
-    if (c.showLens) info += bar(layout.lens.x, layout.lens.y, c.fontSize, lensW, c.textOpacity, text)
+    if (c.showExif) infoContent += bar(layout.exif.x, layout.exif.y, c.fontSize, exifW, c.textOpacity, text)
+    if (c.showDate) infoContent += bar(layout.date.x, layout.date.y, c.cameraModelSize, dateW, c.cameraModelOpacity, text)
+    if (c.showCameraModel) infoContent += bar(layout.model.x, layout.model.y, c.cameraModelSize, modelW, c.cameraModelOpacity, text)
+    if (c.showLens) infoContent += bar(layout.lens.x, layout.lens.y, c.fontSize, lensW, c.textOpacity, text)
     if (c.showLogo) {
-      info += `<rect x="${r2(layout.logo.x)}" y="${r2(layout.logo.y)}" width="${r2(logoW)}" height="${r2(c.logoSize)}" rx="${r2(c.logoSize * 0.12)}" fill="${logoFill}" opacity="${r2(c.logoOpacity)}"/>`
+      infoContent += `<rect x="${r2(layout.logo.x)}" y="${r2(layout.logo.y)}" width="${r2(logoW)}" height="${r2(c.logoSize)}" rx="${r2(c.logoSize * 0.12)}" fill="${logoFill}" opacity="${r2(c.logoOpacity)}"/>`
     }
     if (layout.divider) {
-      info += `<rect x="${r2(layout.divider.x)}" y="${r2(layout.divider.y)}" width="${r2(Math.max(1, c.fontSize * 0.06))}" height="${r2(layout.divider.h)}" fill="${text}" opacity="0.28"/>`
+      infoContent += `<rect x="${r2(layout.divider.x)}" y="${r2(layout.divider.y)}" width="${r2(Math.max(1, c.fontSize * 0.06))}" height="${r2(layout.divider.h)}" fill="${text}" opacity="0.28"/>`
     }
   } else if (c.infoLayout === 'magazine') {
     // magazine：顶部标题区 + 底部左取色色卡 / 右机型+参数+日期（与 computeMagazineLayout 同源）
@@ -145,15 +149,15 @@ export function templateThumbSvg(config: Partial<FrameConfig>, opts: ThumbOption
     const titleSize = magazineTitleFontSize(c)
     const titleW = titleText ? textWidth(titleText, `700 ${titleSize}px ${c.fontFamily}`, titleSize) : 0
     const subW = subText ? textWidth(subText, `500 ${MAG_SUB_SIZE}px ${c.fontFamily}`, MAG_SUB_SIZE) : 0
-    if (titleText) info += bar(layout.title.x, layout.title.y, titleSize, titleW, 0.95, text)
-    if (subText) info += bar(layout.subtitle.x, layout.subtitle.y, MAG_SUB_SIZE, subW, 0.55, text)
+    if (titleText) infoContent += bar(layout.title.x, layout.title.y, titleSize, titleW, 0.95, text)
+    if (subText) infoContent += bar(layout.subtitle.x, layout.subtitle.y, MAG_SUB_SIZE, subW, 0.55, text)
     if (c.showPalette) {
       for (let i = 0; i < MAG_SWATCH_COUNT; i++) {
-        info += `<rect x="${r2(layout.palette.x + i * MAG_SWATCH_W)}" y="${r2(layout.palette.y)}" width="${r2(MAG_SWATCH_W)}" height="${r2(MAG_SWATCH_H)}" fill="${FALLBACK_PALETTE[i % FALLBACK_PALETTE.length]}"/>`
+        infoContent += `<rect x="${r2(layout.palette.x + i * MAG_SWATCH_W)}" y="${r2(layout.palette.y)}" width="${r2(MAG_SWATCH_W)}" height="${r2(MAG_SWATCH_H)}" fill="${FALLBACK_PALETTE[i % FALLBACK_PALETTE.length]}"/>`
       }
     }
-    if (c.showCameraModel) info += bar(layout.model.x - modelW, layout.model.y, c.cameraModelSize, modelW, c.cameraModelOpacity, text)
-    if (c.showExif) info += bar(layout.exif.x - exifW, layout.exif.y, c.fontSize, exifW, c.textOpacity * 0.6, text)
+    if (c.showCameraModel) infoContent += bar(layout.model.x - modelW, layout.model.y, c.cameraModelSize, modelW, c.cameraModelOpacity, text)
+    if (c.showExif) infoContent += bar(layout.exif.x - exifW, layout.exif.y, c.fontSize, exifW, c.textOpacity * 0.6, text)
   } else if (c.infoLayout === 'card') {
     // card：直接复用预览与导出共用的 computeCardLayout（卡片底 + 左右列墨条 + 联名标块）
     const layout = computeCardLayout(
@@ -161,18 +165,18 @@ export function templateThumbSvg(config: Partial<FrameConfig>, opts: ThumbOption
       canvasH - pad - bgExpand,
     )
     const theme = cardThemeColors(c.infoCardTheme)
-    info += `<rect x="${r2(layout.card.x)}" y="${r2(layout.card.y)}" width="${r2(layout.card.w)}" height="${r2(layout.card.h)}" rx="${r2(CARD_RADIUS)}" fill="${theme.card}"/>`
-    if (c.showCameraModel) info += bar(layout.model.x, layout.model.y, layout.model.h, layout.model.w, 0.95, theme.primary)
-    if (layout.date) info += bar(layout.date.x, layout.date.y, layout.date.h, layout.date.w, 0.55, theme.secondary)
-    if (c.showExif) info += bar(layout.exif.x, layout.exif.y, layout.exif.h, layout.exif.w, 0.95, theme.primary)
-    if (layout.lens) info += bar(layout.lens.x, layout.lens.y, layout.lens.h, layout.lens.w, 0.55, theme.secondary)
+    infoContent += `<rect x="${r2(layout.card.x)}" y="${r2(layout.card.y)}" width="${r2(layout.card.w)}" height="${r2(layout.card.h)}" rx="${r2(CARD_RADIUS)}" fill="${theme.card}"/>`
+    if (c.showCameraModel) infoContent += bar(layout.model.x, layout.model.y, layout.model.h, layout.model.w, 0.95, theme.primary)
+    if (layout.date) infoContent += bar(layout.date.x, layout.date.y, layout.date.h, layout.date.w, 0.55, theme.secondary)
+    if (c.showExif) infoContent += bar(layout.exif.x, layout.exif.y, layout.exif.h, layout.exif.w, 0.95, theme.primary)
+    if (layout.lens) infoContent += bar(layout.lens.x, layout.lens.y, layout.lens.h, layout.lens.w, 0.55, theme.secondary)
     if (layout.badge) {
       const phone = phoneBrandOf(c.brand)
       if (phone?.badge.text) {
         const colors = cardBadgeColors(c.cardBadgeBg, c.cardBadgeFg, c.brand)
-        info += `<rect x="${r2(layout.badge.x)}" y="${r2(layout.badge.y)}" width="${r2(layout.badge.w)}" height="${r2(layout.badge.h)}" rx="${r2(4)}" fill="${colors.bg}"/>`
+        infoContent += `<rect x="${r2(layout.badge.x)}" y="${r2(layout.badge.y)}" width="${r2(layout.badge.w)}" height="${r2(layout.badge.h)}" rx="${r2(4)}" fill="${colors.bg}"/>`
         // 标块文字示意条（居中短条，真实宽度随联名文字变化）
-        info += bar(
+        infoContent += bar(
           layout.badge.x + layout.badge.w * 0.18,
           layout.badge.y + layout.badge.h / 2 - CARD_BADGE_FONT_SIZE / 2,
           CARD_BADGE_FONT_SIZE,
@@ -191,17 +195,17 @@ export function templateThumbSvg(config: Partial<FrameConfig>, opts: ThumbOption
     )
     const vbar = (x: number, y: number, size: number, len: number, opacity: number) =>
       `<rect x="${r2(x)}" y="${r2(y)}" width="${r2(size * INK_RATIO)}" height="${r2(Math.max(1, len))}" rx="${r2((size * INK_RATIO) / 2)}" fill="${text}" opacity="${r2(opacity)}"/>`
-    if (c.showCameraModel) info += vbar(layout.model.x, layout.model.y, c.cameraModelSize, modelW, c.cameraModelOpacity)
-    if (c.showExif) info += vbar(layout.exif.x, layout.exif.y, c.fontSize, exifW, c.textOpacity)
-    if (c.showLens && c.lensText) info += vbar(layout.lens.x, layout.lens.y, c.fontSize, lensW, c.textOpacity)
-    if (c.showDate) info += vbar(layout.date.x, layout.date.y, c.dateFontSize ?? c.fontSize, dateW, c.dateTextOpacity ?? c.textOpacity)
+    if (c.showCameraModel) infoContent += vbar(layout.model.x, layout.model.y, c.cameraModelSize, modelW, c.cameraModelOpacity)
+    if (c.showExif) infoContent += vbar(layout.exif.x, layout.exif.y, c.fontSize, exifW, c.textOpacity)
+    if (c.showLens && c.lensText) infoContent += vbar(layout.lens.x, layout.lens.y, c.fontSize, lensW, c.textOpacity)
+    if (c.showDate) infoContent += vbar(layout.date.x, layout.date.y, c.dateFontSize ?? c.fontSize, dateW, c.dateTextOpacity ?? c.textOpacity)
   } else {
     // classic：与 computeClassicLayout 完全同构——自底向上 日期 → EXIF 块(含镜头行) → 型号 → Logo，
     // 只为显示行占位，行距 CLASSIC_ROW_GAP，镜头行以 LENS_LINE_GAP 附在参数行下；水平对齐跟随 overlayAlign
     // （center=行中心，left/right=缘内缩锚点，Logo 由渲染端按自身宽度平移，示意条直接按宽定位）。
     // 底锚（画布坐标）：canvasBottom(调用方传 H - pad - bgExpand，本函数再 + pad 还原画布系) - overlayBottom
     //  → 画布 bottom = canvasH - bgExpand - overlayBottom（与测试/预览/导出三方对齐，勿多减 pad）
-    const bottom = canvasH - bgExpand - c.overlayBottom
+    const bottom = canvasH - c.overlayBottom
     const exifSize = c.exifFontSize ?? c.fontSize
     const lensSize = c.lensFontSize ?? c.fontSize
     const dateSize = c.dateFontSize ?? c.fontSize
@@ -248,6 +252,12 @@ export function templateThumbSvg(config: Partial<FrameConfig>, opts: ThumbOption
         y -= rows[i].h + CLASSIC_ROW_GAP
       }
     }
+  }
+
+  // 引擎坐标分支统一平移到画布坐标（修复：此前直接以内容坐标入画，
+  // 整体偏移了 pad + bgExpand——杂志刊头标题 y=-96 被裁出画布）
+  if (infoContent) {
+    info += `<g transform="translate(${r2(pad + bgExpand)}, ${r2(pad + bgExpand)})">${infoContent}</g>`
   }
 
   // ===== 图层绘制（与 exporter 同序：画板 → 边框 → 背景 → 照片 → INFO）=====

@@ -3,6 +3,7 @@
 import { describe, it, expect } from 'vitest'
 import { estimateExportSize } from './exporter'
 import { defaultFrameConfig } from './types'
+import { useTemplates } from '../composables/useTemplates'
 
 describe('estimateExportSize', () => {
   it('自由模式（无 frameRatio）：画布宽 = (1200 + 2*pad) * unitScale，unitScale = 源宽/照片设计宽', () => {
@@ -52,4 +53,38 @@ describe('estimateExportSize', () => {
     const cfg = { ...defaultFrameConfig }
     expect(() => estimateExportSize(100, 100, cfg, 0)).not.toThrow()
   })
+})
+
+describe('全量内置模板导出度量冒烟（40 套 × 3 类源图，几何不允许 NaN/非正数）', () => {
+  // 模板配置经 defaultFrameConfig 兜底后，逐套跑导出度量纯计算。
+  // 捕捉目标：frameRatio/竖排/顶部锚点/card/magazine 等任何分支产生 NaN、0 或负值画布。
+  const { templates } = useTemplates()
+  const builtin = templates.filter((t) => t.builtin)
+  const SOURCES: Array<{ name: string; w: number; h: number }> = [
+    { name: '横版 3:2', w: 3000, h: 2000 },
+    { name: '竖版 2:3', w: 2000, h: 3000 },
+    { name: '方版 1:1', w: 2400, h: 2400 },
+  ]
+  // 模拟导入时的 canvasH 初始化：照片设计高(800) + 上 pad + 下 pad+borderRatio（自由模式语义）
+  const CANVAS_H = 800 + 60 + 60
+
+  it('模板数量仍为 40（与 useTemplates 测试互为对照）', () => {
+    expect(builtin.length).toBe(40)
+  })
+
+  for (const src of SOURCES) {
+    it(`${src.name}：全部模板画布尺寸均为正有限数`, () => {
+      for (const t of builtin) {
+        const cfg = { ...defaultFrameConfig, ...t.config, canvasH: CANVAS_H }
+        const r = estimateExportSize(src.w, src.h, cfg, 1)
+        expect(Number.isFinite(r.w), `${t.id} 宽度非有限数: ${r.w}`).toBe(true)
+        expect(Number.isFinite(r.h), `${t.id} 高度非有限数: ${r.h}`).toBe(true)
+        expect(r.w, `${t.id} 画布宽非正`).toBeGreaterThan(0)
+        expect(r.h, `${t.id} 画布高非正`).toBeGreaterThan(0)
+        // 超采样上限约束：任一维不得超过浏览器画布上限 16384
+        expect(r.w, `${t.id} 画布宽超上限`).toBeLessThanOrEqual(16384)
+        expect(r.h, `${t.id} 画布高超上限`).toBeLessThanOrEqual(16384)
+      }
+    })
+  }
 })

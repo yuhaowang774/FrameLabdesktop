@@ -131,11 +131,13 @@ export function computeFooterLayout(
   const showDate = cfg.showDate && !!cfg.dateText
   const showExif = cfg.showExif && !!cfg.exifText
   const hasLens = cfg.showLens && !!cfg.lensText
-  // 纵向锚点：bottom = 自底向上量（默认）；top = 自顶向下量（报头式）。
+  // 纵向锚点：bottom = 自画布底缘向上量（默认）；top = 自画布顶缘向下量（报头式）。
+  // 画布顶缘（内容区坐标）= -(padding + bgExpand)——与 magazine 刊头（MAG_TITLE_TOP）和
+  // 底部锚点「画布底缘」语义对称：overlayBottom 恒以画布边缘为基准，文字落在顶边留白带内。
   // duo 分支不响应 top（左右双栏与分隔竖线几何绑定下边留白带，翻转语义不明），
   // 仅 inline 分支持持顶部锚点——行序镜像后自顶向下堆叠。
   const bottom = cfg.overlayAnchor === 'top' && cfg.infoLayout !== 'duo'
-    ? cfg.overlayBottom
+    ? -(cfg.padding + cfg.bgExpand) + cfg.overlayBottom
     : canvasBottom - cfg.overlayBottom
   const topDown = cfg.overlayAnchor === 'top' && cfg.infoLayout !== 'duo'
   const logoW = cfg.logoSize * logoRatio
@@ -273,10 +275,11 @@ export function computeClassicLayout(cfg: FrameConfig, canvasBottom: number): Fo
   const lensInBlock = hasLens && showExif
   const exifBlockH = lensInBlock ? exifS.size + LENS_LINE_GAP + lensS.size : exifS.size
   // 顶部锚点（报头式）：阅读序（Logo → 型号 → 参数(+镜头) → 独立镜头行 → 日期）自顶向下堆叠，
-  // 与底部锚点互为镜像——同一行序、锚点边互换。首行 Logo 按 showLogo 占位推进
+  // 与底部锚点互为镜像——同一行序、锚点边互换（画布顶缘 = -(pad + bgExpand)，与底部「画布底缘」
+  // 语义对称，overlayBottom 恒以画布边缘为基准）。首行 Logo 按 showLogo 占位推进
   // （底部锚点里 Logo 是末行无需推进；顶部锚点是首行，隐藏时也必须跳过其位）。
   if (cfg.overlayAnchor === 'top') {
-    let cursor = cfg.overlayBottom
+    let cursor = -(cfg.padding + cfg.bgExpand) + cfg.overlayBottom
     const logo = { x: rowX(), y: cursor }
     if (cfg.showLogo) cursor += cfg.logoSize + CLASSIC_ROW_GAP
     const model = { x: rowX(), y: cursor }
