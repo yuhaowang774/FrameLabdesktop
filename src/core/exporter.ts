@@ -16,6 +16,9 @@ import {
   computeMagazineLayout,
   computeVerticalLayout,
   computePosterLayout,
+  computeCalendarLayout,
+  computeSportLayout,
+  calendarAccentColor,
   cardThemeColors,
   cardBadgeColors,
   exifTextStyle,
@@ -25,13 +28,21 @@ import {
   CARD_RADIUS,
   CARD_BADGE_FONT_SIZE,
   MAG_TITLE_FONT,
-  DIVIDER_MIN_H,
-  DIVIDER_ALPHA,
   MAG_SUB_SIZE,
   MAG_SUB_LETTER_SPACING,
+  DIVIDER_MIN_H,
+  DIVIDER_ALPHA,
   MAG_SWATCH_COUNT,
   MAG_SWATCH_W,
   MAG_SWATCH_H,
+  CAL_COL_PITCH,
+  CAL_CELL_W,
+  CAL_DAY_SIZE,
+  CAL_LUNAR_SIZE,
+  CAL_WEEKDAY_SIZE,
+  CAL_TITLE_SIZE,
+  CAL_MONTH_SIZE,
+  SPORT_TRACK_RADIUS,
   type FooterLayout,
   type CardRect,
 } from './infoLayout'
@@ -41,6 +52,7 @@ import { posterParams } from '../composables/useExif'
 import { activeModelMark, modelMarkTintColor, MODEL_MARK_SCALE, MODEL_MARK_TOP_RATIO } from './modelMarks'
 import { resolveModelMark, preloadModelMark } from '../composables/useModelMarkStore'
 import { rotatedSize, drawRotatedCropped } from './photoEdit'
+import { drawDeviceMockup } from './deviceMockup'
 
 export type ExportFormat = 'png' | 'jpg'
 
@@ -421,6 +433,211 @@ function drawVerticalFooter(
   }
 }
 
+/** calendar 月历边框绘制（infoLayout='calendar'）：年月标题行 + 分隔线 + 星期表头 +
+ *  6 行公历/农历网格，拍摄日期用强调色圆点标记。布局与 computeCalendarLayout 同源。 */
+function drawCalendarFooter(
+  ctx: CanvasRenderingContext2D,
+  config: FrameConfig,
+  unitScale: number,
+  contentOX: number,
+  canvasHpx: number,
+): void {
+  const ox = contentOX * unitScale
+  const s = unitScale
+  const canvasBottomY = canvasHpx / unitScale - config.padding - config.bgExpand
+  const L = computeCalendarLayout(config, canvasBottomY)
+  const themeColor = config.bgMode === 'solid' && hexLuminance(config.bgColor) > 0.6 ? 0 : 255
+  const paint = (custom: string | null, opacity: number): string =>
+    hexToRgba(custom, opacity) ?? `rgba(${themeColor},${themeColor},${themeColor},${opacity})`
+  const canvasCtx = ctx as CanvasRenderingContext2D & { letterSpacing?: string }
+  const drawText = (
+    x: number,
+    y: number,
+    text: string,
+    size: number,
+    weight: number,
+    color: string,
+    align: CanvasTextAlign = 'center',
+    font = config.fontFamily,
+    letterSpacing = 0,
+  ): void => {
+    if (!text) return
+    ctx.save()
+    ctx.fillStyle = color
+    ctx.font = fontStr(weight, size * s, font)
+    ctx.textAlign = align
+    ctx.textBaseline = 'top'
+    if (letterSpacing > 0) canvasCtx.letterSpacing = `${letterSpacing * s}px`
+    ctx.fillText(text, ox + x * s, ox + y * s)
+    if (letterSpacing > 0) canvasCtx.letterSpacing = '0px'
+    ctx.restore()
+  }
+
+  const gridCenterX = (col: number): number => L.gridX + col * CAL_COL_PITCH + CAL_CELL_W / 2
+
+  // 年月标题行：年份（左，衬线加粗）+ 月名（右，字距拉开）
+  drawText(L.gridX, L.titleYearY, L.titleYearText, CAL_TITLE_SIZE, 700, paint(config.dateTextColor, 0.95), 'left', MAG_TITLE_FONT)
+  drawText(L.gridX + CAL_COL_PITCH * 6 + CAL_CELL_W, L.titleMonthY, L.titleMonthText, CAL_MONTH_SIZE, 500, paint(config.dateTextColor, 0.65), 'right', config.fontFamily, 2)
+  // 标题下分隔线
+  ctx.save()
+  ctx.fillStyle = paint(null, 0.2)
+  ctx.fillRect(ox + L.gridX * s, ox + L.ruleY * s, (CAL_COL_PITCH * 6 + CAL_CELL_W) * s, s)
+  ctx.restore()
+  // 星期表头（周日用强调色）
+  const weekdays = ['日', '一', '二', '三', '四', '五', '六']
+  weekdays.forEach((w, col) => {
+    drawText(gridCenterX(col), L.weekdayY, w, CAL_WEEKDAY_SIZE, 600, col === 0 ? L.accent : paint(config.dateTextColor, 0.6))
+  })
+  // 日期网格：公历日（强调日画圆点 + 白字）+ 农历小字
+  for (const row of L.weeks) {
+    for (const cell of row) {
+      if (!cell) continue
+      const cx = gridCenterX(cell.col)
+      if (cell.highlight) {
+        ctx.save()
+        ctx.fillStyle = L.accent
+        ctx.beginPath()
+        ctx.arc(ox + cx * s, ox + (cell.y + CAL_DAY_SIZE / 2) * s, (CAL_DAY_SIZE * 0.72) * s, 0, Math.PI * 2)
+        ctx.fill()
+        ctx.restore()
+      }
+      drawText(cx, cell.y, `${cell.day}`, CAL_DAY_SIZE, cell.highlight ? 700 : 500, cell.highlight ? '#ffffff' : paint(config.exifTextColor, 0.95))
+      if (cell.lunar) {
+        drawText(cx, cell.y + CAL_DAY_SIZE + 3, cell.lunar, CAL_LUNAR_SIZE, 400, paint(config.dateTextColor, cell.highlight ? 0.95 : 0.55))
+      }
+    }
+  }
+}
+
+/** sport 运动遥测绘制（infoLayout='sport'）：机型/标语 + 轨迹缩略卡 + 四栏数值/单位遥测表。
+ *  布局与 computeSportLayout 同源；无遥测数据时仅渲染机型/标语行。 */
+function drawSportFooter(
+  ctx: CanvasRenderingContext2D,
+  config: FrameConfig,
+  unitScale: number,
+  contentOX: number,
+  canvasHpx: number,
+): void {
+  const ox = contentOX * unitScale
+  const s = unitScale
+  const canvasBottomY = canvasHpx / unitScale - config.padding - config.bgExpand
+  const L = computeSportLayout(config, canvasBottomY)
+  const themeColor = config.bgMode === 'solid' && hexLuminance(config.bgColor) > 0.6 ? 0 : 255
+  const paint = (custom: string | null, opacity: number): string =>
+    hexToRgba(custom, opacity) ?? `rgba(${themeColor},${themeColor},${themeColor},${opacity})`
+  const applyTextShadow = (): void => {
+    if (config.bgMode === 'solid') return
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.5)'
+    ctx.shadowBlur = 4 * unitScale
+    ctx.shadowOffsetY = 1 * unitScale
+  }
+
+  // 机型行（优先字标，回退文字）
+  if (L.model) {
+    const modelText = modelAlias(config.cameraModel)
+    const modelS = modelTextStyle(config)
+    const markDef = activeModelMark(config)
+    const markColor = modelMarkTintColor(config)
+    const markRaw = markDef ? resolveModelMark(markDef.file, markColor) : null
+    const markCanvas = markRaw && markRaw.width > 1 && markRaw.height > 1 ? markRaw : null
+    ctx.save()
+    ctx.globalAlpha = config.cameraModelOpacity
+    applyTextShadow()
+    if (markCanvas) {
+      const mh = modelS.size * unitScale * MODEL_MARK_SCALE
+      const mw = mh * (markCanvas.width / markCanvas.height)
+      ctx.drawImage(markCanvas, ox + L.model.x * s - mw / 2, ox + L.model.y * s, mw, mh)
+    } else if (modelText) {
+      ctx.fillStyle = paint(config.cameraModelColor, config.cameraModelOpacity)
+      ctx.font = fontStr(config.cameraModelWeight, modelS.size * s, config.cameraModelFont, config.cameraModelItalic)
+      ctx.textAlign = 'center'
+      ctx.textBaseline = 'top'
+      ctx.fillText(modelText, ox + L.model.x * s, ox + L.model.y * s)
+    }
+    ctx.restore()
+  }
+
+  // 标语行（infoTitle，衬线斜体）
+  if (L.title && config.infoTitle) {
+    ctx.save()
+    ctx.fillStyle = paint(config.cameraModelColor, 0.9)
+    ctx.font = fontStr(600, 20 * s, MAG_TITLE_FONT, true)
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'top'
+    applyTextShadow()
+    ctx.fillText(config.infoTitle, ox + L.title.x * s, ox + L.title.y * s)
+    ctx.restore()
+  }
+
+  // 轨迹缩略卡：半透明底 + 轨迹折线 + 起/终点圆点
+  if (L.track) {
+    const t = L.track
+    ctx.save()
+    roundRectPath(ctx, ox + t.x * s, ox + t.y * s, t.w * s, t.h * s, SPORT_TRACK_RADIUS * s)
+    ctx.fillStyle = config.bgMode === 'solid' ? paint(null, 0.06) : 'rgba(0, 0, 0, 0.32)'
+    ctx.fill()
+    ctx.strokeStyle = paint(null, 0.18)
+    ctx.lineWidth = s
+    ctx.stroke()
+    ctx.restore()
+    if (L.trackPoints.length >= 2) {
+      ctx.save()
+      ctx.strokeStyle = calendarAccentColor(config)
+      ctx.lineWidth = 2 * s
+      ctx.lineJoin = 'round'
+      ctx.lineCap = 'round'
+      ctx.beginPath()
+      L.trackPoints.forEach((p, i) => {
+        const x = ox + p.x * s
+        const y = ox + p.y * s
+        if (i === 0) ctx.moveTo(x, y)
+        else ctx.lineTo(x, y)
+      })
+      ctx.stroke()
+      // 起点（空心）/ 终点（实心）圆点
+      const dotR = 3.5 * s
+      const p0 = L.trackPoints[0]
+      const p1 = L.trackPoints[L.trackPoints.length - 1]
+      ctx.fillStyle = paint(null, 0.95)
+      ctx.beginPath()
+      ctx.arc(ox + p0.x * s, ox + p0.y * s, dotR, 0, Math.PI * 2)
+      ctx.fill()
+      ctx.fillStyle = '#ffffff'
+      ctx.beginPath()
+      ctx.arc(ox + p1.x * s, ox + p1.y * s, dotR, 0, Math.PI * 2)
+      ctx.fill()
+      ctx.restore()
+    }
+  }
+
+  // 四栏遥测参数表：数值（粗大）/ 单位（细小）列内居中，栏间细线（与 poster 同构）
+  const valueSize = config.fontSize
+  const unitSize = config.dateFontSize ?? Math.round(config.fontSize * 0.62)
+  for (const col of L.cols) {
+    ctx.save()
+    ctx.fillStyle = paint(config.exifTextColor, config.textOpacity)
+    ctx.font = fontStr(config.textWeight, valueSize * s, config.fontFamily)
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'top'
+    applyTextShadow()
+    ctx.fillText(col.value, ox + (col.x + col.w / 2) * s, ox + col.valueY * s)
+    ctx.restore()
+    ctx.save()
+    ctx.fillStyle = paint(config.dateTextColor, 0.65)
+    ctx.font = fontStr(400, unitSize * s, config.fontFamily)
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'top'
+    ctx.fillText(col.unit, ox + (col.x + col.w / 2) * s, ox + col.unitY * s)
+    ctx.restore()
+  }
+  for (const d of L.dividers) {
+    ctx.save()
+    ctx.fillStyle = paint(null, 0.25)
+    ctx.fillRect(ox + d.x * s, ox + d.y * s, s, d.h * s)
+    ctx.restore()
+  }
+}
+
 async function drawFooter(
   ctx: CanvasRenderingContext2D,
   config: FrameConfig,
@@ -443,6 +660,16 @@ async function drawFooter(
   // poster 海报参数表：机型/标语 + 四栏参数表（独立绘制路径）
   if (config.infoLayout === 'poster') {
     drawPosterFooter(ctx, config, unitScale, logo, contentOX, canvasHpx)
+    return
+  }
+  // calendar 月历边框：年月标题 + 星期表头 + 公历/农历网格（独立绘制路径）
+  if (config.infoLayout === 'calendar') {
+    drawCalendarFooter(ctx, config, unitScale, contentOX, canvasHpx)
+    return
+  }
+  // sport 运动遥测：机型/标语 + 轨迹缩略卡 + 四栏遥测表（独立绘制路径）
+  if (config.infoLayout === 'sport') {
+    drawSportFooter(ctx, config, unitScale, contentOX, canvasHpx)
     return
   }
   // magazine 杂志编辑：顶部标题区 + 取色色卡 + 右侧信息块
@@ -921,6 +1148,10 @@ export async function exportFrame(
     pctx.clip()
     // 旋转+裁剪：把源图对应区域旋转为正向后绘制到 photoW×photoH
     drawRotatedCropped(pctx, source, sw, sh, config.photoRotation, config.photoCrop, photoW, photoH)
+    // 设备样机（手机壳边框环 + 灵动岛）：画在照片画布内缘，随照片圆角/阴影一起合成
+    if (config.deviceMockup && config.deviceMockup !== 'none') {
+      drawDeviceMockup(pctx, config.deviceMockup, photoW, photoH, photoRadiusPx)
+    }
     if (config.infoLayout === 'magazine' && config.showPalette) {
       // 审查报告 R7：取色源与预览统一为「原图」——此前用旋转+裁剪后的照片画布，
       // 用户旋转/裁剪后色卡颜色与预览不一致
@@ -968,6 +1199,11 @@ export async function exportFrame(
       cropFactor: config.cropFactor,
       outerMatrix: config.infoLayer.bindTarget === 'photo' ? outerMatrix : undefined,
       canvasCenter,
+      // 画布设计总宽/高与内容区内缩：供边缘锚点元素（报头行/底部签名条）精确贴边
+      canvasH: designCanvasH,
+      canvasW: DESIGN_CONTAINER + 2 * (effectivePad + bgExpand),
+      contentInset: effectivePad + bgExpand,
+      dateText: config.dateText,
       unitScale: 1, // 已通过 ctx.scale 处理
     })
     ctx.restore()

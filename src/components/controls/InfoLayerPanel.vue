@@ -10,6 +10,7 @@ import { BRANDS, PHONE_BRANDS, RANGES, MAX_CUSTOM_LOGOS, CROP_FACTORS, BRAND_LOG
 import { buildExifText, formatDate, parseDisplayDate, parseExif, cleanLens, type DateFormat } from '../../composables/useExif'
 import { footerTextColor } from '../../core/colorUtils'
 import { cardBadgeColors } from '../../core/infoLayout'
+import { parseGpx } from '../../core/gpx'
 import { modelMarkOf } from '../../core/modelMarks'
 import ColorField from '../common/ColorField.vue'
 import { useLogoStore, CUSTOM_PREFIX } from '../../composables/useLogoStore'
@@ -212,6 +213,27 @@ async function onCreateTextLogo() {
     creatingText.value = false
   }
 }
+
+// ===== sport 运动遥测：GPX 导入（解析失败弹框提示，成功写入 config.telemetry） =====
+const gpxInput = ref<HTMLInputElement | null>(null)
+const importingGpx = ref(false)
+async function onGpxFile(e: Event) {
+  const input = e.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (!file) return
+  importingGpx.value = true
+  try {
+    const text = await file.text()
+    const telemetry = parseGpx(text)
+    patch({ telemetry })
+  } catch (err) {
+    failMsg.value = (err as Error).message || 'GPX 解析失败'
+    failOpen.value = true
+  } finally {
+    importingGpx.value = false
+    input.value = ''
+  }
+}
 </script>
 
 <template>
@@ -220,7 +242,8 @@ async function onCreateTextLogo() {
          inline=悬浮双行（Logo+机型内联居中，参数居中其下）；
          card=手机白底水印卡（左机型+日期 / 右参数+镜头 / 右端联名标块）；
          magazine=杂志编辑（顶部标题区 + 底部左取色色卡 / 右机型+参数+日期）；
-         vertical=竖排装裱（文字旋转 90° 沿照片左缘自上而下） -->
+         vertical=竖排装裱（文字旋转 90° 沿照片左缘自上而下）；
+         calendar=月历边框（年月 + 星期 + 公历/农历网格）；sport=运动遥测（轨迹卡 + 四栏参数） -->
     <div class="field layout-field">
       <label>信息布局</label>
       <select v-model="state.infoLayout" class="select">
@@ -231,6 +254,8 @@ async function onCreateTextLogo() {
         <option value="magazine">杂志编辑</option>
         <option value="vertical">竖排装裱</option>
         <option value="poster">海报参数表</option>
+        <option value="calendar">月历边框</option>
+        <option value="sport">运动遥测</option>
       </select>
     </div>
     <!-- 信息位置锚点：classic / inline 可选贴底或贴顶（报头式）；duo/card/magazine/vertical 有自有几何不响应 -->
@@ -280,6 +305,44 @@ async function onCreateTextLogo() {
         <input type="checkbox" v-model="state.paletteHex" />
       </div>
       <p class="mag-hint">杂志布局需要较大上边留白（建议 ≥120）容纳标题区，下边留白容纳色卡与信息。</p>
+    </template>
+    <!-- calendar 模式专属：农历标注开关 / 强调色（高亮拍摄日期与周日） -->
+    <template v-if="state.infoLayout === 'calendar'">
+      <div class="field checkbox-field">
+        <label>农历标注</label>
+        <input type="checkbox" v-model="state.calendarShowLunar" />
+      </div>
+      <div class="field">
+        <label title="拍摄日期圆点与周日的颜色。默认随底色明暗自动（浅底珊瑚红 / 深底暖橙）。">强调色</label>
+        <ColorField
+          :model-value="state.calendarAccent"
+          auto-label="自动"
+          :auto-swatch="footerColor"
+          @update:model-value="(v: string | null) => patch({ calendarAccent: v })"
+        />
+      </div>
+      <p class="mag-hint">月历取拍摄日期所在月份（无 EXIF 用今天），需要较大下边留白（建议 ≥ 480）容纳网格。</p>
+    </template>
+    <!-- sport 模式专属：GPX 导入 / 遥测概览 / 轨迹卡开关 -->
+    <template v-if="state.infoLayout === 'sport'">
+      <div class="field">
+        <button class="mini-btn autofill-btn" :disabled="importingGpx" @click="gpxInput?.click()">
+          {{ importingGpx ? '解析中…' : state.telemetry ? '重新导入 GPX 轨迹' : '导入 GPX 运动轨迹' }}
+        </button>
+        <input ref="gpxInput" type="file" accept=".gpx,application/gpx+xml,text/xml" hidden @change="onGpxFile" />
+      </div>
+      <div v-if="state.telemetry" class="field telemetry-summary">
+        <span class="tel-item">距离 {{ state.telemetry.distanceKm.toFixed(1) }} km</span>
+        <span class="tel-item">时长 {{ Math.max(1, Math.round(state.telemetry.durationS / 60)) }} min</span>
+        <span class="tel-item">均速 {{ state.telemetry.avgSpeedKmh.toFixed(1) }} km/h</span>
+        <span class="tel-item">爬升 {{ Math.round(state.telemetry.elevGainM) }} m</span>
+        <button class="logo-del tel-del" title="移除遥测数据" @click="patch({ telemetry: null })">×</button>
+      </div>
+      <div class="field checkbox-field">
+        <label>轨迹缩略卡</label>
+        <input type="checkbox" v-model="state.sportShowTrack" />
+      </div>
+      <p class="mag-hint">导入运动手表 / App 导出的 .gpx 文件，距离 / 时长 / 均速 / 爬升与轨迹随照片自动渲染；需要较大下边留白。</p>
     </template>
     <!-- 一键恢复照片真实 EXIF 信息（全量覆盖：含型号与品牌/Logo，手改内容会被真实值取代） -->
     <div class="field autofill-field">
@@ -611,6 +674,22 @@ async function onCreateTextLogo() {
 .autofill-btn {
   flex: 1;
   align-self: stretch;
+}
+/* GPX 遥测概览：小字指标排布 + 移除按钮 */
+.telemetry-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  align-items: center;
+}
+.tel-item {
+  font-size: 12px;
+  color: var(--text);
+  opacity: 0.85;
+}
+.tel-del {
+  position: static;
+  margin-left: auto;
 }
 /* 嵌套子折叠面板：第一个不显示顶部边框（外层面板 body 已带分割线） */
 .info-panel :deep(.panel:first-child) {

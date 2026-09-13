@@ -7,6 +7,7 @@
 import { onMounted, onBeforeUnmount, ref, watch, nextTick } from 'vue'
 import { useFrameConfig } from '../../composables/useFrameConfig'
 import { drawInfoLayer } from '../../core/infoRenderer'
+import { applyShowToggles } from '../../core/showToggles'
 import { modelAlias } from '../../core/modelAlias'
 import { DESIGN_CONTAINER } from '../../core/constants'
 
@@ -39,6 +40,9 @@ function render(): void {
   if (layer.bindTarget === 'photo') {
     outerMatrix = new DOMMatrix().translate(props.photoCx, props.photoCy).rotate(state.photoRotation)
   }
+  // 边框/背景显示开关归零生效值（与导出端 effectivePad 同源），保证边缘锚点几何一致
+  const eff = applyShowToggles(state)
+  const inset = eff.padding + eff.bgExpand
   drawInfoLayer(ctx, layer, {
     exifRaw: state.exifRaw,
     model: modelAlias(state.cameraModel),
@@ -46,6 +50,11 @@ function render(): void {
     cropFactor: state.cropFactor,
     outerMatrix,
     canvasCenter: { x: DESIGN_CONTAINER / 2, y: h / 2 },
+    // 画布设计总宽/高与内容区内缩：供边缘锚点元素（报头行/底部签名条）精确贴边（与导出同参）
+    canvasH: h,
+    canvasW: DESIGN_CONTAINER + 2 * inset,
+    contentInset: inset,
+    dateText: state.dateText,
     unitScale: 1,
     forPreview: true,
   })

@@ -14,6 +14,9 @@ import {
   computeMagazineLayout,
   computeVerticalLayout,
   computePosterLayout,
+  computeCalendarLayout,
+  computeSportLayout,
+  calendarAccentColor,
   MAG_TITLE_FONT as POSTER_TITLE_FONT,
   cardThemeColors,
   cardBadgeColors,
@@ -24,6 +27,14 @@ import {
   MAG_SWATCH_COUNT,
   MAG_SWATCH_W,
   MAG_SWATCH_H,
+  CAL_COL_PITCH,
+  CAL_CELL_W,
+  CAL_DAY_SIZE,
+  CAL_LUNAR_SIZE,
+  CAL_WEEKDAY_SIZE,
+  CAL_TITLE_SIZE,
+  CAL_MONTH_SIZE,
+  SPORT_TRACK_RADIUS,
   DIVIDER_MIN_H,
   type FooterLayout,
   type CardRect,
@@ -595,6 +606,50 @@ const posterLayout = computed(() => {
     : contentH.value
   return computePosterLayout(state, canvasBottom)
 })
+
+// ===== calendar 月历边框：与 exporter drawCalendarFooter 同源（computeCalendarLayout）=====
+const calendarLayout = computed(() => {
+  if (state.infoLayout !== 'calendar') return null
+  const canvasBottom = frameContainerH.value > 0
+    ? frameContainerH.value - pad.value - bgExpand.value
+    : contentH.value
+  return computeCalendarLayout(state, canvasBottom)
+})
+const calendarPrimary = computed(() => vertColor(state.exifTextColor, 0.95))
+const calendarSecondary = computed(() => vertColor(state.dateTextColor, 0.6))
+/** 星期表头（周日强调色） */
+const CAL_WEEKDAYS = ['日', '一', '二', '三', '四', '五', '六']
+function calendarCellX(col: number): number {
+  return calendarLayout.value!.gridX + col * CAL_COL_PITCH + CAL_CELL_W / 2
+}
+
+// ===== sport 运动遥测：与 exporter drawSportFooter 同源（computeSportLayout）=====
+const sportLayout = computed(() => {
+  if (state.infoLayout !== 'sport') return null
+  const canvasBottom = frameContainerH.value > 0
+    ? frameContainerH.value - pad.value - bgExpand.value
+    : contentH.value
+  return computeSportLayout(state, canvasBottom)
+})
+const sportAccent = computed(() => calendarAccentColor(state))
+/** 轨迹折线 SVG path（d 属性，坐标已换算到画板系） */
+const sportTrackPath = computed(() => {
+  const L = sportLayout.value
+  if (!L || L.trackPoints.length < 2) return ''
+  return L.trackPoints
+    .map((p, i) => `${i === 0 ? 'M' : 'L'} ${pad.value + bgExpand.value + p.x} ${pad.value + bgExpand.value + p.y}`)
+    .join(' ')
+})
+function posterPos2(r: { x: number; y: number }) {
+  return {
+    left: pad.value + bgExpand.value + r.x + 'px',
+    top: pad.value + bgExpand.value + r.y + 'px',
+  }
+}
+/** 基础三元素布局（classic/duo/inline）：其余专属布局接管渲染后不参与 */
+const basicLayoutActive = computed(
+  () => !['card', 'magazine', 'vertical', 'poster', 'calendar', 'sport'].includes(state.infoLayout),
+)
 function posterPos(r: { x: number; y: number }) {
   return {
     left: pad.value + bgExpand.value + r.x + 'px',
@@ -958,8 +1013,120 @@ function absStyle(key: ItemKey) {
         :style="[posterPos({ x: d.x, y: d.y }), { height: d.h + 'px', background: vertColor(null, 0.25) }]"
       />
     </template>
+    <!-- calendar 月历边框（年月标题 + 星期表头 + 公历/农历网格）：与导出 drawCalendarFooter 同源 -->
+    <template v-if="calendarLayout">
+      <span
+        class="cal-title"
+        :style="[posterPos({ x: calendarLayout.gridX, y: calendarLayout.titleYearY }), { color: calendarPrimary, font: `700 ${CAL_TITLE_SIZE}px/1 ${MAG_TITLE_FONT}` }]"
+        >{{ calendarLayout.titleYearText }}</span
+      >
+      <span
+        class="cal-title"
+        :style="[posterPos({ x: calendarLayout.gridX + CAL_COL_PITCH * 6 + CAL_CELL_W, y: calendarLayout.titleMonthY }), { color: calendarSecondary, font: `500 ${CAL_MONTH_SIZE}px/1 ${state.fontFamily}`, letterSpacing: '2px', transform: 'translateX(-100%)' }]"
+        >{{ calendarLayout.titleMonthText }}</span
+      >
+      <div
+        class="cal-rule"
+        :style="[posterPos({ x: calendarLayout.gridX, y: calendarLayout.ruleY }), { width: CAL_COL_PITCH * 6 + CAL_CELL_W + 'px' }]"
+      />
+      <span
+        v-for="(w, col) in CAL_WEEKDAYS"
+        :key="'wd-' + col"
+        class="cal-weekday"
+        :style="[posterPos({ x: calendarCellX(col), y: calendarLayout.weekdayY }), { transform: 'translateX(-50%)', color: col === 0 ? calendarLayout.accent : calendarSecondary, font: `600 ${CAL_WEEKDAY_SIZE}px/1 ${state.fontFamily}` }]"
+        >{{ w }}</span
+      >
+      <template v-for="(row, ri) in calendarLayout.weeks" :key="'row-' + ri">
+        <template v-for="(cell, ci) in row" :key="'cell-' + ri + '-' + ci">
+          <template v-if="cell">
+            <span
+              v-if="cell.highlight"
+              class="cal-dot"
+              :style="{
+                left: pad + bgExpand + calendarCellX(cell.col) - CAL_DAY_SIZE * 0.72 + 'px',
+                top: pad + bgExpand + cell.y + CAL_DAY_SIZE / 2 - CAL_DAY_SIZE * 0.72 + 'px',
+                width: CAL_DAY_SIZE * 1.44 + 'px',
+                height: CAL_DAY_SIZE * 1.44 + 'px',
+                background: calendarLayout.accent,
+              }"
+            />
+            <span
+              class="cal-day"
+              :style="[posterPos({ x: calendarCellX(cell.col), y: cell.y }), { transform: 'translateX(-50%)', color: cell.highlight ? '#ffffff' : calendarPrimary, font: `${cell.highlight ? 700 : 500} ${CAL_DAY_SIZE}px/1 ${state.fontFamily}` }]"
+              >{{ cell.day }}</span
+            >
+            <span
+              v-if="cell.lunar"
+              class="cal-lunar"
+              :style="[posterPos({ x: calendarCellX(cell.col), y: cell.y + CAL_DAY_SIZE + 3 }), { transform: 'translateX(-50%)', color: cell.highlight ? calendarLayout.accent : calendarSecondary, font: `400 ${CAL_LUNAR_SIZE}px/1 ${state.fontFamily}` }]"
+              >{{ cell.lunar }}</span
+            >
+          </template>
+        </template>
+      </template>
+    </template>
+    <!-- sport 运动遥测（机型/标语 + 轨迹缩略卡 + 四栏遥测表）：与导出 drawSportFooter 同源 -->
+    <template v-if="sportLayout">
+      <span
+        v-if="sportLayout.model && state.showCameraModel && state.cameraModel"
+        class="poster-line"
+        :style="[posterPos2(sportLayout.model), { color: vertColor(state.cameraModelColor, state.cameraModelOpacity), font: `${state.cameraModelItalic ? 'italic ' : ''}${state.cameraModelWeight} ${state.cameraModelSize}px/1 ${state.cameraModelFont}`, transform: 'translateX(-50%)', textShadow: infoTextShadow }]"
+        >{{ modelText }}</span
+      >
+      <span
+        v-if="sportLayout.title && state.infoTitle"
+        class="poster-line"
+        :style="[posterPos2(sportLayout.title), { color: vertColor(state.cameraModelColor, 0.9), font: `italic 600 20px/1 ${POSTER_TITLE_FONT}`, transform: 'translateX(-50%)', textShadow: infoTextShadow }]"
+        >{{ state.infoTitle }}</span
+      >
+      <template v-if="sportLayout.track">
+        <div
+          class="sp-track-card"
+          :style="[posterPos2(sportLayout.track), { borderRadius: SPORT_TRACK_RADIUS + 'px', background: state.bgMode === 'solid' ? vertColor(null, 0.06) : 'rgba(0, 0, 0, 0.32)', borderColor: vertColor(null, 0.18) }]"
+        />
+        <!-- 轨迹折线：整板 1:1 SVG 覆盖（viewBox = 画板设计尺寸，坐标已是画板系） -->
+        <svg
+          v-if="sportTrackPath"
+          class="sp-track-svg"
+          :viewBox="`0 0 ${Math.max(1, canvasW)} ${Math.max(1, frameContainerH)}`"
+          preserveAspectRatio="none"
+        >
+          <path :d="sportTrackPath" fill="none" :stroke="sportAccent" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" />
+          <circle
+            :cx="sportLayout.trackPoints[0].x + pad + bgExpand"
+            :cy="sportLayout.trackPoints[0].y + pad + bgExpand"
+            r="3.5"
+            :fill="vertColor(null, 0.95)"
+          />
+          <circle
+            :cx="sportLayout.trackPoints[sportLayout.trackPoints.length - 1].x + pad + bgExpand"
+            :cy="sportLayout.trackPoints[sportLayout.trackPoints.length - 1].y + pad + bgExpand"
+            r="3.5"
+            fill="#ffffff"
+          />
+        </svg>
+      </template>
+      <template v-for="(col, i) in sportLayout.cols" :key="'sp-col-' + i">
+        <span
+          class="poster-line"
+          :style="[posterPos2({ x: col.x, y: col.valueY }), { width: col.w + 'px', textAlign: 'center', color: vertColor(state.exifTextColor, state.textOpacity), font: `${state.textWeight} ${state.fontSize}px/1 ${state.fontFamily}`, textShadow: infoTextShadow }]"
+          >{{ col.value }}</span
+        >
+        <span
+          class="poster-line"
+          :style="[posterPos2({ x: col.x, y: col.unitY }), { width: col.w + 'px', textAlign: 'center', color: vertColor(state.dateTextColor, 0.65), font: `400 ${state.dateFontSize ?? Math.round(state.fontSize * 0.62)}px/1 ${state.fontFamily}` }]"
+          >{{ col.unit }}</span
+        >
+      </template>
+      <div
+        v-for="(d, i) in sportLayout.dividers"
+        :key="'sp-div-' + i"
+        class="poster-divider"
+        :style="[posterPos2({ x: d.x, y: d.y }), { height: d.h + 'px', background: vertColor(null, 0.25) }]"
+      />
+    </template>
     <img
-      v-if="state.showLogo && logoSrc && state.infoLayout !== 'card' && state.infoLayout !== 'magazine' && state.infoLayout !== 'vertical' && state.infoLayout !== 'poster' && !(state.infoLayout === 'inline' && phoneBrandOf(state.brand))"
+      v-if="state.showLogo && logoSrc && basicLayoutActive && !(state.infoLayout === 'inline' && phoneBrandOf(state.brand))"
       class="brand-logo drag-item"
       data-item="logo"
       :class="{ dragging: dragging === 'logo' }"
@@ -971,7 +1138,7 @@ function absStyle(key: ItemKey) {
     />
     <!-- 机型字标（有内置矢量字标时）：图像渲染，与导出同源；无字标 / 未就绪回退文字 -->
     <img
-      v-if="modelMark && modelMarkUrl && state.showCameraModel && state.infoLayout !== 'card' && state.infoLayout !== 'magazine' && state.infoLayout !== 'vertical' && state.infoLayout !== 'poster'"
+      v-if="modelMark && modelMarkUrl && state.showCameraModel && basicLayoutActive"
       class="model-mark drag-item"
       data-item="model"
       :class="{ dragging: dragging === 'model' }"
@@ -992,7 +1159,7 @@ function absStyle(key: ItemKey) {
       @pointerdown="onPointerDown($event, 'model')"
     />
     <span
-      v-if="state.showCameraModel && !modelMarkUrl && state.infoLayout !== 'card' && state.infoLayout !== 'magazine' && state.infoLayout !== 'vertical' && state.infoLayout !== 'poster'"
+      v-if="state.showCameraModel && !modelMarkUrl && basicLayoutActive"
       :class="{ dragging: dragging === 'model' }"
       :style="[
         absStyle('model'),
@@ -1011,7 +1178,7 @@ function absStyle(key: ItemKey) {
     <div
       class="exif-text drag-item"
       data-item="exif"
-      v-if="state.showExif && state.infoLayout !== 'card' && state.infoLayout !== 'magazine' && state.infoLayout !== 'vertical' && state.infoLayout !== 'poster'"
+      v-if="state.showExif && basicLayoutActive"
       :class="{ dragging: dragging === 'exif' }"
       :style="[
         absStyle('exif'),
@@ -1053,7 +1220,7 @@ function absStyle(key: ItemKey) {
     <div
       class="date-text drag-item"
       data-item="date"
-      v-if="state.showDate && state.infoLayout !== 'card' && state.infoLayout !== 'magazine' && state.infoLayout !== 'vertical' && state.infoLayout !== 'poster'"
+      v-if="state.showDate && basicLayoutActive"
       :class="{ dragging: dragging === 'date' }"
       :style="[
         absStyle('date'),
@@ -1098,6 +1265,37 @@ function absStyle(key: ItemKey) {
 .poster-divider {
   position: absolute;
   width: 1px;
+}
+/* calendar 月历边框：静态渲染，与导出 drawCalendarFooter 视觉一致 */
+.cal-title {
+  position: absolute;
+  white-space: nowrap;
+}
+.cal-rule {
+  position: absolute;
+  height: 1px;
+}
+.cal-weekday,
+.cal-day,
+.cal-lunar {
+  position: absolute;
+  white-space: nowrap;
+}
+.cal-dot {
+  position: absolute;
+  border-radius: 50%;
+}
+/* sport 轨迹缩略卡：静态渲染，与导出 drawSportFooter 视觉一致 */
+.sp-track-card {
+  position: absolute;
+  border: 1px solid transparent;
+}
+.sp-track-svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
 }
 .mag-hex {
   position: absolute;

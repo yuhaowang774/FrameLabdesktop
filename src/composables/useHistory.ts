@@ -202,6 +202,11 @@ const FIELD_LABELS: Record<string, string> = {
   watermarkAlign: '水印对齐',
   watermarkBottom: '水印位置',
   exifRaw: 'EXIF 数据',
+  telemetry: '运动遥测数据',
+  calendarShowLunar: '农历标注',
+  calendarAccent: '月历强调色',
+  sportShowTrack: '轨迹缩略卡',
+  deviceMockup: '设备样机',
   infoLayer: 'INFO 排版',
   layerVisible: '图层可见性',
   loadConfig: '应用预设',
@@ -394,7 +399,7 @@ export async function applyTemplateToPhotos(
     'photoSrc', 'photoX', 'photoY', 'photoRotation', 'photoCrop',
     'bgScale', 'bgOffsetX', 'bgOffsetY', 'canvasH',
     'exifText', 'exifRaw', 'dateText', 'cameraModel', 'brand', 'lensText',
-    'eqFocal', 'cropFactor',
+    'eqFocal', 'cropFactor', 'telemetry',
     // 注意：INFO 文本独立样式（EXIF/镜头/日期的字体/字号/粗细/透明度）不进 keep——
     // 模板显式定义的字段以模板为准（应用结果与模板缩略图一致），模板未定义的
     // 不出现在 config 中、自然保留各照片当前值。与单张 applyTemplateToState 语义对齐。

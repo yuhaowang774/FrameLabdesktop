@@ -104,17 +104,17 @@ describe('内置模板清单', () => {
     ])
   })
 
-  it('扩充批模板全部就位（共 53 套）且每套带分组标签', () => {
+  it('扩充批模板全部就位（共 62 套）且每套带分组标签', () => {
     const { templates } = useTemplates()
     const builtin = templates.filter((t) => t.builtin)
-    expect(builtin.length).toBe(53)
+    expect(builtin.length).toBe(62)
     for (const t of builtin) {
       expect(t.group, `${t.id} 缺少分组`).toBeTruthy()
       expect(t.desc, `${t.id} 缺少一句话说明`).toBeTruthy()
     }
-    // 分组 chips 覆盖：全部归入 9 个设计语言组之一
+    // 分组 chips 覆盖：全部归入设计语言组之一
     const groups = new Set(builtin.map((t) => t.group))
-    for (const g of ['经典', '极简轻量', '杂志编辑', '胶片复古', '暗调影廊', '联名卡', '社交尺寸', '水印署名', '创意排版']) {
+    for (const g of ['经典', '极简轻量', '杂志编辑', '胶片复古', '暗调影廊', '联名卡', '社交尺寸', '水印署名', '创意排版', '多彩色卡', '大师水印', '日历边框', '运动边框', '设备样机']) {
       expect(groups.has(g), `分组「${g}」没有模板`).toBe(true)
     }
   })

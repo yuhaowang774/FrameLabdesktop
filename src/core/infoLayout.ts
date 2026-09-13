@@ -12,7 +12,9 @@ import type { FrameConfig } from './types'
 import { DESIGN_CONTAINER, phoneBrandOf } from './constants'
 import { modelAlias } from './modelAlias'
 import { MODEL_MARK_SCALE } from './modelMarks'
-import { posterParams } from '../composables/useExif'
+import { hexLuminance } from './colorUtils'
+import { lunarLabel } from './lunar'
+import { posterParams, parseDisplayDate } from '../composables/useExif'
 
 /** 单个 INFO 元素的默认位置（内容区坐标，左上角） */
 export interface FooterRect {
@@ -645,4 +647,245 @@ export function computePosterLayout(cfg: FrameConfig, canvasBottom: number): Pos
   const model: FooterRect = { x: center, y: top - POSTER_ROW_GAP - modelS.size }
 
   return { model, title, cols, dividers }
+}
+
+// ===== calendar（月历边框）：底部留白带渲染「年月标题行 + 星期表头 + 6 行公历/农历网格」 =====
+// 学习 FrameElf「日历边框」：网格水平居中于内容区，拍摄日期用强调色圆点标记；
+// 农历标注由 core/lunar.ts 换算（初一显示农历月名）。几何常量三端共用。
+export const CAL_COL_PITCH = 72 // 列距（含单元格间隙；单元格本身右对齐下一列起点）
+export const CAL_CELL_W = 64 // 单元格宽（文本居中锚 = 列中心）
+export const CAL_ROW_H = 58 // 行高（公历日 + 农历行 + 呼吸）
+export const CAL_DAY_SIZE = 26 // 公历日字号
+export const CAL_LUNAR_SIZE = 13 // 农历字号
+export const CAL_WEEKDAY_SIZE = 15 // 星期表头字号
+export const CAL_TITLE_SIZE = 34 // 年份字号（衬线）
+export const CAL_MONTH_SIZE = 15 // 月名字号
+export const CAL_TITLE_RULE_GAP = 20 // 标题行基线到分隔线
+export const CAL_WEEKDAY_GAP = 16 // 分隔线到星期表头
+export const CAL_GRID_GAP = 12 // 星期表头到首行
+
+const CAL_MONTH_ZH = ['一', '二', '三', '四', '五', '六', '七', '八', '九', '十', '十一', '十二']
+const CAL_MONTH_EN = ['JANUARY', 'FEBRUARY', 'MARCH', 'APRIL', 'MAY', 'JUNE', 'JULY', 'AUGUST', 'SEPTEMBER', 'OCTOBER', 'NOVEMBER', 'DECEMBER']
+
+export interface CalendarCell {
+  /** 列号 0..6（0 = 周日） */
+  col: number
+  /** 公历日（1–31） */
+  day: number
+  /** 农历短文本（初一 → 农历月名，如「八月」；其余如「十五」「廿三」） */
+  lunar: string
+  /** 公历日文本 top（内容区坐标；文本按列中心居中绘制） */
+  y: number
+  /** 拍摄日期强调 */
+  highlight: boolean
+}
+
+export interface CalendarLayout {
+  /** 网格左缘（内容区坐标）；网格宽 = 7 × CAL_COL_PITCH − (CAL_COL_PITCH − CAL_CELL_W) */
+  gridX: number
+  /** 年份（左对齐锚点，衬线）与月名（右对齐锚点），同一行 */
+  titleYearY: number
+  titleMonthY: number
+  /** 标题下分隔线 y（内容区坐标） */
+  ruleY: number
+  /** 星期表头 top */
+  weekdayY: number
+  /** 首行公历日 top */
+  firstRowY: number
+  /** 6 行 × 7 列（空位 null），行内元素携带绝对 y */
+  weeks: Array<Array<CalendarCell | null>>
+  /** 高亮日期强调色（已按明暗/自定义解析，渲染端直接用） */
+  accent: string
+  /** 月名文本（如「SEPTEMBER · 九月」）与年份数字（如「2026」） */
+  titleYearText: string
+  titleMonthText: string
+}
+
+/** 日历强调色：自定义优先；浅色纯色底用珊瑚红，深底/照片底用暖橙（暗角/照片上更可辨） */
+export function calendarAccentColor(cfg: FrameConfig): string {
+  if (cfg.calendarAccent) return cfg.calendarAccent
+  return cfg.bgMode === 'solid' && hexLuminance(cfg.bgColor) > 0.6 ? '#D4553F' : '#E8A54B'
+}
+
+/** 日历基准日期：优先拍摄日期文本（用户可改），其次 EXIF 原始日期，最后今天 */
+export function calendarRefDate(cfg: FrameConfig, refDate?: Date): Date {
+  if (refDate) return refDate
+  const parsed = parseDisplayDate(cfg.dateText) ?? parseDisplayDate(cfg.exifRaw?.dateTimeOriginal ?? '')
+  if (parsed) {
+    const m = parsed.match(/^(\d{4})[:/-](\d{1,2})[:/-](\d{1,2})/)
+    if (m) return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]))
+  }
+  return new Date()
+}
+
+/**
+ * 计算 calendar 月历布局（内容区坐标，预览与导出同源）。
+ * 网格底部贴 overlayBottom，向上堆叠：网格 → 星期表头 → 分隔线 → 年月标题行。
+ * 恒输出 6 行（空位 null），保证不同月份留白带高度稳定、缩略图不跳动。
+ * @param cfg 相框配置
+ * @param canvasBottom 画布底缘（内容区坐标系 y 值）
+ * @param refDate 测试注入的基准日期；缺省由 calendarRefDate 推导
+ */
+export function computeCalendarLayout(cfg: FrameConfig, canvasBottom: number, refDate?: Date): CalendarLayout {
+  const ref = calendarRefDate(cfg, refDate)
+  const year = ref.getFullYear()
+  const month = ref.getMonth()
+  const accent = calendarAccentColor(cfg)
+
+  // 网格几何：水平居中
+  const gridW = CAL_COL_PITCH * 6 + CAL_CELL_W
+  const gridX = (DESIGN_CONTAINER - gridW) / 2
+  const rows = 6
+  const gridH = rows * CAL_ROW_H
+
+  // 自底向上：网格 → 星期表头 → 分隔线 → 年月标题行
+  const firstRowY = canvasBottom - cfg.overlayBottom - gridH
+  const weekdayY = firstRowY - CAL_GRID_GAP - CAL_WEEKDAY_SIZE
+  const ruleY = weekdayY - CAL_WEEKDAY_GAP
+  const titleY = ruleY - CAL_TITLE_RULE_GAP - CAL_TITLE_SIZE
+
+  // 月历网格：首日星期（0=周日）+ 当月天数 → 6 行 × 7 列（空位 null）
+  const daysInMonth = new Date(year, month + 1, 0).getDate()
+  const firstWeekday = new Date(year, month, 1).getDay()
+  // 高亮日 = 基准日期当日（当月内才有意义）
+  const weeks: Array<Array<CalendarCell | null>> = []
+  let day = 1
+  for (let r = 0; r < rows; r++) {
+    const row: Array<CalendarCell | null> = []
+    for (let col = 0; col < 7; col++) {
+      const idx = r * 7 + col
+      if (idx < firstWeekday || day > daysInMonth) {
+        row.push(null)
+        continue
+      }
+      const cellDate = new Date(year, month, day)
+      row.push({
+        col,
+        day,
+        lunar: cfg.calendarShowLunar ? lunarLabel(cellDate) : '',
+        y: firstRowY + r * CAL_ROW_H,
+        highlight: day === ref.getDate(),
+      })
+      day++
+    }
+    weeks.push(row)
+  }
+
+  return {
+    gridX,
+    titleYearY: titleY,
+    titleMonthY: titleY + (CAL_TITLE_SIZE - CAL_MONTH_SIZE) / 2,
+    ruleY,
+    weekdayY,
+    firstRowY,
+    weeks,
+    accent,
+    titleYearText: `${year}`,
+    titleMonthText: `${CAL_MONTH_EN[month]} · ${CAL_MONTH_ZH[month]}月`,
+  }
+}
+
+// ===== sport（运动遥测）：底部留白带渲染「轨迹缩略卡 + 四栏数值/单位遥测参数 + 标语/机型」 =====
+// 学习 FrameElf「运动边框」：距离/时长/均速/爬升四栏（数值粗大在上、单位细小在下，
+// 栏间细线，与 poster 同构）；轨迹缩略卡居中置于参数表上方（GPX 轨迹等比缩放）。
+export const SPORT_COL_GAP = 26 // 栏间距（分隔线居中，与 poster 一致）
+export const SPORT_ROW_GAP = 14 // 遥测表与上方元素的行距
+export const SPORT_V_GAP = 8 // 数值与单位行距
+export const SPORT_TRACK_W = 150 // 轨迹缩略卡宽
+export const SPORT_TRACK_H = 96 // 轨迹缩略卡高
+export const SPORT_TRACK_RADIUS = 10 // 轨迹卡圆角
+export const SPORT_TRACK_PAD = 12 // 轨迹卡内边距（轨迹线与卡缘距离）
+
+export interface SportLayout {
+  /** 机型行（居中锚点）；未开启为 null */
+  model: FooterRect | null
+  /** 标语行（infoTitle，衬线斜体，居中锚点）；未填写为 null */
+  title: FooterRect | null
+  /** 轨迹缩略卡（内容区坐标）；关闭或无轨迹为 null */
+  track: { x: number; y: number; w: number; h: number } | null
+  /** 轨迹折线（内容区坐标，等比缩放至卡内） */
+  trackPoints: Array<{ x: number; y: number }>
+  cols: PosterColumn[]
+  dividers: Array<{ x: number; y: number; h: number }>
+}
+
+/** 时长列显示值：分钟取整（GPX 无时间标签时 durationS=0 → 列跳过） */
+function sportDurationMin(durationS: number): string {
+  return `${Math.max(1, Math.round(durationS / 60))}`
+}
+
+/** 由遥测数据组装遥测列（缺失字段自动跳过）；无遥测返回空数组 */
+export function sportColumns(telemetry: FrameConfig['telemetry']): Array<{ value: string; unit: string }> {
+  if (!telemetry) return []
+  const out: Array<{ value: string; unit: string }> = []
+  if (telemetry.distanceKm > 0) out.push({ value: telemetry.distanceKm >= 100 ? telemetry.distanceKm.toFixed(0) : telemetry.distanceKm.toFixed(1), unit: 'km' })
+  if (telemetry.durationS > 0) out.push({ value: sportDurationMin(telemetry.durationS), unit: 'min' })
+  if (telemetry.avgSpeedKmh > 0) out.push({ value: telemetry.avgSpeedKmh.toFixed(1), unit: 'km/h' })
+  if (telemetry.elevGainM > 0) out.push({ value: `${Math.round(telemetry.elevGainM)}`, unit: 'm' })
+  return out
+}
+
+/**
+ * 计算 sport 运动遥测布局（内容区坐标，预览与导出同源）。
+ * 无遥测数据时仅渲染标语/机型行（cols/track 为空）。
+ */
+export function computeSportLayout(cfg: FrameConfig, canvasBottom: number): SportLayout {
+  const center = DESIGN_CONTAINER / 2
+  const modelS = modelTextStyle(cfg)
+  const valueSize = cfg.fontSize
+  const unitSize = cfg.dateFontSize ?? Math.round(cfg.fontSize * 0.62)
+
+  // 自底向上：单位行贴 overlayBottom → 数值行
+  const unitY = canvasBottom - cfg.overlayBottom - unitSize
+  const valueY = unitY - SPORT_V_GAP - valueSize
+
+  const fields = sportColumns(cfg.telemetry)
+  const cols: PosterColumn[] = []
+  const dividers: Array<{ x: number; y: number; h: number }> = []
+  if (fields.length) {
+    const widths = fields.map((p) =>
+      Math.max(
+        measureTextWidth(p.value, `${cfg.textWeight} ${valueSize}px ${cfg.fontFamily}`),
+        measureTextWidth(p.unit, `400 ${unitSize}px ${cfg.fontFamily}`),
+      ),
+    )
+    const total = widths.reduce((a, b) => a + b, 0) + (fields.length - 1) * SPORT_COL_GAP
+    let cursor = center - total / 2
+    const colH = unitY + unitSize - valueY
+    fields.forEach((p, i) => {
+      cols.push({ x: cursor, w: widths[i], value: p.value, unit: p.unit, valueY, unitY })
+      if (i > 0) dividers.push({ x: cursor - SPORT_COL_GAP / 2, y: valueY, h: colH })
+      cursor += widths[i] + SPORT_COL_GAP
+    })
+  }
+
+  // 轨迹缩略卡：居中置于遥测表上方（等比缩放归一化轨迹 → 卡内绘制区）
+  const pts = cfg.telemetry?.points ?? []
+  let track: SportLayout['track'] = null
+  let trackPoints: Array<{ x: number; y: number }> = []
+  if (cfg.sportShowTrack && pts.length >= 2) {
+    track = { x: center - SPORT_TRACK_W / 2, y: valueY - SPORT_ROW_GAP - SPORT_TRACK_H, w: SPORT_TRACK_W, h: SPORT_TRACK_H }
+    const pad = SPORT_TRACK_PAD
+    const innerW = SPORT_TRACK_W - pad * 2
+    const innerH = SPORT_TRACK_H - pad * 2
+    trackPoints = pts.map((p) => ({
+      x: track!.x + pad + p.x * innerW,
+      y: track!.y + SPORT_TRACK_H - pad - p.y * innerH,
+    }))
+  }
+
+  // 顶部行：标语在轨迹卡/遥测表上方，机型在最上
+  let top = cols.length
+    ? valueY
+    : track
+      ? track.y
+      : canvasBottom - cfg.overlayBottom
+  let title: FooterRect | null = null
+  if (cfg.infoTitle) {
+    top -= SPORT_ROW_GAP + MAG_SUB_SIZE
+    title = { x: center, y: top }
+  }
+  const model = cfg.showCameraModel && cfg.cameraModel ? { x: center, y: top - SPORT_ROW_GAP - modelS.size } : null
+
+  return { model, title, track, trackPoints, cols, dividers }
 }

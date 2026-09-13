@@ -8,7 +8,7 @@
 import type { FrameConfig } from './types'
 import { defaultFrameConfig } from './types'
 import { DESIGN_CONTAINER, phoneBrandOf } from './constants'
-import { computeFooterLayout, computeMagazineLayout, computeCardLayout, computeVerticalLayout, computePosterLayout, magazineTitleFontSize, measureTextWidth, cardThemeColors, cardBadgeColors, CARD_RADIUS, CARD_BADGE_FONT_SIZE, MAG_SUB_SIZE, MAG_SWATCH_COUNT, MAG_SWATCH_W, MAG_SWATCH_H, CLASSIC_SIDE_INSET, CLASSIC_ROW_GAP, LENS_LINE_GAP } from './infoLayout'
+import { computeFooterLayout, computeMagazineLayout, computeCardLayout, computeVerticalLayout, computePosterLayout, computeCalendarLayout, computeSportLayout, calendarAccentColor, magazineTitleFontSize, measureTextWidth, cardThemeColors, cardBadgeColors, CARD_RADIUS, CARD_BADGE_FONT_SIZE, MAG_SUB_SIZE, MAG_SWATCH_COUNT, MAG_SWATCH_W, MAG_SWATCH_H, CLASSIC_SIDE_INSET, CLASSIC_ROW_GAP, LENS_LINE_GAP, CAL_COL_PITCH, CAL_CELL_W, CAL_DAY_SIZE } from './infoLayout'
 import { footerTextColor, logoAutoColor, hexLuminance } from './colorUtils'
 import { exportFrame } from './exporter'
 import type { ImgSource } from './bgRenderer'
@@ -26,6 +26,21 @@ const DEMO = {
 
 /** 示意照片宽高比（3:2） */
 const DEMO_ASPECT = 3 / 2
+/** 示意运动遥测（sport 布局模板缩略图渲染源；模板本身不保存遥测数据） */
+const DEMO_TELEMETRY: FrameConfig['telemetry'] = {
+  distanceKm: 12.4,
+  durationS: 5025,
+  avgSpeedKmh: 8.9,
+  maxSpeedKmh: 15.2,
+  elevGainM: 486,
+  maxAltM: 1240,
+  startTime: '2026-08-30T06:40:00',
+  points: [
+    { x: 0.06, y: 0.12 }, { x: 0.18, y: 0.3 }, { x: 0.32, y: 0.24 }, { x: 0.44, y: 0.48 },
+    { x: 0.58, y: 0.66 }, { x: 0.5, y: 0.82 }, { x: 0.66, y: 0.92 }, { x: 0.8, y: 0.78 },
+    { x: 0.72, y: 0.56 }, { x: 0.88, y: 0.4 }, { x: 0.94, y: 0.18 },
+  ],
+}
 /** 无真实 Logo 时的兜底宽高比（与 FooterInfo 一致） */
 const FALLBACK_LOGO_RATIO = 2.6
 /** 文字墨迹高度占字号的比例（示意条高度） */
@@ -218,6 +233,52 @@ export function templateThumbSvg(config: Partial<FrameConfig>, opts: ThumbOption
     for (const d of layout.dividers) {
       infoContent += `<rect x="${r2(pad + bgExpand + d.x)}" y="${r2(pad + bgExpand + d.y)}" width="1" height="${r2(d.h)}" fill="${text}" opacity="0.25"/>`
     }
+  } else if (c.infoLayout === 'calendar') {
+    // calendar：年月标题条 + 分隔线 + 星期表头 + 6×7 公历日数字网格（高亮日实心圆点）。
+    // 与 computeCalendarLayout 同源；农历小字省略（缩略图太小），以数字网格传达版式。
+    const layout = computeCalendarLayout(c, canvasH - pad - bgExpand, new Date(2026, 8, 14))
+    const gridW = CAL_COL_PITCH * 6 + CAL_CELL_W
+    const cellCx = (col: number) => pad + bgExpand + layout.gridX + col * CAL_COL_PITCH + CAL_CELL_W / 2
+    infoContent += `<rect x="${r2(pad + bgExpand + layout.gridX)}" y="${r2(layout.titleYearY + 4)}" width="${r2(gridW * 0.28)}" height="${r2(20)}" rx="10" fill="${text}" opacity="0.9"/>`
+    infoContent += `<rect x="${r2(pad + bgExpand + layout.gridX + gridW * 0.72)}" y="${r2(layout.titleMonthY + 4)}" width="${r2(gridW * 0.28)}" height="${r2(8)}" rx="4" fill="${text}" opacity="0.5"/>`
+    infoContent += `<rect x="${r2(pad + bgExpand + layout.gridX)}" y="${r2(layout.ruleY)}" width="${r2(gridW)}" height="1" fill="${text}" opacity="0.25"/>`
+    for (let col = 0; col < 7; col++) {
+      infoContent += `<circle cx="${r2(cellCx(col))}" cy="${r2(layout.weekdayY + 8)}" r="2" fill="${col === 0 ? layout.accent : text}" opacity="${col === 0 ? 0.9 : 0.45}"/>`
+    }
+    for (const row of layout.weeks) {
+      for (const cell of row) {
+        if (!cell) continue
+        const cx = cellCx(cell.col)
+        const cy = pad + bgExpand + cell.y + CAL_DAY_SIZE / 2
+        if (cell.highlight) {
+          infoContent += `<circle cx="${r2(cx)}" cy="${r2(cy)}" r="${r2(CAL_DAY_SIZE * 0.72)}" fill="${layout.accent}"/>`
+          infoContent += `<text x="${r2(cx)}" y="${r2(cy + CAL_DAY_SIZE * 0.36)}" font-size="${r2(CAL_DAY_SIZE * 0.8)}" font-weight="700" text-anchor="middle" fill="#ffffff">${cell.day}</text>`
+        } else {
+          infoContent += `<text x="${r2(cx)}" y="${r2(cy + CAL_DAY_SIZE * 0.36)}" font-size="${r2(CAL_DAY_SIZE * 0.8)}" text-anchor="middle" fill="${text}" opacity="0.85">${cell.day}</text>`
+        }
+      }
+    }
+  } else if (c.infoLayout === 'sport') {
+    // sport：机型/标语条 + 轨迹缩略卡（示意折线）+ 四栏数值/单位条 + 分隔线。
+    // 与 computeSportLayout 同源；无遥测数据时仅绘制机型/标语示意条。
+    const layout = computeSportLayout({ ...c, telemetry: c.telemetry ?? DEMO_TELEMETRY }, canvasH - pad - bgExpand)
+    if (layout.model && c.showCameraModel) infoContent += bar(r2(pad + bgExpand + layout.model.x - modelW / 2), r2(pad + bgExpand + layout.model.y), c.cameraModelSize, modelW, c.cameraModelOpacity, text)
+    if (layout.title && c.infoTitle) infoContent += bar(r2(pad + bgExpand + layout.title.x - 60), r2(pad + bgExpand + layout.title.y), 20, 120, 0.9, text)
+    if (layout.track) {
+      const t = layout.track
+      infoContent += `<rect x="${r2(pad + bgExpand + t.x)}" y="${r2(pad + bgExpand + t.y)}" width="${r2(t.w)}" height="${r2(t.h)}" rx="${r2(10)}" fill="${text}" opacity="0.1"/>`
+      if (layout.trackPoints.length >= 2) {
+        const pts = layout.trackPoints.map((p, i) => `${i === 0 ? 'M' : 'L'} ${r2(pad + bgExpand + p.x)} ${r2(pad + bgExpand + p.y)}`).join(' ')
+        infoContent += `<path d="${pts}" fill="none" stroke="${calendarAccentColor(c)}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" opacity="0.95"/>`
+      }
+    }
+    for (const col of layout.cols) {
+      infoContent += bar(r2(pad + bgExpand + col.x), r2(pad + bgExpand + col.valueY), c.fontSize, col.w, c.textOpacity, text)
+      infoContent += bar(r2(pad + bgExpand + col.x), r2(pad + bgExpand + col.unitY), Math.round(c.fontSize * 0.62), col.w, 0.55, text)
+    }
+    for (const d of layout.dividers) {
+      infoContent += `<rect x="${r2(pad + bgExpand + d.x)}" y="${r2(pad + bgExpand + d.y)}" width="1" height="${r2(d.h)}" fill="${text}" opacity="0.25"/>`
+    }
   } else {
     // classic：与 computeClassicLayout 完全同构——自底向上 日期 → EXIF 块(含镜头行) → 型号 → Logo，
     // 只为显示行占位，行距 CLASSIC_ROW_GAP，镜头行以 LENS_LINE_GAP 附在参数行下；水平对齐跟随 overlayAlign
@@ -284,6 +345,22 @@ export function templateThumbSvg(config: Partial<FrameConfig>, opts: ThumbOption
   const photoFill = `url(#${gid}p)`
   const blurPx = Math.max(0, c.blur)
 
+  // 设备样机（手机壳）：边框环（evenodd 内收带）+ 顶部灵动岛胶囊，与 drawDeviceMockup 同比例
+  let mockup = ''
+  if (c.deviceMockup === 'phone-dark' || c.deviceMockup === 'phone-light') {
+    const base = Math.max(photoW, photoH)
+    const t = Math.min(40, Math.max(6, base * 0.016))
+    const outerR = Math.max(0, Math.min(photoR, Math.min(photoW, photoH) / 2))
+    const bezel = c.deviceMockup === 'phone-dark' ? '#17181A' : '#D7D9DD'
+    const iw = Math.min(photoW * 0.26, photoH * 0.42)
+    const ih = Math.max(8, Math.min(photoH * 0.032, iw * 0.38))
+    const ix = photoX + photoW / 2 - iw / 2
+    const iy = photoY + Math.max(t * 0.55, photoH * 0.014)
+    mockup =
+      `<path fill-rule="evenodd" fill="${bezel}" d="${svgRoundRect(photoX, photoY, photoW, photoH, outerR)} ${svgRoundRect(photoX + t, photoY + t, photoW - t * 2, photoH - t * 2, Math.max(0, outerR - t))}"/>`
+      + `<rect x="${r2(ix)}" y="${r2(iy)}" width="${r2(iw)}" height="${r2(ih)}" rx="${r2(ih / 2)}" fill="#101013"/>`
+  }
+
   const bgInner =
     c.bgMode === 'solid'
       ? `<rect x="${r2(pad)}" y="${r2(pad)}" width="${r2(innerW)}" height="${r2(innerH)}" fill="${c.bgColor}"/>`
@@ -308,9 +385,17 @@ export function templateThumbSvg(config: Partial<FrameConfig>, opts: ThumbOption
     + `<rect x="${r2(photoX)}" y="${r2(photoY)}" width="${r2(photoW)}" height="${r2(photoH)}" rx="${r2(photoR)}" fill="${photoFill}"/>`
     + `<g clip-path="url(#${gid}pc)"><circle cx="${r2(photoX + photoW * 0.72)}" cy="${r2(photoY + photoH * 0.34)}" r="${r2(photoW * 0.075)}" fill="#f4e6c8" opacity="0.8"/></g>`
     + `</g>`
+    // 3.5) 设备样机（手机壳环 + 灵动岛，照片层之上）
+    + mockup
     // 4) INFO 层
     + info
     + `</svg>`
+}
+
+/** SVG 圆角矩形路径（供设备样机 evenodd 环使用） */
+function svgRoundRect(x: number, y: number, w: number, h: number, r: number): string {
+  const radius = Math.max(0, Math.min(r, w / 2, h / 2))
+  return `M ${r2(x + radius)} ${r2(y)} H ${r2(x + w - radius)} A ${r2(radius)} ${r2(radius)} 0 0 1 ${r2(x + w)} ${r2(y + radius)} V ${r2(y + h - radius)} A ${r2(radius)} ${r2(radius)} 0 0 1 ${r2(x + w - radius)} ${r2(y + h)} H ${r2(x + radius)} A ${r2(radius)} ${r2(radius)} 0 0 1 ${r2(x)} ${r2(y + h - radius)} V ${r2(y + radius)} A ${r2(radius)} ${r2(radius)} 0 0 1 ${r2(x + radius)} ${r2(y)} Z`
 }
 
 /** 生成可直接用于 <img src> 的 dataURL */
@@ -379,6 +464,8 @@ export function buildDemoConfig(config: Partial<FrameConfig>, info?: ThumbInfoOv
     brand: info?.brand ?? 'sony',
     // 示意原始字段：poster 参数表与 infoLayer {gps} 等占位符在无真实照片时也有值可渲染
     exifRaw: config.exifRaw ?? { focalLength: 16, fNumber: 2.8, exposureTime: 1 / 250, iso: 100 },
+    // 示意遥测：sport 布局模板缩略图在无真实 GPX 时也有轨迹与参数可渲染
+    telemetry: config.telemetry ?? DEMO_TELEMETRY,
   }
 }
 

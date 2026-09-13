@@ -41,7 +41,7 @@ const list = computed(() => {
 
 // ===== 视图状态：侧栏分类（recent / custom / all / 组名）+ 搜索 =====
 // 界面不使用彩色 Emoji（AGENTS.md）：搜索框无图标，用途由 placeholder 表达。
-const TEMPLATE_GROUPS = ['经典', '极简轻量', '杂志编辑', '胶片复古', '暗调影廊', '联名卡', '社交尺寸', '水印署名', '多彩色卡', '大师水印', '创意排版'] as const
+const TEMPLATE_GROUPS = ['经典', '极简轻量', '杂志编辑', '胶片复古', '暗调影廊', '联名卡', '社交尺寸', '水印署名', '多彩色卡', '大师水印', '日历边框', '运动边框', '设备样机', '创意排版'] as const
 type SideView = 'recent' | 'custom' | 'all' | (typeof TEMPLATE_GROUPS)[number]
 const activeView = ref<SideView>('all')
 const search = ref('')

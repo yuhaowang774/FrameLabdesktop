@@ -32,6 +32,32 @@ export interface PhotoCrop {
   h: number
 }
 
+/** 归一化轨迹点（0..1，等比缩放置中，y 向上为北），由 GPX 解析写入 */
+export interface TelemetryPoint {
+  x: number
+  y: number
+}
+
+/** 运动遥测数据（GPX 导入解析产物，sport 布局渲染源） */
+export interface TelemetryData {
+  /** 总距离（km） */
+  distanceKm: number
+  /** 总时长（秒，首末轨迹点时间差；无时间标签为 0） */
+  durationS: number
+  /** 平均速度（km/h） */
+  avgSpeedKmh: number
+  /** 最大速度（km/h，相邻轨迹点瞬时速度峰值；无时间标签为 0） */
+  maxSpeedKmh: number
+  /** 累计爬升（m，相邻海拔正增量求和） */
+  elevGainM: number
+  /** 最高海拔（m，无海拔标签为 null） */
+  maxAltM: number | null
+  /** 开始时间（ISO 字符串，无时间标签为 null） */
+  startTime: string | null
+  /** 归一化轨迹点（≤500，越界裁剪/抽稀） */
+  points: TelemetryPoint[]
+}
+
 export interface FrameConfig {
   bgMode: BgMode
   /** 显示开关：是否显示背景层（false → 不绘制背景，照片铺满） */
@@ -114,7 +140,7 @@ export interface FrameConfig {
    *  magazine=杂志编辑（顶部标题区 + 底部左取色色卡 / 右机型+参数+日期）；
    *  vertical=竖排装裱（文字旋转 90° 沿照片左缘竖排，自左向右：机型 / 参数 / 日期列）；
    *  poster=海报参数表（机型 + 刊头标语 + 四栏「数值/单位」参数表，学习大师水印画册款） */
-  infoLayout: 'classic' | 'duo' | 'inline' | 'card' | 'magazine' | 'vertical' | 'poster'
+  infoLayout: 'classic' | 'duo' | 'inline' | 'card' | 'magazine' | 'vertical' | 'poster' | 'calendar' | 'sport'
   /** magazine 布局顶部大标题文本（如 "Nature's poetry"，用户可改；空 = 不显示标题区文字） */
   infoTitle: string
   /** magazine 布局是否显示取色色卡（从照片自动提取 5 色） */
@@ -129,6 +155,20 @@ export interface FrameConfig {
   cardBadgeBg: string | null
   /** card 模式联名标块文字色：null = 跟随品牌默认（badge.fg ?? '#ffffff'） */
   cardBadgeFg: string | null
+  // ===== calendar（月历边框）布局专属 =====
+  /** 月历网格是否在每个公历日期下方标注农历（初一显示农历月名） */
+  calendarShowLunar: boolean
+  /** 月历强调色：拍摄日期圆点/周日字色。null = 随底色明暗自动（浅底珊瑚红 / 深底暖橙） */
+  calendarAccent: string | null
+  // ===== sport（运动遥测）布局专属 =====
+  /** 运动布局是否在遥测参数上方绘制轨迹缩略卡（需 telemetry.points ≥ 2） */
+  sportShowTrack: boolean
+  /** 运动遥测数据（GPX 导入解析，属照片自身数据，不进模板）：null = 未导入 */
+  telemetry: TelemetryData | null
+  // ===== 设备样机（照片裁切进设备轮廓） =====
+  /** 设备样机样式：none=无（默认）；phone-dark=深空灰手机壳；phone-light=银色手机壳。
+   *  样机直接画在照片层内（边框环内收覆盖照片边缘 + 顶部灵动岛），预览/导出/缩略图三端同源 */
+  deviceMockup: 'none' | 'phone-dark' | 'phone-light'
   fontFamily: string
   fontSize: number
   textWeight: number
@@ -273,6 +313,11 @@ export const defaultFrameConfig: FrameConfig = {
   paletteHex: false,
   cardBadgeBg: null,
   cardBadgeFg: null,
+  calendarShowLunar: true,
+  calendarAccent: null,
+  sportShowTrack: true,
+  telemetry: null,
+  deviceMockup: 'none',
   fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
   fontSize: 30,
   textWeight: 600,
@@ -371,9 +416,16 @@ export interface InfoElementBase {
   id: string
   type: InfoElementType
   enable: boolean
-  /** 定位坐标（设计 px，相对绑定坐标系原点：照片中心或画布中心） */
+  /** 定位坐标（设计 px，相对绑定坐标系原点：照片中心或画布中心/锚点） */
   x: number
   y: number
+  /** 水平锚点（仅 bindTarget=canvas）：left=照片左缘 / center=画布中轴（默认，向后兼容缺省）/
+   *  right=照片右缘。x 为自锚点向右量的偏移（right 锚点用负值向左收）。
+   *  用于报头行 / 底部签名条等「贴边排版」，照片画幅变化时不再依赖画布中心推算。 */
+  anchorX?: 'left' | 'center' | 'right'
+  /** 垂直锚点（仅 bindTarget=canvas）：top=画布顶缘 / center=画布中线（默认）/
+   *  bottom=画布底缘。y 为自锚点向下量的偏移（bottom 锚点用负值向上收）。 */
+  anchorY?: 'top' | 'center' | 'bottom'
   /** 缩放系数（1 = 100%） */
   scale: number
   /** 旋转角度（度，顺时针） */
@@ -397,6 +449,8 @@ export interface TextInfoElement extends InfoElementBase {
   align: 'left' | 'center' | 'right'
   letterSpacing: number
   lineHeight: number
+  /** 深色照片上压字时加柔和投影（与预览 infoTextShadow 同参数），浅色设计款保持 false */
+  shadow?: boolean
 }
 
 /** EXIF 文本块元素：模板形如 "{model}  {focal}  1/{shutter}s  ISO{iso}"，缺字段自动跳过 */
@@ -410,6 +464,8 @@ export interface ExifInfoElement extends InfoElementBase {
   align: 'left' | 'center' | 'right'
   letterSpacing: number
   lineHeight: number
+  /** 深色照片上压字时加柔和投影 */
+  shadow?: boolean
 }
 
 /** Logo 图片元素：内置品牌字标（brand）或自定义上传 Logo（custom:id） */

@@ -9,6 +9,15 @@ import {
   computeFooterLayout,
   computeVerticalLayout,
   computePosterLayout,
+  computeCalendarLayout,
+  computeSportLayout,
+  calendarAccentColor,
+  CAL_COL_PITCH,
+  CAL_CELL_W,
+  CAL_ROW_H,
+  SPORT_TRACK_W,
+  SPORT_TRACK_H,
+  SPORT_TRACK_PAD,
   dateTextStyle,
   exifTextStyle,
   lensTextStyle,
@@ -367,5 +376,95 @@ describe('poster 海报参数表（大师水印款）', () => {
     expect(formatGps(-33.8688, -151.2193)).toContain('S')
     expect(formatGps(-33.8688, -151.2193)).toContain('W')
     expect(formatGps()).toBe('')
+  })
+})
+
+describe('calendar 月历边框', () => {
+  const REF = new Date(2026, 8, 14) // 2026-09（9/1 周二，30 天）
+  it('网格水平居中：6 行 × 7 列，宽度 = 6 列距 + 单元格', () => {
+    const L = computeCalendarLayout(cfg(), CANVAS_BOTTOM, REF)
+    const gridW = CAL_COL_PITCH * 6 + CAL_CELL_W
+    expect(L.gridX).toBeCloseTo((1200 - gridW) / 2, EPS)
+    expect(L.weeks.length).toBe(6)
+    expect(L.weeks.every((r) => r.length === 7)).toBe(true)
+  })
+  it('9/1 首行前空 2 格（周二起排），30 天共 30 个有值单元格', () => {
+    const L = computeCalendarLayout(cfg(), CANVAS_BOTTOM, REF)
+    const flat = L.weeks.flat()
+    expect(flat.filter(Boolean).length).toBe(30)
+    expect(flat[0]).toBeNull()
+    expect(flat[1]).toBeNull()
+    expect(flat[2]).toMatchObject({ day: 1, col: 2 })
+    expect(flat[31]).toMatchObject({ day: 30 })
+  })
+  it('农历标注：9/25 中秋为八月十五，八月初一(9/11)显示月名', () => {
+    const L = computeCalendarLayout(cfg({ calendarShowLunar: true }), CANVAS_BOTTOM, REF)
+    const cells = L.weeks.flat().filter(Boolean) as Array<{ day: number; lunar: string }>
+    expect(cells.find((c) => c.day === 25)!.lunar).toBe('十五')
+    // 9 月内仅 9/11 是农历月初一（八月初一）
+    const firsts = cells.filter((c) => ['正月', '八月'].includes(c.lunar))
+    expect(firsts.map((c) => c.day)).toEqual([11])
+  })
+  it('关闭农历：lunar 为空串；高亮日 = 基准日期当日', () => {
+    const L = computeCalendarLayout(cfg({ calendarShowLunar: false }), CANVAS_BOTTOM, REF)
+    const cells = L.weeks.flat().filter(Boolean) as Array<{ day: number; lunar: string; highlight: boolean }>
+    expect(cells.every((c) => c.lunar === '')).toBe(true)
+    expect(cells.filter((c) => c.highlight).map((c) => c.day)).toEqual([14])
+  })
+  it('强调色：自定义优先；浅色纯色底珊瑚红 / 深色或照片底暖橙', () => {
+    expect(calendarAccentColor(cfg({ calendarAccent: '#123456' }))).toBe('#123456')
+    expect(calendarAccentColor(cfg({ bgMode: 'solid', bgColor: '#ffffff' }))).toBe('#D4553F')
+    expect(calendarAccentColor(cfg({ bgMode: 'solid', bgColor: '#17181B' }))).toBe('#E8A54B')
+    expect(calendarAccentColor(cfg({ bgMode: 'blur' }))).toBe('#E8A54B')
+  })
+  it('网格自底向上堆叠：末行行盒贴 overlayBottom，标题在网格上方', () => {
+    const c = cfg({ overlayBottom: 26 })
+    const L = computeCalendarLayout(c, CANVAS_BOTTOM, REF)
+    const lastRowY = L.firstRowY + 5 * CAL_ROW_H
+    expect(lastRowY + CAL_ROW_H).toBeCloseTo(CANVAS_BOTTOM - 26, EPS)
+    expect(L.titleYearY).toBeLessThan(L.ruleY)
+    expect(L.ruleY).toBeLessThan(L.weekdayY)
+    expect(L.weekdayY).toBeLessThan(L.firstRowY)
+  })
+})
+
+describe('sport 运动遥测', () => {
+  const TELEMETRY = {
+    distanceKm: 12.4, durationS: 5025, avgSpeedKmh: 8.9, maxSpeedKmh: 15.2,
+    elevGainM: 486, maxAltM: 1240, startTime: '2026-08-30T06:40:00Z',
+    points: [{ x: 0, y: 0 }, { x: 0.5, y: 1 }, { x: 1, y: 0.5 }],
+  }
+  it('四栏遥测：距离/时长/均速/爬升，整体居中、栏间 3 条分隔线', () => {
+    const L = computeSportLayout(cfg({ telemetry: TELEMETRY, fontSize: 30 }), CANVAS_BOTTOM)
+    expect(L.cols.map((c) => [c.value, c.unit])).toEqual([
+      ['12.4', 'km'], ['84', 'min'], ['8.9', 'km/h'], ['486', 'm'],
+    ])
+    expect(L.dividers.length).toBe(3)
+    const total = L.cols.reduce((a, c) => a + c.w, 0) + 3 * 26
+    const left = L.cols[0].x
+    expect(left + total / 2).toBeCloseTo(600, 1)
+  })
+  it('轨迹缩略卡：居中置于遥测表上方，折线等比落在卡内边距内', () => {
+    const L = computeSportLayout(cfg({ telemetry: TELEMETRY }), CANVAS_BOTTOM)
+    expect(L.track).not.toBeNull()
+    const t = L.track!
+    expect(t.x).toBeCloseTo(600 - SPORT_TRACK_W / 2, EPS)
+    expect(t.w).toBe(SPORT_TRACK_W)
+    expect(t.h).toBe(SPORT_TRACK_H)
+    for (const p of L.trackPoints) {
+      expect(p.x).toBeGreaterThanOrEqual(t.x + SPORT_TRACK_PAD - 0.001)
+      expect(p.x).toBeLessThanOrEqual(t.x + t.w - SPORT_TRACK_PAD + 0.001)
+      expect(p.y).toBeGreaterThanOrEqual(t.y + SPORT_TRACK_PAD - 0.001)
+      expect(p.y).toBeLessThanOrEqual(t.y + t.h - SPORT_TRACK_PAD + 0.001)
+    }
+    // 北（y 大）画在卡上方
+    expect(L.trackPoints[1].y).toBeLessThan(L.trackPoints[0].y)
+  })
+  it('关闭轨迹卡或无遥测：track 为 null；无遥测仅标语/机型占位', () => {
+    expect(computeSportLayout(cfg({ telemetry: TELEMETRY, sportShowTrack: false }), CANVAS_BOTTOM).track).toBeNull()
+    const empty = computeSportLayout(cfg({ telemetry: null }), CANVAS_BOTTOM)
+    expect(empty.cols.length).toBe(0)
+    expect(empty.track).toBeNull()
+    expect(empty.title).toBeNull()
   })
 })

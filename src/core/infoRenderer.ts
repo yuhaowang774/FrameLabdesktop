@@ -37,6 +37,7 @@ export function buildExifFieldMap(
   exifRaw: ExifRaw | null,
   model?: string,
   eq: { eqFocal?: boolean; cropFactor?: number } = {},
+  dateText?: string,
 ): Record<string, string> {
   const r = exifRaw || {}
   return {
@@ -47,6 +48,7 @@ export function buildExifFieldMap(
     model: model || '',
     lens: cleanLens(r.lensMake, r.lensModel) ?? '',
     gps: formatGps(r.latitude, r.longitude),
+    date: dateText ?? '',
   }
 }
 
@@ -58,8 +60,9 @@ export function resolveExifTemplate(
   exifRaw: ExifRaw | null,
   model?: string,
   eq: { eqFocal?: boolean; cropFactor?: number } = {},
+  dateText?: string,
 ): string {
-  const map = buildExifFieldMap(exifRaw, model, eq)
+  const map = buildExifFieldMap(exifRaw, model, eq, dateText)
   let out = template.replace(/\{(\w+)\}/g, (_, k: string) => map[k] ?? '')
   out = out.replace(/\s{2,}/g, ' ').replace(/\(\s*\)/g, '').trim()
   return out
@@ -109,8 +112,14 @@ export function measureElement(
  * @param opts.model 相机机型（用于 {model}）
  * @param opts.outerMatrix 可选：bindTarget=photo 时传入照片变换矩阵（设计 px 空间，未含 unitScale）
  * @param opts.canvasCenter 可选：画布中心（设计 px）。默认 (600, 600)，非 1200 高容器需显式传入
+ * @param opts.canvasH 可选：画布总高（设计 px）。anchorY='top'/'bottom' 边缘锚点定位需要；
+ *        未提供时边缘锚点回退为中线（兼容未传尺寸的旧调用）
+ * @param opts.canvasW 可选：画布总宽（设计 px，含边框与背景扩展）。anchorX 边缘锚点定位基准
+ * @param opts.contentInset 可选：内容区在画布中的内缩（设计 px = padding + bgExpand）。
+ *        anchorX='left'/'right' 以照片（内容区）左右缘为锚；缺省 0（全幅模板两者重合）
  * @param opts.unitScale 设计 px → 像素 的缩放（用于 logo/文字以像素尺寸绘制）。默认 1
- */
+ * @param opts.dateText 拍摄日期文本（{date} 模板字段）
+ * @param opts.forPreview 预览模式 …（见下） */
 export function drawInfoLayer(
   ctx: CanvasRenderingContext2D,
   layer: InfoLayerConfig,
@@ -125,8 +134,16 @@ export function drawInfoLayer(
     outerMatrix?: DOMMatrix
     /** 画布中心（设计 px），默认 (600, 600) */
     canvasCenter?: { x: number; y: number }
+    /** 画布总高（设计 px）：anchorY 边缘锚点定位基准 */
+    canvasH?: number
+    /** 画布总宽（设计 px）：anchorX 边缘锚点定位基准 */
+    canvasW?: number
+    /** 内容区内缩（设计 px）：anchorX 左右缘锚点基准 */
+    contentInset?: number
     /** 设计 px → 像素 缩放，默认 1 */
     unitScale?: number
+    /** 拍摄日期文本（{date} 模板字段） */
+    dateText?: string
     /** 预览模式（审查报告 R9）：绘制全部 enable 元素（含 exportable=false 的“仅预览”元素）；
      *  导出模式仍仅绘制 exportable=true 的元素 */
     forPreview?: boolean
@@ -144,11 +161,27 @@ export function drawInfoLayer(
 
   for (const el of sorted) {
     ctx.save()
-    // 外层容器变换（画布中心 → 可选 photo 矩阵）
+    // 外层容器变换（画布中心 → 可选 photo 矩阵）；canvas 绑定支持边缘锚点：
+    // 元素原点 = 锚点边 + el.x/el.y 偏移（left/top 正向右/下，right/bottom 用负值向内收），
+    // 报头行 / 底部签名条在画布尺寸变化时仍贴边。photo 绑定不响应锚点（几何跟随照片变换）。
     if (opts.outerMatrix && layer.bindTarget === 'photo') {
       ctx.transform(opts.outerMatrix.a, opts.outerMatrix.b, opts.outerMatrix.c, opts.outerMatrix.d, opts.outerMatrix.e, opts.outerMatrix.f)
     } else {
-      ctx.translate(cx, cy)
+      // 垂直锚点：canvasH 为画布设计总高（cy 恒为其真实半高）；
+      // 水平锚点：canvasW - contentInset*2 = 内容区宽（DESIGN_CONTAINER），锚照片左右缘。
+      // center 锚沿用 canvasCenter（与既有元素语义完全一致，不引入行为变化）
+      const halfH = opts.canvasH != null && opts.canvasH > 0 ? opts.canvasH / 2 : null
+      const baseX = el.anchorX === 'left' && opts.canvasW != null
+        ? (opts.contentInset ?? 0)
+        : el.anchorX === 'right' && opts.canvasW != null
+          ? opts.canvasW - (opts.contentInset ?? 0)
+          : cx
+      const baseY = el.anchorY === 'top' && halfH != null
+        ? cy - halfH
+        : el.anchorY === 'bottom' && halfH != null
+          ? cy + halfH
+          : cy
+      ctx.translate(baseX, baseY)
     }
     // 元素自身：平移 → 旋转 → 缩放（design px → 像素）
     ctx.translate(el.x, el.y)
@@ -165,12 +198,15 @@ export function drawInfoLayer(
 function drawElementContent(
   ctx: CanvasRenderingContext2D,
   el: InfoElement,
-  opts: { exifRaw?: ExifRaw | null; model?: string; eqFocal?: boolean; cropFactor?: number },
+  opts: { exifRaw?: ExifRaw | null; model?: string; eqFocal?: boolean; cropFactor?: number; dateText?: string },
 ): void {
   switch (el.type) {
     case 'divider': {
+      // 线体对齐点跟随水平锚点（与文字 align 语义一致）：
+      // left = 原点为线左缘、right = 原点为线右缘、缺省 center = 线中心在原点（向后兼容）
+      const x0 = el.anchorX === 'left' ? 0 : el.anchorX === 'right' ? -el.width : -el.width / 2
       ctx.fillStyle = el.color
-      ctx.fillRect(-el.width / 2, -el.thickness / 2, el.width, el.thickness)
+      ctx.fillRect(x0, -el.thickness / 2, el.width, el.thickness)
       break
     }
     case 'logo': {
@@ -183,21 +219,22 @@ function drawElementContent(
       break
     }
     case 'text': {
-      drawText(ctx, el.text, el.fontFamily, el.fontSize, el.fontWeight, el.color, el.align, el.letterSpacing, el.lineHeight)
+      drawText(ctx, el.text, el.fontFamily, el.fontSize, el.fontWeight, el.color, el.align, el.letterSpacing, el.lineHeight, el.shadow)
       break
     }
     case 'exif': {
       const text = resolveExifTemplate(el.template, opts.exifRaw || null, opts.model, {
         eqFocal: opts.eqFocal,
         cropFactor: opts.cropFactor,
-      })
-      drawText(ctx, text, el.fontFamily, el.fontSize, el.fontWeight, el.color, el.align, el.letterSpacing, el.lineHeight)
+      }, opts.dateText)
+      drawText(ctx, text, el.fontFamily, el.fontSize, el.fontWeight, el.color, el.align, el.letterSpacing, el.lineHeight, el.shadow)
       break
     }
   }
 }
 
-/** 文本绘制（基准字号，原点在元素中心，align 控制水平对齐） */
+/** 文本绘制（基准字号，原点 = 文本盒对齐点：align=left → 盒左缘在原点 / right → 盒右缘在原点 /
+ *  center → 盒中心在原点。配合边缘锚点可实现「贴左缘起排」「贴右缘收排」；shadow = 压字投影） */
 function drawText(
   ctx: CanvasRenderingContext2D,
   text: string,
@@ -208,22 +245,25 @@ function drawText(
   align: 'left' | 'center' | 'right',
   letterSpacing: number,
   lineHeight: number,
+  shadow = false,
 ): void {
   if (!text) return
+  if (shadow) {
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.5)'
+    ctx.shadowBlur = 4
+    ctx.shadowOffsetY = 1
+  }
   ctx.fillStyle = color
   ctx.textBaseline = 'middle'
   ctx.textAlign = align
   ctx.font = `${fontWeight} ${fontSize}px ${fontFamily}`
   const lines = text.split('\n')
   const lh = fontSize * (lineHeight || 1.2)
-  // align=left 时以左缘为基准（原点在中心，故左缘 x=-width/2）；此处按 textAlign 处理，
-  // 用 textAlign='left' 时 x 取包围盒左缘。为简单起见统一以中心对齐测量再偏移。
-  const maxW = Math.max(...lines.map((l) => measureLineWidth(ctx, l, letterSpacing)))
+  // 原点即对齐点：left/right 起笔于 0（配合 textAlign 向右/向左延展），center 居中
   const startY = -((lines.length - 1) * lh) / 2
   lines.forEach((line, i) => {
     const y = startY + i * lh
-    const x = align === 'center' ? 0 : align === 'right' ? maxW / 2 : -maxW / 2
-    drawSpacedText(ctx, line, x, y, align, letterSpacing)
+    drawSpacedText(ctx, line, 0, y, align, letterSpacing)
   })
 }
 

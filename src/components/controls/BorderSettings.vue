@@ -85,6 +85,25 @@ function ratioStyle(value: string): Record<string, string> {
         </button>
       </div>
     </ControlGroup>
+
+    <!-- 设备样机：照片裁切进设备轮廓（手机壳边框环 + 灵动岛），预览/导出/缩略图三端同源 -->
+    <ControlGroup title="设备样机">
+      <div class="color-row">
+        <span class="lbl">机身</span>
+        <select
+          class="select"
+          :value="state.deviceMockup"
+          @change="patch({ deviceMockup: ($event.target as HTMLSelectElement).value as 'none' | 'phone-dark' | 'phone-light' })"
+        >
+          <option value="none">无</option>
+          <option value="phone-dark">手机 · 深空灰</option>
+          <option value="phone-light">手机 · 银色</option>
+        </select>
+      </div>
+      <p v-if="state.deviceMockup !== 'none'" class="mockup-hint">
+        样机沿照片边缘内收绘制：建议照片圆角 48–72 观感最佳；配合无边框全幅或小留白使用。
+      </p>
+    </ControlGroup>
   </div>
 </template>
 
@@ -100,6 +119,14 @@ function ratioStyle(value: string): Record<string, string> {
   gap: 12px;
   min-height: 22px;
   line-height: 16px;
+}
+/* 设备样机提示文案 */
+.mockup-hint {
+  margin: 0;
+  font-size: 11px;
+  line-height: 16px;
+  color: var(--text-dim);
+  opacity: 0.8;
 }
 .lbl {
   flex: none;

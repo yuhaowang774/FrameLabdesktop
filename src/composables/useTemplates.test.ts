@@ -111,12 +111,12 @@ describe('applyTemplateToState 层显示开关保留', () => {
 })
 
 describe('内置模板清单结构校验', () => {
-  it('53 套内置模板：id 唯一、名称非空、config 经 sanitize 无损往返', () => {
+  it('62 套内置模板：id 唯一、名称非空、config 经 sanitize 无损往返', () => {
     const { templates, toTemplateConfig } = useTemplates()
     const builtin = templates.filter((t) => t.builtin)
-    expect(builtin.length).toBe(53)
+    expect(builtin.length).toBe(62)
     const ids = new Set(builtin.map((t) => t.id))
-    expect(ids.size).toBe(53)
+    expect(ids.size).toBe(62)
     for (const t of builtin) {
       expect(t.name.trim().length).toBeGreaterThan(0)
       expect(t.category).toBe('frame')
@@ -131,7 +131,7 @@ describe('内置模板清单结构校验', () => {
     const { templates } = useTemplates()
     for (const t of templates.filter((x) => x.builtin)) {
       const usesGrain = t.id === 'm_kodak_years' || t.id === 'm_polaroid' || t.id === 'm_darkroom_contact' || t.id === 'm_ccd_flash'
-      const usesVignette = usesGrain || t.id === 'm_edge_vertical' || t.id === 'm_finder_cross' || t.id === 'm_credit_block'
+      const usesVignette = usesGrain || t.id === 'm_edge_vertical' || t.id === 'm_finder_cross' || t.id === 'm_credit_block' || t.id === 'm_cover_masthead' || t.id === 'm_cover_exhibit' || t.id === 'm_gps_coord' || t.id === 'm_sport_dark'
       const usesWatermark = t.id === 'm_darkroom_contact' || t.id === 'm_watermark_tile' || t.id === 'm_watermark_corner' || t.id === 'm_ticket_horizontal' || t.id === 'm_ticket_vertical'
       if (!usesGrain) expect(t.config.grain ?? 0, t.id).toBe(0)
       if (!usesVignette) expect(t.config.vignette ?? 0, t.id).toBe(0)
@@ -140,14 +140,14 @@ describe('内置模板清单结构校验', () => {
   })
 })
 
-describe('全量内置模板应用冒烟（40 套逐套过真实应用链路）', () => {
+describe('全量内置模板应用冒烟（逐套过真实应用链路）', () => {
   it('逐套 applyTemplateToState：不抛错、画布高合法、布局/锚点字段合法、EXIF 回填不破坏', () => {
     const { templates } = useTemplates()
     const builtin = templates.filter((t) => t.builtin)
     const { state, loadConfig } = useFrameConfig()
     // 模拟导入照片后的状态：EXIF 就绪 + canvasH 已初始化（800 照片高 + 60 pad + 60 底带）
     loadConfig({ exifRaw: RAW, canvasH: 920, padding: 60, borderRatio: 0 })
-    const VALID_LAYOUTS = ['classic', 'duo', 'inline', 'card', 'magazine', 'vertical', 'poster']
+    const VALID_LAYOUTS = ['classic', 'duo', 'inline', 'card', 'magazine', 'vertical', 'poster', 'calendar', 'sport']
     for (const t of builtin) {
       expect(() => applyTemplateToState(t.config), `${t.id} 应用抛错`).not.toThrow()
       expect(state.canvasH, `${t.id} 画布高非法`).toBeGreaterThanOrEqual(0)

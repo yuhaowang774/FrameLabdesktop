@@ -2,6 +2,8 @@
 import { ref, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useFrameConfig } from '../../composables/useFrameConfig'
 import { drawRotatedCropped, sourceSize } from '../../core/photoEdit'
+import { drawDeviceMockup } from '../../core/deviceMockup'
+import { DESIGN_CONTAINER } from '../../core/constants'
 import type { PhotoCrop, PhotoRotation } from '../../core/types'
 
 const props = defineProps<{
@@ -92,6 +94,13 @@ function render() {
   ctx.clearRect(0, 0, w, h)
   if (drawSrc) {
     drawRotatedCropped(ctx, drawSrc, drawW, drawH, props.rotation, props.crop, w, h)
+    // 设备样机（手机壳）：画进照片画布内缘，与导出端 drawDeviceMockup 同源。
+    // 圆角比例 = photoRadius / 照片设计宽（自由画幅下照片设计宽 = 1200 × scale%），
+    // 与导出端 photoRadiusPx 同分数，保证预览与成片的环厚/圆角视觉一致。
+    if (state.deviceMockup && state.deviceMockup !== 'none') {
+      const designW = (DESIGN_CONTAINER * state.scale) / 100
+      drawDeviceMockup(ctx, state.deviceMockup, w, h, w * (state.photoRadius / Math.max(1, designW)))
+    }
   }
 }
 
@@ -138,7 +147,7 @@ watch(() => props.src, load)
 // scale 变化会引起容器尺寸变化，由 ResizeObserver 兜底重绘，此处保留以兜住
 // 容器尺寸未变但内容比例需要刷新的边界（如 frameRatio 切换）。
 watch(
-  () => [props.rotation, props.crop, state.scale],
+  () => [props.rotation, props.crop, state.scale, state.deviceMockup, state.photoRadius],
   () => render(),
 )
 </script>
