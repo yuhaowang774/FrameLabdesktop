@@ -46,6 +46,7 @@ export interface FrameConfig {
   bgColor: string
   overlayAlign: OverlayAlign
   overlayBottom: number
+  overlayAnchor: 'bottom' | 'top'
 
   blur: number
   padding: number
@@ -110,8 +111,9 @@ export interface FrameConfig {
   /** INFO 布局预设：classic=纵向堆叠（默认）；duo=杂志双栏（左：镜头/机型块 / 中：Logo / 右：参数+日期，竖线分隔）；
    *  inline=悬浮居中双行（行1：Logo+机型内联居中；行2：参数居中）；
    *  card=手机白底水印卡（左：机型+日期 / 右：参数+镜头 / 右端联名标块，配色随 infoCardTheme）；
-   *  magazine=杂志编辑（顶部标题区 + 底部左取色色卡 / 右机型+参数+日期） */
-  infoLayout: 'classic' | 'duo' | 'inline' | 'card' | 'magazine'
+   *  magazine=杂志编辑（顶部标题区 + 底部左取色色卡 / 右机型+参数+日期）；
+   *  vertical=竖排装裱（文字旋转 90° 沿照片左缘竖排，自左向右：机型 / 参数 / 日期列） */
+  infoLayout: 'classic' | 'duo' | 'inline' | 'card' | 'magazine' | 'vertical'
   /** magazine 布局顶部大标题文本（如 "Nature's poetry"，用户可改；空 = 不显示标题区文字） */
   infoTitle: string
   /** magazine 布局是否显示取色色卡（从照片自动提取 5 色） */
@@ -220,6 +222,7 @@ export const defaultFrameConfig: FrameConfig = {
   bgColor: '#000000',
   overlayAlign: 'center',
   overlayBottom: 20,
+  overlayAnchor: 'bottom',
 
   showBackground: true,
   showBorder: true,

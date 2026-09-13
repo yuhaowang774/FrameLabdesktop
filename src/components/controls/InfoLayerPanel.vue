@@ -219,7 +219,8 @@ async function onCreateTextLogo() {
     <!-- 信息布局预设：classic=纵向堆叠；duo=杂志双栏（左镜头/机型 / 中Logo / 右参数+日期）；
          inline=悬浮双行（Logo+机型内联居中，参数居中其下）；
          card=手机白底水印卡（左机型+日期 / 右参数+镜头 / 右端联名标块）；
-         magazine=杂志编辑（顶部标题区 + 底部左取色色卡 / 右机型+参数+日期） -->
+         magazine=杂志编辑（顶部标题区 + 底部左取色色卡 / 右机型+参数+日期）；
+         vertical=竖排装裱（文字旋转 90° 沿照片左缘自上而下） -->
     <div class="field layout-field">
       <label>信息布局</label>
       <select v-model="state.infoLayout" class="select">
@@ -228,8 +229,24 @@ async function onCreateTextLogo() {
         <option value="inline">悬浮双行</option>
         <option value="card">手机白底卡</option>
         <option value="magazine">杂志编辑</option>
+        <option value="vertical">竖排装裱</option>
       </select>
     </div>
+    <!-- 信息位置锚点：classic / inline 可选贴底或贴顶（报头式）；duo/card/magazine/vertical 有自有几何不响应 -->
+    <div v-if="state.infoLayout === 'classic' || state.infoLayout === 'inline'" class="field">
+      <label>信息位置</label>
+      <select
+        :value="state.overlayAnchor"
+        class="select"
+        @change="patch({ overlayAnchor: ($event.target as HTMLSelectElement).value as 'bottom' | 'top' })"
+      >
+        <option value="bottom">底部留白</option>
+        <option value="top">顶部（报头式）</option>
+      </select>
+    </div>
+    <p v-if="state.infoLayout === 'vertical'" class="mag-hint">
+      竖排布局沿照片左缘自上而下排列（机型 / 参数 / 日期），文字颜色随背景明暗自适应；不支持拖拽定位。
+    </p>
     <!-- INFO 编排工具：组合拖动 + 整体居中 -->
     <div class="field group-tools">
       <label class="show-switch" title="开启后拖拽任一 INFO 元素，全部元素保持相对位置整体移动">

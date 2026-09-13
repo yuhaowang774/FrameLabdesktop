@@ -6,6 +6,7 @@ import { defaultFrameConfig, type FrameConfig } from './types'
 import {
   computeClassicLayout,
   computeFooterLayout,
+  computeVerticalLayout,
   dateTextStyle,
   exifTextStyle,
   lensTextStyle,
@@ -213,5 +214,86 @@ describe('inline 悬浮：日期行独立占位（回归：与 EXIF 参数行同
     const L = computeFooterLayout(c, CANVAS_BOTTOM, 2.6)
     const exifS = exifTextStyle(c)
     expect(L.exif.y + exifS.size).toBeCloseTo(CANVAS_BOTTOM - c.overlayBottom, 6)
+  })
+})
+
+describe('overlayAnchor 顶部锚点（报头式）', () => {
+  it('classic 顶部锚点：阅读序自顶向下堆叠，首行贴 overlayBottom', () => {
+    const c = cfg({ ...INFO_ON, showLogo: true, overlayAnchor: 'top', overlayBottom: 26 })
+    const L = computeClassicLayout(c, CANVAS_BOTTOM)
+    // 阅读序：Logo → 型号 → EXIF(+镜头) → 日期，自顶向下
+    expect(L.logo.y).toBe(26)
+    expect(L.model.y).toBeCloseTo(L.logo.y + c.logoSize + CLASSIC_ROW_GAP, 6)
+    expect(L.exif.y).toBeCloseTo(L.model.y + c.cameraModelSize + CLASSIC_ROW_GAP, 6)
+    expect(L.lens.y).toBeCloseTo(L.exif.y + exifTextStyle(c).size + LENS_LINE_GAP, 6)
+    expect(L.date.y).toBeCloseTo(L.exif.y + exifBlockH(c) + CLASSIC_ROW_GAP, 6)
+    // 与底部锚点互为镜像：同一行序，行间距一致
+    const bottom = computeClassicLayout(cfg({ ...INFO_ON, showLogo: true }), CANVAS_BOTTOM)
+    expect(L.date.y - L.exif.y - exifBlockH(c)).toBeCloseTo(CLASSIC_ROW_GAP, 6)
+    expect(bottom.exif.y + exifBlockH(c)).toBeCloseTo(bottom.date.y - CLASSIC_ROW_GAP, 6)
+  })
+
+  it('classic 顶部锚点：隐藏 Logo 时不占位，型号行直接贴顶', () => {
+    const c = cfg({ ...INFO_ON, showLogo: false, overlayAnchor: 'top', overlayBottom: 20 })
+    const L = computeClassicLayout(c, CANVAS_BOTTOM)
+    expect(L.model.y).toBe(20)
+    expect(L.exif.y).toBeCloseTo(20 + c.cameraModelSize + CLASSIC_ROW_GAP, 6)
+  })
+
+  it('inline 顶部锚点：视觉行序不变（镜头/行1/参数/日期），整块搬到顶缘下方', () => {
+    const c = cfg({ ...INFO_ON, overlayAnchor: 'top', overlayBottom: 30 })
+    const L = computeFooterLayout(c, CANVAS_BOTTOM, 2.6)
+    // 镜头行贴顶（inline 自底向上中镜头行在最上方，镜像后仍居首）
+    expect(L.lens.y).toBe(30)
+    expect(L.logo.y).toBeCloseTo(L.lens.y + lensTextStyle(c).size + 19, 6)
+    expect(L.exif.y).toBeGreaterThan(L.logo.y)
+    expect(L.date.y).toBeGreaterThan(L.exif.y)
+  })
+
+  it('duo 不响应顶部锚点（左右双栏绑定下边留白带，保持贴底）', () => {
+    const bottomCfg = cfg({ ...INFO_ON, infoLayout: 'duo', overlayBottom: 18 })
+    const topCfg = cfg({ ...INFO_ON, infoLayout: 'duo', overlayAnchor: 'top', overlayBottom: 18 })
+    const a = computeFooterLayout(bottomCfg, CANVAS_BOTTOM, 2.6)
+    const b = computeFooterLayout(topCfg, CANVAS_BOTTOM, 2.6)
+    expect(b.exif.y).toBeCloseTo(a.exif.y, 6)
+    expect(b.model.y).toBeCloseTo(a.model.y, 6)
+  })
+
+  it('默认 overlayAnchor=bottom：与历史行为完全一致（回归）', () => {
+    const c = cfg(INFO_ON)
+    const L = computeClassicLayout(c, CANVAS_BOTTOM)
+    // 日期行最底：行盒底边 = canvasBottom - overlayBottom
+    expect(L.date.y + dateTextStyle(c).size).toBeCloseTo(CANVAS_BOTTOM - c.overlayBottom, 6)
+  })
+})
+
+describe('vertical 竖排装裱（风格 C）', () => {
+  it('列自左向右：机型 → 参数 → 镜头 → 日期，列距 = 字号 + 列距常量', () => {
+    const c = cfg({ ...INFO_ON, infoLayout: 'vertical' })
+    const L = computeVerticalLayout(c, CANVAS_BOTTOM)
+    expect(L.model.x).toBe(44) // VERT_SIDE_INSET
+    expect(L.exif.x).toBeCloseTo(44 + c.cameraModelSize + 14, 6)
+    expect(L.lens.x).toBeCloseTo(L.exif.x + exifTextStyle(c).size + 14, 6)
+    expect(L.date.x).toBeCloseTo(L.lens.x + lensTextStyle(c).size + 14, 6)
+    // 各列 y 一致 = 顶部内缩
+    expect(L.model.y).toBe(40)
+    expect(L.exif.y).toBe(40)
+    expect(L.date.y).toBe(40)
+  })
+
+  it('隐藏列不占位：关闭镜头与日期后，参数列直接跟在机型列右侧', () => {
+    const c = cfg({ ...INFO_ON, infoLayout: 'vertical', showLens: false, showDate: false })
+    const L = computeVerticalLayout(c, CANVAS_BOTTOM)
+    expect(L.exif.x).toBeCloseTo(44 + c.cameraModelSize + 14, 6)
+    // 镜头/日期列位置仍赋值（渲染端按开关跳过），x 停留在参数列右侧
+    expect(L.lens.x).toBeCloseTo(L.exif.x + exifTextStyle(c).size + 14, 6)
+    expect(L.date.x).toBe(L.lens.x)
+  })
+
+  it('竖排不受顶部锚点影响（自有几何）', () => {
+    const a = computeVerticalLayout(cfg({ ...INFO_ON, infoLayout: 'vertical' }), CANVAS_BOTTOM)
+    const b = computeVerticalLayout(cfg({ ...INFO_ON, infoLayout: 'vertical', overlayAnchor: 'top' }), CANVAS_BOTTOM)
+    expect(b.model.x).toBe(a.model.x)
+    expect(b.model.y).toBe(a.model.y)
   })
 })

@@ -1,6 +1,6 @@
 // 模板应用：info 缺失回填（二次应用不丢信息）+ 颜色随模板背景自适应
 import { describe, expect, it } from 'vitest'
-import { applyTemplateToState } from './useTemplates'
+import { applyTemplateToState, useTemplates, sanitizeTemplateConfig } from './useTemplates'
 import { useFrameConfig } from './useFrameConfig'
 
 const RAW = {
@@ -107,5 +107,125 @@ describe('applyTemplateToState 层显示开关保留', () => {
     expect(state.showBackground).toBe(true)
     expect(state.showBorder).toBe(true)
     expect(state.showInfo).toBe(true)
+  })
+})
+
+describe('内置模板清单结构校验', () => {
+  it('40 套内置模板：id 唯一、名称非空、config 经 sanitize 无损往返', () => {
+    const { templates, toTemplateConfig } = useTemplates()
+    const builtin = templates.filter((t) => t.builtin)
+    expect(builtin.length).toBe(40)
+    const ids = new Set(builtin.map((t) => t.id))
+    expect(ids.size).toBe(40)
+    for (const t of builtin) {
+      expect(t.name.trim().length).toBeGreaterThan(0)
+      expect(t.category).toBe('frame')
+      // 每个键都必须是 defaultFrameConfig 已知字段且类型一致（sanitize 不会丢字段）
+      const out = sanitizeTemplateConfig(t.config)
+      expect(Object.keys(out).length, `${t.id} 存在非法字段被 sanitize 丢弃`).toBe(Object.keys(t.config).length)
+      void toTemplateConfig
+    }
+  })
+
+  it('效果字段不用时显式归零：非颗粒/水印模板不带残留效果', () => {
+    const { templates } = useTemplates()
+    for (const t of templates.filter((x) => x.builtin)) {
+      const usesGrain = t.id === 'm_kodak_years' || t.id === 'm_polaroid' || t.id === 'm_darkroom_contact' || t.id === 'm_ccd_flash'
+      const usesVignette = usesGrain || t.id === 'm_edge_vertical' || t.id === 'm_finder_cross' || t.id === 'm_credit_block'
+      const usesWatermark = t.id === 'm_darkroom_contact' || t.id === 'm_watermark_tile' || t.id === 'm_watermark_corner'
+      if (!usesGrain) expect(t.config.grain ?? 0, t.id).toBe(0)
+      if (!usesVignette) expect(t.config.vignette ?? 0, t.id).toBe(0)
+      if (!usesWatermark) expect(t.config.showWatermark ?? false, t.id).toBe(false)
+    }
+  })
+})
+
+describe('sanitizeTemplateConfig 可空字段保留（回归 2026-09-12）', () => {
+  it('默认值为 null 的字段显式赋具体值时不得丢弃（日期样式/独立字体/标块配色/拖拽坐标）', () => {
+    const out = sanitizeTemplateConfig({
+      dateFontSize: 18,
+      dateTextWeight: 400,
+      dateTextOpacity: 0.75,
+      exifFontFamily: 'Consolas, monospace',
+      dateFontFamily: 'Georgia, serif',
+      cameraModelColor: '#E8E6E1',
+      cardBadgeBg: '#C9A96A',
+      logoX: 120,
+      // 非法值仍要拦截：NaN 数字与对象类型不进入
+    })
+    expect(out.dateFontSize).toBe(18)
+    expect(out.dateTextWeight).toBe(400)
+    expect(out.dateTextOpacity).toBe(0.75)
+    expect(out.exifFontFamily).toBe('Consolas, monospace')
+    expect(out.dateFontFamily).toBe('Georgia, serif')
+    expect(out.cameraModelColor).toBe('#E8E6E1')
+    expect(out.cardBadgeBg).toBe('#C9A96A')
+    expect(out.logoX).toBe(120)
+    const bad = sanitizeTemplateConfig({ dateFontSize: Number.NaN, exifFontFamily: 42 as unknown as string })
+    expect(bad.dateFontSize).toBeUndefined()
+    expect(bad.exifFontFamily).toBeUndefined()
+  })
+
+  it('null 赋给可空字段仍保留（回到跟随整体样式语义）', () => {
+    const out = sanitizeTemplateConfig({ dateFontSize: null, exifFontFamily: null, frameRatio: null })
+    expect(out.dateFontSize).toBeNull()
+    expect(out.exifFontFamily).toBeNull()
+    expect(out.frameRatio).toBeNull()
+  })
+})
+
+describe('模板包（frame-template-pack）导入导出', () => {
+  it('导出全部自定义模板为包 JSON，再导入回来数量一致', () => {
+    const { templates, saveCurrent, clearCustom, exportPack, importJson } = useTemplates()
+    clearCustom()
+    const { state, loadConfig } = useFrameConfig()
+    loadConfig({ bgMode: 'solid', bgColor: '#ffffff' })
+    saveCurrent('我的黑白', state)
+    saveCurrent('我的悬浮', { ...state, bgMode: 'blur' })
+    expect(templates.filter((t) => !t.builtin).length).toBe(2)
+
+    const pack = exportPack()
+    expect(JSON.parse(pack).kind).toBe('frame-template-pack')
+    clearCustom()
+    expect(templates.filter((t) => !t.builtin).length).toBe(0)
+
+    const res = importJson(pack)
+    expect(res.ok).toBe(true)
+    expect(res.count).toBe(2)
+    expect(templates.filter((t) => !t.builtin).map((t) => t.name).sort()).toEqual(['我的悬浮 (导入)', '我的黑白 (导入)'])
+    clearCustom()
+  })
+
+  it('单模板 JSON 与模板包 JSON 共用 importJson 自动分流', () => {
+    const { templates, clearCustom, exportPack, importJson, exportJson } = useTemplates()
+    clearCustom()
+    // 非法包：空数组 → 失败
+    expect(importJson(JSON.stringify({ kind: 'frame-template-pack', version: 1, templates: [] })).ok).toBe(false)
+    // 模板包内含非法条目：跳过非法，导入合法
+    const pack = JSON.parse(exportPack())
+    void pack
+    const mixed = {
+      kind: 'frame-template-pack',
+      version: 1,
+      templates: [
+        { name: '合法模板', category: 'frame', config: { bgMode: 'solid', bgColor: '#ffffff' } },
+        { name: '', config: {} },
+        { config: {} },
+      ],
+    }
+    const res = importJson(JSON.stringify(mixed))
+    expect(res.ok).toBe(true)
+    expect(res.count).toBe(1)
+    // 单模板 JSON 照常导入
+    const { saveCurrent } = useTemplates()
+    void saveCurrent
+    clearCustom()
+    const { state } = useFrameConfig()
+    saveCurrent('单个', state)
+    const single = exportJson(templates.find((t) => !t.builtin)!.id)
+    clearCustom()
+    expect(importJson(single).ok).toBe(true)
+    expect(templates.filter((t) => !t.builtin).length).toBe(1)
+    clearCustom()
   })
 })

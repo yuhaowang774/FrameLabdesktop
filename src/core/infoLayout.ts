@@ -131,7 +131,13 @@ export function computeFooterLayout(
   const showDate = cfg.showDate && !!cfg.dateText
   const showExif = cfg.showExif && !!cfg.exifText
   const hasLens = cfg.showLens && !!cfg.lensText
-  const bottom = canvasBottom - cfg.overlayBottom
+  // 纵向锚点：bottom = 自底向上量（默认）；top = 自顶向下量（报头式）。
+  // duo 分支不响应 top（左右双栏与分隔竖线几何绑定下边留白带，翻转语义不明），
+  // 仅 inline 分支持持顶部锚点——行序镜像后自顶向下堆叠。
+  const bottom = cfg.overlayAnchor === 'top' && cfg.infoLayout !== 'duo'
+    ? cfg.overlayBottom
+    : canvasBottom - cfg.overlayBottom
+  const topDown = cfg.overlayAnchor === 'top' && cfg.infoLayout !== 'duo'
   const logoW = cfg.logoSize * logoRatio
 
   // ===== 杂志双栏（duo）：左=镜头(粗)+机型(灰细) / 中=Logo / 右栏=参数(粗)+日期(灰细)，右栏右缘对齐照片右缘 =====
@@ -178,10 +184,6 @@ export function computeFooterLayout(
   // ===== 悬浮居中双行（inline）：行1 = Logo + 机型 内联居中；行2 = 参数 居中；日期 = 参数下方独立居中行 =====
   // 自底向上：日期（开启时贴底）→ 行2 参数 → 行1（Logo+机型）/ 镜头行。
   // 回归修复：此前日期 y 与 EXIF 参数行相同（两者同开时完全重叠），改为独立占位行。
-  let cursor = bottom
-  const dateY = showDate ? cursor - dateS.size : bottom
-  if (showDate) cursor -= dateS.size + INLINE_ROW_GAP
-  const exifY = cursor - exifH
   // 审查报告 R10：测宽必须与绘制同源（营销名映射），否则 inline 居中行偏移、右对齐宽度失真。
   // 机型字标启用且已就绪（modelMarkRatio 非空）时按字标实际宽高比测宽，行1 居中与字标渲染一致
   const modelW =
@@ -193,14 +195,36 @@ export function computeFooterLayout(
   // 行1 仅保留机型居中；相机品牌的图形 Logo 正常内联。
   const showLogoInline = cfg.showLogo && !phoneBrandOf(cfg.brand)
   const row1H = Math.max(showLogoInline ? cfg.logoSize : 0, showModel ? modelH : 0)
-  const row1Y = exifY - INLINE_ROW_GAP - row1H
   const groupW = showLogoInline
     ? (showModel ? logoW + INLINE_LOGO_GAP + modelW : logoW)
     : modelW
   const logoX = center - groupW / 2
-  // 镜头行：行1（Logo+机型）上方的独立居中行（showLens 开启时占位，避免与机型行重叠）
+  // 镜头行：行1（Logo+机型）的相邻独立居中行（showLens 开启时占位，避免与机型行重叠）
   const hasLensRow = cfg.showLens && !!cfg.lensText
-  const lensY = hasLensRow ? row1Y - INLINE_ROW_GAP - lensS.size : row1Y
+
+  let exifY: number
+  let row1Y: number
+  let lensY: number
+  let dateY: number
+  if (topDown) {
+    // 顶部锚点（报头式）：视觉行序不变（镜头行 → 行1(Logo+机型) → 参数 → 日期），
+    // 整块搬到顶缘下方自顶向下堆叠（bottom 已换算为 overlayBottom 自顶 y）
+    let cursor = bottom
+    lensY = cursor
+    if (hasLensRow) cursor += lensS.size + INLINE_ROW_GAP
+    row1Y = cursor
+    cursor += row1H + INLINE_ROW_GAP
+    exifY = cursor
+    if (showExif) cursor += exifH + INLINE_ROW_GAP
+    dateY = cursor
+  } else {
+    let cursor = bottom
+    dateY = showDate ? cursor - dateS.size : bottom
+    if (showDate) cursor -= dateS.size + INLINE_ROW_GAP
+    exifY = cursor - exifH
+    row1Y = exifY - INLINE_ROW_GAP - row1H
+    lensY = hasLensRow ? row1Y - INLINE_ROW_GAP - lensS.size : row1Y
+  }
   return {
     exif: { x: center - measureTextWidth(cfg.exifText, toCanvasFont(exifS)) / 2, y: exifY },
     // 日期行独立居中（测宽居中，与 EXIF 行同规则）
@@ -248,6 +272,24 @@ export function computeClassicLayout(cfg: FrameConfig, canvasBottom: number): Fo
   // 修复：此前镜头行嵌在 EXIF 块内，参数行关闭时镜头行随容器一起消失（画布上不显示）。
   const lensInBlock = hasLens && showExif
   const exifBlockH = lensInBlock ? exifS.size + LENS_LINE_GAP + lensS.size : exifS.size
+  // 顶部锚点（报头式）：阅读序（Logo → 型号 → 参数(+镜头) → 独立镜头行 → 日期）自顶向下堆叠，
+  // 与底部锚点互为镜像——同一行序、锚点边互换。首行 Logo 按 showLogo 占位推进
+  // （底部锚点里 Logo 是末行无需推进；顶部锚点是首行，隐藏时也必须跳过其位）。
+  if (cfg.overlayAnchor === 'top') {
+    let cursor = cfg.overlayBottom
+    const logo = { x: rowX(), y: cursor }
+    if (cfg.showLogo) cursor += cfg.logoSize + CLASSIC_ROW_GAP
+    const model = { x: rowX(), y: cursor }
+    if (showModel) cursor += modelS.size + CLASSIC_ROW_GAP
+    const exif = { x: rowX(), y: cursor }
+    const lens = lensInBlock
+      ? { x: exif.x, y: exif.y + exifS.size + LENS_LINE_GAP }
+      : { x: rowX(), y: cursor }
+    if (showExif) cursor += exifBlockH + CLASSIC_ROW_GAP
+    if (hasLens && !showExif) cursor += lensS.size + CLASSIC_ROW_GAP
+    const date = { x: rowX(), y: cursor }
+    return { exif, date, model, lens, logo, divider: null }
+  }
   const bottomEdge = canvasBottom - cfg.overlayBottom
   // 自底向上：日期 → EXIF(+镜头) / 镜头独立行 → 型号 → Logo，未开启/无内容的行不占位
   let cursor = bottomEdge
@@ -484,4 +526,43 @@ export function computeMagazineLayout(cfg: FrameConfig, canvasBottom: number): M
     model,
     exif,
   }
+}
+
+// ===== vertical（竖排装裱，风格 C）：文字旋转 90° 沿照片左缘竖排 =====
+// 对标徕卡/画廊签名款：文字列贴照片左缘自上而下阅读（旋转 90° 顺时针），
+// 列自左向右 = 机型 → 参数 → 镜头 → 日期。整块压在照片上（不做边框带内嵌——
+// padding 是四边等宽，带内锚定会因窄边框出界），文字颜色沿用明暗自适应 + 投影。
+// 品牌 Logo 不参与竖排（横版字标旋转后观感差，画廊签名款本就无 Logo）；
+// 机型字标同理禁用（矢量字标无旋转排版），一律文字渲染。
+export const VERT_SIDE_INSET = 44 // 首列距内容区左缘（设计 px）
+export const VERT_TOP_INSET = 40 // 文字起点距内容区顶缘（设计 px）
+export const VERT_COL_GAP = 14 // 列间距（设计 px，即相邻列字号行盒之间的空隙）
+
+/**
+ * 计算 vertical 竖排布局的默认排版（内容区坐标，预览与导出同源）。
+ * 复用 FooterLayout 承载：各元素 {x, y} = 该列旋转后文字起点的「列左缘 / 顶缘」，
+ * 列厚度 = 该组生效字号（旋转后行盒宽度），文字长度即向下延伸量（渲染端旋转绘制）。
+ * 已知限制：超长参数行可能超出照片下缘（竖排文字长度不受画布约束），靠用户关闭字段缓解。
+ * @param cfg 相框配置
+ * @param canvasBottom 画布底缘（内容区坐标系 y 值；当前竖排几何未用到，保留与其它布局同参签名）
+ */
+export function computeVerticalLayout(cfg: FrameConfig, canvasBottom: number): FooterLayout {
+  void canvasBottom
+  const exifS = exifTextStyle(cfg)
+  const lensS = lensTextStyle(cfg)
+  const modelS = modelTextStyle(cfg)
+  const hasLens = cfg.showLens && !!cfg.lensText
+  const showExif = cfg.showExif && !!cfg.exifText
+  const showModel = cfg.showCameraModel && !!cfg.cameraModel
+  const topY = VERT_TOP_INSET
+  // 列自左向右推进：列宽 = 该列生效字号 + 列距；隐藏列不占位（位置仍赋值，渲染端按开关跳过）
+  let x = VERT_SIDE_INSET
+  const model = { x, y: topY }
+  if (showModel) x += modelS.size + VERT_COL_GAP
+  const exif = { x, y: topY }
+  if (showExif) x += exifS.size + VERT_COL_GAP
+  const lens = { x, y: topY }
+  if (hasLens) x += lensS.size + VERT_COL_GAP
+  const date = { x, y: topY }
+  return { exif, date, model, lens, logo: { x, y: topY }, divider: null }
 }

@@ -14,6 +14,7 @@ import {
   computeClassicLayout,
   computeCardLayout,
   computeMagazineLayout,
+  computeVerticalLayout,
   cardThemeColors,
   cardBadgeColors,
   exifTextStyle,
@@ -259,6 +260,71 @@ function drawMagazineFooter(
   }
 }
 
+/** vertical 竖排装裱绘制（infoLayout='vertical'）：文字旋转 90° 沿照片左缘自上而下竖排。
+ *  列几何与 computeVerticalLayout 同源；文字用 rotate(90°) 绘制——本地 +x（行进方向）映射到
+ *  屏幕 +y（向下），textBaseline='top' 的字形主体（本地 +y）映射到屏幕 -x（向左），
+ *  故在本地 (0, -lineHeight) 处绘制，使字形列恰好占据 [x, x + lineHeight] 的列宽。 */
+function drawVerticalFooter(
+  ctx: CanvasRenderingContext2D,
+  config: FrameConfig,
+  unitScale: number,
+  contentOX: number,
+  canvasHpx: number,
+): void {
+  const ox = contentOX * unitScale
+  const s = unitScale
+  const canvasBottomY = canvasHpx / unitScale - config.padding - config.bgExpand
+  const L = computeVerticalLayout(config, canvasBottomY)
+  const themeColor = config.bgMode === 'solid' && hexLuminance(config.bgColor) > 0.6 ? 0 : 255
+  const paint = (custom: string | null, opacity: number): string =>
+    hexToRgba(custom, opacity) ?? `rgba(${themeColor},${themeColor},${themeColor},${opacity})`
+
+  const drawCol = (
+    r: { x: number; y: number },
+    text: string,
+    size: number,
+    color: string | null,
+    opacity: number,
+    weight: number,
+    font: string,
+    italic = false,
+  ): void => {
+    if (!text) return
+    ctx.save()
+    ctx.translate(ox + r.x * s, ox + r.y * s)
+    ctx.rotate(Math.PI / 2)
+    ctx.fillStyle = paint(color, opacity)
+    ctx.font = fontStr(weight, size * s, font, italic)
+    ctx.textAlign = 'left'
+    ctx.textBaseline = 'top'
+    if (config.bgMode !== 'solid') {
+      // 深色背景（模糊/照片填充）下文字加柔和投影（与其他布局一致）
+      ctx.shadowColor = 'rgba(0, 0, 0, 0.5)'
+      ctx.shadowBlur = 4 * unitScale
+      ctx.shadowOffsetY = 1 * unitScale
+    }
+    ctx.fillText(text, 0, -size * s)
+    ctx.restore()
+  }
+
+  const exifS = exifTextStyle(config)
+  const lensS = lensTextStyle(config)
+  const dateS = dateTextStyle(config)
+  const modelS = modelTextStyle(config)
+  if (config.showCameraModel && config.cameraModel) {
+    drawCol(L.model, modelAlias(config.cameraModel), modelS.size, config.cameraModelColor, config.cameraModelOpacity, config.cameraModelWeight, config.cameraModelFont, config.cameraModelItalic)
+  }
+  if (config.showExif && config.exifText) {
+    drawCol(L.exif, config.exifText, exifS.size, config.exifTextColor, exifS.opacity, exifS.weight, exifS.font)
+  }
+  if (config.showLens && config.lensText) {
+    drawCol(L.lens, config.lensText, lensS.size, config.lensTextColor, lensS.opacity, lensS.weight, lensS.font)
+  }
+  if (config.showDate && config.dateText) {
+    drawCol(L.date, config.dateText, dateS.size, config.dateTextColor, dateS.opacity, dateS.weight, dateS.font)
+  }
+}
+
 async function drawFooter(
   ctx: CanvasRenderingContext2D,
   config: FrameConfig,
@@ -271,6 +337,11 @@ async function drawFooter(
   // card 白底水印卡：独立绘制路径（左右列 + 标块，配色随 infoCardTheme）
   if (config.infoLayout === 'card') {
     drawCardFooter(ctx, config, unitScale, contentOX, canvasHpx)
+    return
+  }
+  // vertical 竖排装裱：文字旋转 90° 沿照片左缘竖排（独立绘制路径）
+  if (config.infoLayout === 'vertical') {
+    drawVerticalFooter(ctx, config, unitScale, contentOX, canvasHpx)
     return
   }
   // magazine 杂志编辑：顶部标题区 + 取色色卡 + 右侧信息块

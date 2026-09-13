@@ -3,7 +3,7 @@ import { describe, it, expect, beforeAll } from 'vitest'
 import { templateThumbSvg, templateThumbDataUrl, buildDemoConfig } from './templateThumb'
 import { useTemplates } from '../composables/useTemplates'
 import { computeClassicLayout, CLASSIC_ROW_GAP, LENS_LINE_GAP } from './infoLayout'
-import { defaultFrameConfig } from './types'
+import { defaultFrameConfig, type FrameConfig } from './types'
 
 beforeAll(() => {
   // jsdom 未实现 canvas：主动返回 null，避免 "Not implemented" 噪音；
@@ -87,10 +87,10 @@ describe('templateThumb dataURL', () => {
 })
 
 describe('内置模板清单', () => {
-  it('相框库内置模板：两张用户样例复刻 + 水印审美样张风格', () => {
+  it('初代 10 套模板名与顺序保持不变（用户样例复刻 + 水印审美样张风格）', () => {
     const { templates } = useTemplates()
     const builtin = templates.filter((t) => t.builtin).map((t) => t.name)
-    expect(builtin).toEqual([
+    expect(builtin.slice(0, 10)).toEqual([
       '白框参数卡',
       '圆角悬浮·模糊延展',
       '白卡装裱·衬线字标',
@@ -102,6 +102,41 @@ describe('内置模板清单', () => {
       '复古CCD·日期戳',
       '杂志编辑·标题色卡',
     ])
+  })
+
+  it('扩充批模板全部就位（共 40 套）且每套带分组标签', () => {
+    const { templates } = useTemplates()
+    const builtin = templates.filter((t) => t.builtin)
+    expect(builtin.length).toBe(40)
+    for (const t of builtin) {
+      expect(t.group, `${t.id} 缺少分组`).toBeTruthy()
+      expect(t.desc, `${t.id} 缺少一句话说明`).toBeTruthy()
+    }
+    // 分组 chips 覆盖：全部归入 9 个设计语言组之一
+    const groups = new Set(builtin.map((t) => t.group))
+    for (const g of ['经典', '极简轻量', '杂志编辑', '胶片复古', '暗调影廊', '联名卡', '社交尺寸', '水印署名', '创意排版']) {
+      expect(groups.has(g), `分组「${g}」没有模板`).toBe(true)
+    }
+  })
+
+  it('新布局/效果能力均有模板承载（card 布局 / 竖排 / 顶部锚点 / 颗粒暗角 / 水印 / 画幅比例）', () => {
+    const { templates } = useTemplates()
+    const builtin = templates.filter((t) => t.builtin).map((t) => t.config)
+    const has = (pred: (c: Partial<FrameConfig>) => boolean) => builtin.some(pred)
+    expect(has((c) => c.infoLayout === 'card')).toBe(true)
+    expect(has((c) => c.infoLayout === 'vertical')).toBe(true)
+    expect(has((c) => c.overlayAnchor === 'top')).toBe(true)
+    expect(has((c) => (c.grain ?? 0) > 0)).toBe(true)
+    expect(has((c) => (c.vignette ?? 0) > 0)).toBe(true)
+    expect(has((c) => c.showWatermark === true)).toBe(true)
+    expect(has((c) => c.frameRatio != null && c.frameRatio !== 1)).toBe(true)
+    expect(has((c) => (c.borderRadius ?? 0) > 0)).toBe(true)
+    // infoLayer 自由元素模板（阶段二创意款）
+    expect(has((c) => (c.infoLayer?.elements.length ?? 0) > 0)).toBe(true)
+    // 轻量无信息款（全部显示开关关闭）
+    expect(
+      has((c) => !c.showLogo && !c.showCameraModel && !c.showExif && !c.showLens && !c.showDate),
+    ).toBe(true)
   })
 })
 

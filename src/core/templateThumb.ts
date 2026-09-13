@@ -7,8 +7,8 @@
 // 因此缩略图的留白比例、圆角、信息区排布与真实成片一致，仅把照片替换为示意渐变。
 import type { FrameConfig } from './types'
 import { defaultFrameConfig } from './types'
-import { DESIGN_CONTAINER } from './constants'
-import { computeFooterLayout, computeMagazineLayout, magazineTitleFontSize, measureTextWidth, MAG_SUB_SIZE, MAG_SWATCH_COUNT, MAG_SWATCH_W, MAG_SWATCH_H, CLASSIC_SIDE_INSET, CLASSIC_ROW_GAP, LENS_LINE_GAP } from './infoLayout'
+import { DESIGN_CONTAINER, phoneBrandOf } from './constants'
+import { computeFooterLayout, computeMagazineLayout, computeCardLayout, computeVerticalLayout, magazineTitleFontSize, measureTextWidth, cardThemeColors, cardBadgeColors, CARD_RADIUS, CARD_BADGE_FONT_SIZE, MAG_SUB_SIZE, MAG_SWATCH_COUNT, MAG_SWATCH_W, MAG_SWATCH_H, CLASSIC_SIDE_INSET, CLASSIC_ROW_GAP, LENS_LINE_GAP } from './infoLayout'
 import { footerTextColor, logoAutoColor, hexLuminance } from './colorUtils'
 import { exportFrame } from './exporter'
 import type { ImgSource } from './bgRenderer'
@@ -154,6 +154,47 @@ export function templateThumbSvg(config: Partial<FrameConfig>, opts: ThumbOption
     }
     if (c.showCameraModel) info += bar(layout.model.x - modelW, layout.model.y, c.cameraModelSize, modelW, c.cameraModelOpacity, text)
     if (c.showExif) info += bar(layout.exif.x - exifW, layout.exif.y, c.fontSize, exifW, c.textOpacity * 0.6, text)
+  } else if (c.infoLayout === 'card') {
+    // card：直接复用预览与导出共用的 computeCardLayout（卡片底 + 左右列墨条 + 联名标块）
+    const layout = computeCardLayout(
+      { ...c, exifText: DEMO.exif, dateText: DEMO.date, cameraModel: DEMO.model, lensText: DEMO.lens },
+      canvasH - pad - bgExpand,
+    )
+    const theme = cardThemeColors(c.infoCardTheme)
+    info += `<rect x="${r2(layout.card.x)}" y="${r2(layout.card.y)}" width="${r2(layout.card.w)}" height="${r2(layout.card.h)}" rx="${r2(CARD_RADIUS)}" fill="${theme.card}"/>`
+    if (c.showCameraModel) info += bar(layout.model.x, layout.model.y, layout.model.h, layout.model.w, 0.95, theme.primary)
+    if (layout.date) info += bar(layout.date.x, layout.date.y, layout.date.h, layout.date.w, 0.55, theme.secondary)
+    if (c.showExif) info += bar(layout.exif.x, layout.exif.y, layout.exif.h, layout.exif.w, 0.95, theme.primary)
+    if (layout.lens) info += bar(layout.lens.x, layout.lens.y, layout.lens.h, layout.lens.w, 0.55, theme.secondary)
+    if (layout.badge) {
+      const phone = phoneBrandOf(c.brand)
+      if (phone?.badge.text) {
+        const colors = cardBadgeColors(c.cardBadgeBg, c.cardBadgeFg, c.brand)
+        info += `<rect x="${r2(layout.badge.x)}" y="${r2(layout.badge.y)}" width="${r2(layout.badge.w)}" height="${r2(layout.badge.h)}" rx="${r2(4)}" fill="${colors.bg}"/>`
+        // 标块文字示意条（居中短条，真实宽度随联名文字变化）
+        info += bar(
+          layout.badge.x + layout.badge.w * 0.18,
+          layout.badge.y + layout.badge.h / 2 - CARD_BADGE_FONT_SIZE / 2,
+          CARD_BADGE_FONT_SIZE,
+          layout.badge.w * 0.64,
+          0.95,
+          colors.fg,
+        )
+      }
+    }
+  } else if (c.infoLayout === 'vertical') {
+    // vertical：复用 computeVerticalLayout 共享计算；文字旋转 90° 后为竖直墨条
+    //（列 x = 列左缘，厚度 = 生效字号 × INK_RATIO，长度 = 示意文本宽）
+    const layout = computeVerticalLayout(
+      { ...c, exifText: DEMO.exif, dateText: DEMO.date, cameraModel: DEMO.model, lensText: DEMO.lens },
+      canvasH - pad - bgExpand,
+    )
+    const vbar = (x: number, y: number, size: number, len: number, opacity: number) =>
+      `<rect x="${r2(x)}" y="${r2(y)}" width="${r2(size * INK_RATIO)}" height="${r2(Math.max(1, len))}" rx="${r2((size * INK_RATIO) / 2)}" fill="${text}" opacity="${r2(opacity)}"/>`
+    if (c.showCameraModel) info += vbar(layout.model.x, layout.model.y, c.cameraModelSize, modelW, c.cameraModelOpacity)
+    if (c.showExif) info += vbar(layout.exif.x, layout.exif.y, c.fontSize, exifW, c.textOpacity)
+    if (c.showLens && c.lensText) info += vbar(layout.lens.x, layout.lens.y, c.fontSize, lensW, c.textOpacity)
+    if (c.showDate) info += vbar(layout.date.x, layout.date.y, c.dateFontSize ?? c.fontSize, dateW, c.dateTextOpacity ?? c.textOpacity)
   } else {
     // classic：与 computeClassicLayout 完全同构——自底向上 日期 → EXIF 块(含镜头行) → 型号 → Logo，
     // 只为显示行占位，行距 CLASSIC_ROW_GAP，镜头行以 LENS_LINE_GAP 附在参数行下；水平对齐跟随 overlayAlign
@@ -192,10 +233,20 @@ export function templateThumbSvg(config: Partial<FrameConfig>, opts: ThumbOption
           `<rect x="${r2(alignX(logoW))}" y="${r2(y)}" width="${r2(logoW)}" height="${r2(c.logoSize)}" rx="${r2(c.logoSize * 0.12)}" fill="${logoFill}" opacity="${r2(c.logoOpacity)}"/>`,
       })
     }
-    let y = bottom
-    for (let i = 0; i < rows.length; i++) {
-      info += rows[i].draw(y - rows[i].h)
-      y -= rows[i].h + CLASSIC_ROW_GAP
+    // 底部锚点：自底向上堆叠（rows 为自底向上顺序）；顶部锚点：阅读序（rows 逆序）自顶向下堆叠，
+    // 与 computeClassicLayout 的顶部锚点镜像规则一致
+    if (c.overlayAnchor === 'top') {
+      let y = c.overlayBottom
+      for (let i = rows.length - 1; i >= 0; i--) {
+        info += rows[i].draw(y)
+        y += rows[i].h + CLASSIC_ROW_GAP
+      }
+    } else {
+      let y = bottom
+      for (let i = 0; i < rows.length; i++) {
+        info += rows[i].draw(y - rows[i].h)
+        y -= rows[i].h + CLASSIC_ROW_GAP
+      }
     }
   }
 

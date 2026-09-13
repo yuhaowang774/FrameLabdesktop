@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="zh">
+<head>
+  <meta charset="utf-8" />
+  <title>模板库验收预览（dev）</title>
+  <style>
+    body { background: #f4f2ee; font: 14px/1.5 'Segoe UI', 'Microsoft YaHei', sans-serif; padding: 20px 24px; color: #333; margin: 0; }
+    h1 { font-size: 18px; margin: 0 0 4px; }
+    .tip { color: #888; font-size: 12px; margin-bottom: 14px; }
+    h2 { font-size: 13px; color: #666; margin: 18px 0 8px; position: sticky; top: 0; background: #f4f2ee; padding: 4px 0; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 12px; }
+    .card { background: #fff; border: 1px solid #e2ddd4; padding: 6px; }
+    .card img { display: block; width: 100%; height: auto; }
+    .card .meta { display: flex; justify-content: space-between; gap: 6px; margin-top: 4px; }
+    .card .name { font-size: 12px; color: #333; }
+    .card .group { font-size: 10px; color: #999; white-space: nowrap; }
+    #status { font-size: 12px; color: #b00020; white-space: pre-wrap; }
+  </style>
+</head>
+<body>
+  <h1>模板库验收预览（dev 页：npm run dev 后访问 /verify-templates.html）</h1>
+  <div class="tip">
+    全部内置模板 × 4 类验收样张（横版风光 / 竖版人像 / 暗调夜景 / 高调雪景）真实合成。
+    渲染路径与模板库缩略图同一（renderTemplateThumbDataUrl）：检查每套模板的边框几何、INFO 排版、
+    明暗自适应、颗粒/暗角/水印效果与竖排/报头/自由元素等新能力在四类照片上是否成立。
+  </div>
+  <div id="status">渲染中…</div>
+  <div id="root"></div>
+  <script type="module">
+    import { useTemplates } from '/src/composables/useTemplates.ts'
+    import { renderTemplateThumbDataUrl } from '/src/core/templateThumb.ts'
+
+    const INFO = {
+      exifText: '24mm f/1.8 1/500s ISO100',
+      dateText: '2026/08/30',
+      cameraModel: 'α7R V',
+      lensText: 'FE 24mm F1.4 GM',
+      brand: 'sony',
+    }
+
+    // 程序化生成 4 类验收样张（内容区特征明确：地平线 / 人像肤色 / 夜景暗部 / 雪景高光）
+    function makeSample(w, h, paint) {
+      const c = document.createElement('canvas')
+      c.width = w
+      c.height = h
+      const ctx = c.getContext('2d')
+      paint(ctx, w, h)
+      return c.toDataURL('image/jpeg', 0.85)
+    }
+    const SAMPLES = [
+      {
+        name: '横版风光（3:2）',
+        data: makeSample(1500, 1000, (ctx, w, h) => {
+          const sky = ctx.createLinearGradient(0, 0, 0, h * 0.62)
+          sky.addColorStop(0, '#7ba2c8'); sky.addColorStop(1, '#d8c9a8')
+          ctx.fillStyle = sky; ctx.fillRect(0, 0, w, h * 0.62)
+          ctx.fillStyle = '#4d5c46'; ctx.fillRect(0, h * 0.62, w, h * 0.38)
+          ctx.fillStyle = '#3a4736'
+          ctx.beginPath(); ctx.moveTo(0, h * 0.62); ctx.lineTo(w * 0.32, h * 0.4); ctx.lineTo(w * 0.58, h * 0.62); ctx.closePath(); ctx.fill()
+        }),
+      },
+      {
+        name: '竖版人像（2:3）',
+        data: makeSample(1000, 1500, (ctx, w, h) => {
+          const bg = ctx.createLinearGradient(0, 0, 0, h)
+          bg.addColorStop(0, '#c8b8a4'); bg.addColorStop(1, '#8a7a66')
+          ctx.fillStyle = bg; ctx.fillRect(0, 0, w, h)
+          ctx.fillStyle = '#b98d72'
+          ctx.beginPath(); ctx.ellipse(w / 2, h * 0.42, w * 0.2, h * 0.17, 0, 0, Math.PI * 2); ctx.fill()
+          ctx.fillStyle = '#5a5148'
+          ctx.beginPath(); ctx.ellipse(w / 2, h * 0.72, w * 0.3, h * 0.22, 0, Math.PI, 0); ctx.fill()
+        }),
+      },
+      {
+        name: '暗调夜景（3:2）',
+        data: makeSample(1500, 1000, (ctx, w, h) => {
+          const bg = ctx.createLinearGradient(0, 0, 0, h)
+          bg.addColorStop(0, '#0d1622'); bg.addColorStop(0.7, '#16283a'); bg.addColorStop(1, '#0a0f16')
+          ctx.fillStyle = bg; ctx.fillRect(0, 0, w, h)
+          ctx.fillStyle = '#f2d98c'
+          for (let i = 0; i < 60; i++) {
+            ctx.globalAlpha = 0.3 + Math.random() * 0.7
+            ctx.fillRect(Math.random() * w, Math.random() * h * 0.5, 2.5, 2.5)
+          }
+          ctx.globalAlpha = 1
+          ctx.fillStyle = '#1c2a38'; ctx.fillRect(0, h * 0.55, w, h * 0.45)
+          ctx.fillStyle = '#e8b04a'; ctx.fillRect(w * 0.2, h * 0.6, 8, 60); ctx.fillRect(w * 0.62, h * 0.64, 8, 80)
+        }),
+      },
+      {
+        name: '高调雪景（3:2）',
+        data: makeSample(1500, 1000, (ctx, w, h) => {
+          const bg = ctx.createLinearGradient(0, 0, 0, h)
+          bg.addColorStop(0, '#eef2f6'); bg.addColorStop(1, '#d4dde6')
+          ctx.fillStyle = bg; ctx.fillRect(0, 0, w, h)
+          ctx.fillStyle = '#f8fbfd'; ctx.fillRect(0, h * 0.6, w, h * 0.4)
+          ctx.fillStyle = '#c3ced8'
+          ctx.beginPath(); ctx.moveTo(0, h * 0.6); ctx.lineTo(w * 0.4, h * 0.45); ctx.lineTo(w, h * 0.62); ctx.closePath(); ctx.fill()
+        }),
+      },
+    ]
+
+    const root = document.getElementById('root')
+    const status = document.getElementById('status')
+    const { templates } = useTemplates()
+    const builtin = templates.filter((t) => t.builtin)
+
+    async function renderAll() {
+      for (const sample of SAMPLES) {
+        const h2 = document.createElement('h2')
+        h2.textContent = `${sample.name} — ${builtin.length} 套`
+        root.appendChild(h2)
+        const grid = document.createElement('div')
+        grid.className = 'grid'
+        root.appendChild(grid)
+        const cards = builtin.map((t) => {
+          const card = document.createElement('div')
+          card.className = 'card'
+          const img = document.createElement('img')
+          img.alt = t.name
+          const meta = document.createElement('div')
+          meta.className = 'meta'
+          const name = document.createElement('span')
+          name.className = 'name'
+          name.textContent = t.name
+          const group = document.createElement('span')
+          group.className = 'group'
+          group.textContent = t.group ?? ''
+          meta.append(name, group)
+          card.append(img, meta)
+          grid.appendChild(card)
+          return { t, img }
+        })
+        // 分批渲染，避免 160 张同时解码阻塞主线程
+        for (const { t, img } of cards) {
+          try {
+            img.src = await renderTemplateThumbDataUrl(t.config, sample.data, 720, INFO)
+          } catch (err) {
+            status.textContent += `\n${t.name} @ ${sample.name}: ${err?.message ?? err}`
+          }
+          await new Promise((r) => setTimeout(r, 0))
+        }
+        status.textContent = `完成：${SAMPLES.length} 样张 × ${builtin.length} 模板`
+      }
+    }
+    renderAll()
+  </script>
+</body>
+</html>

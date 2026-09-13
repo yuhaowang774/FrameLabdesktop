@@ -12,6 +12,7 @@ import {
   computeClassicLayout,
   computeCardLayout,
   computeMagazineLayout,
+  computeVerticalLayout,
   cardThemeColors,
   cardBadgeColors,
   CARD_RADIUS,
@@ -25,7 +26,7 @@ import {
   type FooterLayout,
   type CardRect,
 } from '../../core/infoLayout'
-import { logoAutoColor, footerTextColor } from '../../core/colorUtils'
+import { logoAutoColor, footerTextColor, hexToRgba } from '../../core/colorUtils'
 import { applyShowToggles } from '../../core/showToggles'
 import { modelAlias } from '../../core/modelAlias'
 import { activeModelMark, modelMarkTintColor, MODEL_MARK_SCALE, MODEL_MARK_TOP_RATIO } from '../../core/modelMarks'
@@ -575,6 +576,27 @@ const magazineLayout = computed(() => {
     : contentH.value
   return computeMagazineLayout(state, canvasBottom)
 })
+
+// ===== vertical 竖排装裱：与 exporter drawVerticalFooter 同源（computeVerticalLayout），静态渲染不支持拖拽 =====
+const verticalLayout = computed(() => {
+  if (state.infoLayout !== 'vertical') return null
+  const canvasBottom = frameContainerH.value > 0
+    ? frameContainerH.value - pad.value - bgExpand.value
+    : contentH.value
+  return computeVerticalLayout(state, canvasBottom)
+})
+/** 竖排列定位：内容区坐标 + padding + bgExpand → 画板坐标（writing-mode: vertical-rl 与导出 rotate(90°) 同向） */
+function verticalPos(r: { x: number; y: number }) {
+  return {
+    left: pad.value + bgExpand.value + r.x + 'px',
+    top: pad.value + bgExpand.value + r.y + 'px',
+  }
+}
+/** 竖排文字颜色：与导出 paint() 同规则——用户自定义色优先（hex→rgba 并乘组透明度），
+ *  否则按背景明暗自适应黑白 */
+function vertColor(custom: string | null, opacity: number): string {
+  return hexToRgba(custom, opacity) ?? footerTextColor(state.bgMode, state.bgColor, opacity)
+}
 // 取色色卡：从当前照片提取主色（photoPalette 内部缓存，paletteVersion 触发刷新）
 const magazinePalette = computed(() => {
   if (state.infoLayout !== 'magazine' || !state.showPalette) return []
@@ -835,8 +857,35 @@ function absStyle(key: ItemKey) {
         >{{ state.exifText }}</span
       >
     </template>
+    <!-- vertical 竖排装裱（文字旋转 90° 沿照片左缘自上而下）：与导出 drawVerticalFooter 同源，静态渲染不支持拖拽 -->
+    <template v-if="verticalLayout">
+      <span
+        v-if="state.showCameraModel && state.cameraModel"
+        class="vert-line"
+        :style="[verticalPos(verticalLayout.model), { color: vertColor(state.cameraModelColor, state.cameraModelOpacity), font: `${state.cameraModelItalic ? 'italic ' : ''}${state.cameraModelWeight} ${state.cameraModelSize}px/1 ${state.cameraModelFont}`, opacity: state.cameraModelOpacity, textShadow: infoTextShadow }]"
+        >{{ modelText }}</span
+      >
+      <span
+        v-if="state.showExif && state.exifText"
+        class="vert-line"
+        :style="[verticalPos(verticalLayout.exif), { color: vertColor(state.exifTextColor, state.exifTextOpacity ?? state.textOpacity), font: `${state.exifTextWeight ?? state.textWeight} ${state.exifFontSize ?? state.fontSize}px/1 ${state.exifFontFamily ?? state.fontFamily}`, textShadow: infoTextShadow }]"
+        >{{ state.exifText }}</span
+      >
+      <span
+        v-if="state.showLens && state.lensText"
+        class="vert-line"
+        :style="[verticalPos(verticalLayout.lens), { color: vertColor(state.lensTextColor, state.lensTextOpacity ?? state.textOpacity), font: `${state.lensTextWeight ?? state.textWeight} ${state.lensFontSize ?? state.fontSize}px/1 ${state.lensFontFamily ?? state.fontFamily}`, textShadow: infoTextShadow }]"
+        >{{ state.lensText }}</span
+      >
+      <span
+        v-if="state.showDate && state.dateText"
+        class="vert-line"
+        :style="[verticalPos(verticalLayout.date), { color: vertColor(state.dateTextColor, state.dateTextOpacity ?? state.textOpacity), font: `${state.dateTextWeight ?? state.textWeight} ${state.dateFontSize ?? state.fontSize}px/1 ${state.dateFontFamily ?? state.fontFamily}`, textShadow: infoTextShadow }]"
+        >{{ state.dateText }}</span
+      >
+    </template>
     <img
-      v-if="state.showLogo && logoSrc && state.infoLayout !== 'card' && state.infoLayout !== 'magazine' && !(state.infoLayout === 'inline' && phoneBrandOf(state.brand))"
+      v-if="state.showLogo && logoSrc && state.infoLayout !== 'card' && state.infoLayout !== 'magazine' && state.infoLayout !== 'vertical' && !(state.infoLayout === 'inline' && phoneBrandOf(state.brand))"
       class="brand-logo drag-item"
       data-item="logo"
       :class="{ dragging: dragging === 'logo' }"
@@ -848,7 +897,7 @@ function absStyle(key: ItemKey) {
     />
     <!-- 机型字标（有内置矢量字标时）：图像渲染，与导出同源；无字标 / 未就绪回退文字 -->
     <img
-      v-if="modelMark && modelMarkUrl && state.showCameraModel && state.infoLayout !== 'card' && state.infoLayout !== 'magazine'"
+      v-if="modelMark && modelMarkUrl && state.showCameraModel && state.infoLayout !== 'card' && state.infoLayout !== 'magazine' && state.infoLayout !== 'vertical'"
       class="model-mark drag-item"
       data-item="model"
       :class="{ dragging: dragging === 'model' }"
@@ -869,7 +918,7 @@ function absStyle(key: ItemKey) {
       @pointerdown="onPointerDown($event, 'model')"
     />
     <span
-      v-if="state.showCameraModel && !modelMarkUrl && state.infoLayout !== 'card' && state.infoLayout !== 'magazine'"
+      v-if="state.showCameraModel && !modelMarkUrl && state.infoLayout !== 'card' && state.infoLayout !== 'magazine' && state.infoLayout !== 'vertical'"
       :class="{ dragging: dragging === 'model' }"
       :style="[
         absStyle('model'),
@@ -888,7 +937,7 @@ function absStyle(key: ItemKey) {
     <div
       class="exif-text drag-item"
       data-item="exif"
-      v-if="state.showExif && state.infoLayout !== 'card' && state.infoLayout !== 'magazine'"
+      v-if="state.showExif && state.infoLayout !== 'card' && state.infoLayout !== 'magazine' && state.infoLayout !== 'vertical'"
       :class="{ dragging: dragging === 'exif' }"
       :style="[
         absStyle('exif'),
@@ -930,7 +979,7 @@ function absStyle(key: ItemKey) {
     <div
       class="date-text drag-item"
       data-item="date"
-      v-if="state.showDate && state.infoLayout !== 'card' && state.infoLayout !== 'magazine'"
+      v-if="state.showDate && state.infoLayout !== 'card' && state.infoLayout !== 'magazine' && state.infoLayout !== 'vertical'"
       :class="{ dragging: dragging === 'date' }"
       :style="[
         absStyle('date'),
@@ -966,6 +1015,13 @@ function absStyle(key: ItemKey) {
 .mag-line {
   position: absolute;
   white-space: nowrap;
+}
+/* vertical 竖排装裱：writing-mode 内联绑定；nowrap 防换列（换列会向左生长破坏列序） */
+.vert-line {
+  position: absolute;
+  white-space: nowrap;
+  writing-mode: vertical-rl;
+  line-height: 1;
 }
 .mag-palette {
   position: absolute;
