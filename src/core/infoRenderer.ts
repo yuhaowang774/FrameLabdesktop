@@ -11,7 +11,7 @@
 // 绘制顺序（强制，对应需求"绘制执行流程"第 5 步）：按 zIndex 从小到大。
 import { DESIGN_CONTAINER } from './constants'
 import { resolveLogo, preloadBrandLogo } from '../composables/useLogoStore'
-import { resolveFocal, cleanLens, type ExifRaw } from '../composables/useExif'
+import { resolveFocal, cleanLens, formatGps, type ExifRaw } from '../composables/useExif'
 import type { InfoElement, InfoLayerConfig } from './types'
 
 // 设计稿基准宽度（1200），画布中心 X 默认等于其一半
@@ -46,6 +46,7 @@ export function buildExifFieldMap(
     iso: formatIso(r.iso),
     model: model || '',
     lens: cleanLens(r.lensMake, r.lensModel) ?? '',
+    gps: formatGps(r.latitude, r.longitude),
   }
 }
 

@@ -3,10 +3,12 @@
 // 且镜头行位置必须与预览 DOM（.exif-text 块内 .lens-line）的排布规则一致。
 import { describe, it, expect, beforeAll, vi } from 'vitest'
 import { defaultFrameConfig, type FrameConfig } from './types'
+import { posterParams, formatGps } from '../composables/useExif'
 import {
   computeClassicLayout,
   computeFooterLayout,
   computeVerticalLayout,
+  computePosterLayout,
   dateTextStyle,
   exifTextStyle,
   lensTextStyle,
@@ -302,5 +304,68 @@ describe('vertical 竖排装裱（风格 C）', () => {
     const b = computeVerticalLayout(cfg({ ...INFO_ON, infoLayout: 'vertical', overlayAnchor: 'top' }), CANVAS_BOTTOM)
     expect(b.model.x).toBe(a.model.x)
     expect(b.model.y).toBe(a.model.y)
+  })
+})
+
+describe('poster 海报参数表（大师水印款）', () => {
+  const RAW_POSTER = {
+    focalLength: 16,
+    fNumber: 2.8,
+    exposureTime: 1 / 250,
+    iso: 100,
+  }
+
+  it('posterParams：四栏「数值/单位」对，快门取分母', () => {
+    expect(posterParams(RAW_POSTER)).toEqual([
+      { v: '16', u: 'mm' },
+      { v: '2.8', u: 'f' },
+      { v: '1/250', u: 's' },
+      { v: '100', u: 'ISO' },
+    ])
+    // 缺失字段跳过
+    expect(posterParams({ focalLength: 50 })).toEqual([{ v: '50', u: 'mm' }])
+    expect(posterParams(null)).toEqual([])
+  })
+
+  it('computePosterLayout：四栏整体居中，栏间 3 条分隔线，参数表贴 overlayBottom', () => {
+    const c = cfg({ ...INFO_ON, infoLayout: 'poster', exifRaw: RAW_POSTER, fontSize: 30, overlayBottom: 30, padding: 0, bgExpand: 0, showCameraModel: false })
+    const L = computePosterLayout(c, CANVAS_BOTTOM)
+    expect(L.cols.length).toBe(4)
+    expect(L.dividers.length).toBe(3)
+    // 单位行底边 = canvasBottom - overlayBottom（unitSize = dateFontSize ?? round(fontSize*0.62)）
+    const unitSize = c.dateFontSize ?? Math.round(c.fontSize * 0.62)
+    expect(L.cols[0].unitY + unitSize).toBeCloseTo(CANVAS_BOTTOM - 30, 6)
+    // 整体居中：首列左缘 + 末列右缘 关于中轴对称
+    const left = L.cols[0].x
+    const right = L.cols[3].x + L.cols[3].w
+    expect(left + right).toBeCloseTo(1200, 4)
+    // 分隔线位于相邻列间隙中点
+    for (let i = 0; i < 3; i++) {
+      const mid = L.cols[i].x + L.cols[i].w + 13
+      expect(L.dividers[i].x).toBeCloseTo(mid, 6)
+      expect(L.dividers[i].h).toBeGreaterThan(0)
+    }
+  })
+
+  it('computePosterLayout：机型/标语行在参数表上方；无 EXIF 时仅保留机型行贴底', () => {
+    const c = cfg({ ...INFO_ON, infoLayout: 'poster', exifRaw: RAW_POSTER, fontSize: 30, padding: 0, bgExpand: 0, showCameraModel: true, infoTitle: 'The Precious Moment' })
+    const L = computePosterLayout(c, CANVAS_BOTTOM)
+    // 自底向上：参数表 → 标语 → 机型
+    const tableTop = L.cols[0].valueY
+    expect(L.title!.y).toBeCloseTo(tableTop - 12 - 16, 6) // 标语行高 = MAG_SUB_SIZE
+    expect(L.model.y).toBeCloseTo(L.title!.y - 12 - c.cameraModelSize, 6)
+
+    // 无 exifRaw：无参数列，机型行贴底（overlayBottom 上方留出 unitSize）
+    const empty = cfg({ ...INFO_ON, infoLayout: 'poster', exifRaw: null, fontSize: 30, padding: 0, bgExpand: 0, dateFontSize: 18, showCameraModel: true })
+    const L2 = computePosterLayout(empty, CANVAS_BOTTOM)
+    expect(L2.cols.length).toBe(0)
+    expect(L2.model.y + c.cameraModelSize).toBeCloseTo(CANVAS_BOTTOM - empty.overlayBottom - 12, 6) // 无参数表时机型行贴底（仅留行距）
+  })
+
+  it('formatGps：十进制转度分秒，负值取西/南向', () => {
+    expect(formatGps(23.851, 113.158)).toBe("23°51'4\"N 113°9'29\"E")
+    expect(formatGps(-33.8688, -151.2193)).toContain('S')
+    expect(formatGps(-33.8688, -151.2193)).toContain('W')
+    expect(formatGps()).toBe('')
   })
 })

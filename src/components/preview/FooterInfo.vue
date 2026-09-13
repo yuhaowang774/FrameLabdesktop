@@ -13,6 +13,8 @@ import {
   computeCardLayout,
   computeMagazineLayout,
   computeVerticalLayout,
+  computePosterLayout,
+  MAG_TITLE_FONT as POSTER_TITLE_FONT,
   cardThemeColors,
   cardBadgeColors,
   CARD_RADIUS,
@@ -585,6 +587,21 @@ const verticalLayout = computed(() => {
     : contentH.value
   return computeVerticalLayout(state, canvasBottom)
 })
+/** poster 海报参数表：与 exporter drawPosterFooter 同源（computePosterLayout），静态渲染不支持拖拽 */
+const posterLayout = computed(() => {
+  if (state.infoLayout !== 'poster') return null
+  const canvasBottom = frameContainerH.value > 0
+    ? frameContainerH.value - pad.value - bgExpand.value
+    : contentH.value
+  return computePosterLayout(state, canvasBottom)
+})
+function posterPos(r: { x: number; y: number }) {
+  return {
+    left: pad.value + bgExpand.value + r.x + 'px',
+    top: pad.value + bgExpand.value + r.y + 'px',
+  }
+}
+
 /** 竖排列定位：内容区坐标 + padding + bgExpand → 画板坐标（writing-mode: vertical-rl 与导出 rotate(90°) 同向） */
 function verticalPos(r: { x: number; y: number }) {
   return {
@@ -843,6 +860,14 @@ function absStyle(key: ItemKey) {
           class="mag-swatch"
           :style="{ background: c, width: MAG_SWATCH_W + 'px', height: MAG_SWATCH_H + 'px' }"
         />
+        <template v-if="state.paletteHex">
+          <span
+            v-for="(c, i) in magazinePalette.slice(0, MAG_SWATCH_COUNT)"
+            :key="'hex-' + i"
+            class="mag-hex"
+            :style="{ left: magazinePos(magazineLayout.palette).left, top: magazineLayout.palette.y + pad + bgExpand + MAG_SWATCH_H + 3 + 'px', width: MAG_SWATCH_W + 'px', color: magazineSecondary }"
+          >{{ c.toUpperCase() }}</span>
+        </template>
       </div>
       <span
         v-if="state.showCameraModel && state.cameraModel"
@@ -884,8 +909,57 @@ function absStyle(key: ItemKey) {
         >{{ state.dateText }}</span
       >
     </template>
+    <!-- poster 海报参数表（机型/标语 + 四栏参数表）：与导出 drawPosterFooter 同源，静态渲染不支持拖拽 -->
+    <template v-if="posterLayout">
+      <img
+        v-if="modelMark && modelMarkUrl && state.showCameraModel"
+        class="model-mark"
+        :src="modelMarkUrl"
+        :alt="modelMark.label"
+        :style="[
+          posterPos(posterLayout.model),
+          {
+            height: `calc(${state.cameraModelSize}px * ${MODEL_MARK_SCALE})`,
+            opacity: state.cameraModelOpacity,
+            transform: 'translateX(-50%)',
+            filter: modelMarkShadow,
+          },
+        ]"
+        draggable="false"
+      />
+      <span
+        v-else-if="state.showCameraModel && state.cameraModel"
+        class="poster-line"
+        :style="[posterPos(posterLayout.model), { color: vertColor(state.cameraModelColor, state.cameraModelOpacity), font: `${state.cameraModelItalic ? 'italic ' : ''}${state.cameraModelWeight} ${state.cameraModelSize}px/1 ${state.cameraModelFont}`, transform: 'translateX(-50%)', textShadow: infoTextShadow }]"
+        >{{ modelText }}</span
+      >
+      <span
+        v-if="posterLayout.title && state.infoTitle"
+        class="poster-line"
+        :style="[posterPos(posterLayout.title), { color: vertColor(state.cameraModelColor, 0.9), font: `italic 600 20px/1 ${POSTER_TITLE_FONT}`, transform: 'translateX(-50%)', textShadow: infoTextShadow }]"
+        >{{ state.infoTitle }}</span
+      >
+      <template v-for="(col, i) in posterLayout.cols" :key="'col-' + i">
+        <span
+          class="poster-line"
+          :style="[posterPos({ x: col.x, y: col.valueY }), { width: col.w + 'px', textAlign: 'center', color: vertColor(state.exifTextColor, state.textOpacity), font: `${state.textWeight} ${state.fontSize}px/1 ${state.fontFamily}`, textShadow: infoTextShadow }]"
+          >{{ col.value }}</span
+        >
+        <span
+          class="poster-line"
+          :style="[posterPos({ x: col.x, y: col.unitY }), { width: col.w + 'px', textAlign: 'center', color: vertColor(state.dateTextColor, 0.65), font: `400 ${state.dateFontSize ?? Math.round(state.fontSize * 0.62)}px/1 ${state.fontFamily}` }]"
+          >{{ col.unit }}</span
+        >
+      </template>
+      <div
+        v-for="(d, i) in posterLayout.dividers"
+        :key="'div-' + i"
+        class="poster-divider"
+        :style="[posterPos({ x: d.x, y: d.y }), { height: d.h + 'px', background: vertColor(null, 0.25) }]"
+      />
+    </template>
     <img
-      v-if="state.showLogo && logoSrc && state.infoLayout !== 'card' && state.infoLayout !== 'magazine' && state.infoLayout !== 'vertical' && !(state.infoLayout === 'inline' && phoneBrandOf(state.brand))"
+      v-if="state.showLogo && logoSrc && state.infoLayout !== 'card' && state.infoLayout !== 'magazine' && state.infoLayout !== 'vertical' && state.infoLayout !== 'poster' && !(state.infoLayout === 'inline' && phoneBrandOf(state.brand))"
       class="brand-logo drag-item"
       data-item="logo"
       :class="{ dragging: dragging === 'logo' }"
@@ -897,7 +971,7 @@ function absStyle(key: ItemKey) {
     />
     <!-- 机型字标（有内置矢量字标时）：图像渲染，与导出同源；无字标 / 未就绪回退文字 -->
     <img
-      v-if="modelMark && modelMarkUrl && state.showCameraModel && state.infoLayout !== 'card' && state.infoLayout !== 'magazine' && state.infoLayout !== 'vertical'"
+      v-if="modelMark && modelMarkUrl && state.showCameraModel && state.infoLayout !== 'card' && state.infoLayout !== 'magazine' && state.infoLayout !== 'vertical' && state.infoLayout !== 'poster'"
       class="model-mark drag-item"
       data-item="model"
       :class="{ dragging: dragging === 'model' }"
@@ -918,7 +992,7 @@ function absStyle(key: ItemKey) {
       @pointerdown="onPointerDown($event, 'model')"
     />
     <span
-      v-if="state.showCameraModel && !modelMarkUrl && state.infoLayout !== 'card' && state.infoLayout !== 'magazine' && state.infoLayout !== 'vertical'"
+      v-if="state.showCameraModel && !modelMarkUrl && state.infoLayout !== 'card' && state.infoLayout !== 'magazine' && state.infoLayout !== 'vertical' && state.infoLayout !== 'poster'"
       :class="{ dragging: dragging === 'model' }"
       :style="[
         absStyle('model'),
@@ -937,7 +1011,7 @@ function absStyle(key: ItemKey) {
     <div
       class="exif-text drag-item"
       data-item="exif"
-      v-if="state.showExif && state.infoLayout !== 'card' && state.infoLayout !== 'magazine' && state.infoLayout !== 'vertical'"
+      v-if="state.showExif && state.infoLayout !== 'card' && state.infoLayout !== 'magazine' && state.infoLayout !== 'vertical' && state.infoLayout !== 'poster'"
       :class="{ dragging: dragging === 'exif' }"
       :style="[
         absStyle('exif'),
@@ -979,7 +1053,7 @@ function absStyle(key: ItemKey) {
     <div
       class="date-text drag-item"
       data-item="date"
-      v-if="state.showDate && state.infoLayout !== 'card' && state.infoLayout !== 'magazine' && state.infoLayout !== 'vertical'"
+      v-if="state.showDate && state.infoLayout !== 'card' && state.infoLayout !== 'magazine' && state.infoLayout !== 'vertical' && state.infoLayout !== 'poster'"
       :class="{ dragging: dragging === 'date' }"
       :style="[
         absStyle('date'),
@@ -1015,6 +1089,22 @@ function absStyle(key: ItemKey) {
 .mag-line {
   position: absolute;
   white-space: nowrap;
+}
+/* poster 海报参数表：静态渲染，与导出 drawPosterFooter 视觉一致 */
+.poster-line {
+  position: absolute;
+  white-space: nowrap;
+}
+.poster-divider {
+  position: absolute;
+  width: 1px;
+}
+.mag-hex {
+  position: absolute;
+  text-align: center;
+  font-size: 10px;
+  letter-spacing: 0.4px;
+  pointer-events: none;
 }
 /* vertical 竖排装裱：writing-mode 内联绑定；nowrap 防换列（换列会向左生长破坏列序） */
 .vert-line {

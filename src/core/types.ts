@@ -112,8 +112,9 @@ export interface FrameConfig {
    *  inline=悬浮居中双行（行1：Logo+机型内联居中；行2：参数居中）；
    *  card=手机白底水印卡（左：机型+日期 / 右：参数+镜头 / 右端联名标块，配色随 infoCardTheme）；
    *  magazine=杂志编辑（顶部标题区 + 底部左取色色卡 / 右机型+参数+日期）；
-   *  vertical=竖排装裱（文字旋转 90° 沿照片左缘竖排，自左向右：机型 / 参数 / 日期列） */
-  infoLayout: 'classic' | 'duo' | 'inline' | 'card' | 'magazine' | 'vertical'
+   *  vertical=竖排装裱（文字旋转 90° 沿照片左缘竖排，自左向右：机型 / 参数 / 日期列）；
+   *  poster=海报参数表（机型 + 刊头标语 + 四栏「数值/单位」参数表，学习大师水印画册款） */
+  infoLayout: 'classic' | 'duo' | 'inline' | 'card' | 'magazine' | 'vertical' | 'poster'
   /** magazine 布局顶部大标题文本（如 "Nature's poetry"，用户可改；空 = 不显示标题区文字） */
   infoTitle: string
   /** magazine 布局是否显示取色色卡（从照片自动提取 5 色） */
@@ -122,6 +123,8 @@ export interface FrameConfig {
   infoCardTheme: 'white' | 'black'
   /** card 模式是否显示日期行（左列下行） */
   cardShowDate: boolean
+  /** magazine 取色色卡是否标注 hex 色号（色块下方一行小字，学习 ColorWalk 款） */
+  paletteHex: boolean
   /** card 模式联名标块底色：null = 跟随品牌默认（badge.bg ?? accent），由 cardBadgeColors 解析 */
   cardBadgeBg: string | null
   /** card 模式联名标块文字色：null = 跟随品牌默认（badge.fg ?? '#ffffff'） */
@@ -207,7 +210,7 @@ export interface FrameConfig {
   watermarkBottom: number
 
   /** 原始 EXIF 字段（已由上传流程解析写入，供 EXIF 元素模板渲染；model/brandId 供「自动填充」恢复真实信息） */
-  exifRaw: { focalLength?: number; focalLength35?: number; fNumber?: number; exposureTime?: number; iso?: number; dateTimeOriginal?: string; lensModel?: string; lensMake?: string; model?: string; brandId?: string } | null
+  exifRaw: { focalLength?: number; focalLength35?: number; fNumber?: number; exposureTime?: number; iso?: number; dateTimeOriginal?: string; lensModel?: string; lensMake?: string; model?: string; brandId?: string; latitude?: number; longitude?: number } | null
 
   /** 顶层 INFO 多元素容器层（自由拖拽排版） */
   infoLayer: InfoLayerConfig
@@ -267,6 +270,7 @@ export const defaultFrameConfig: FrameConfig = {
   showPalette: true,
   infoCardTheme: 'white',
   cardShowDate: true,
+  paletteHex: false,
   cardBadgeBg: null,
   cardBadgeFg: null,
   fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",

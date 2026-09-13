@@ -31,6 +31,10 @@ export interface ExifRaw {
   lensModel?: string
   /** 清洗 + 营销名映射后的机型（如 "α7R V"、"DJI Mini 3"），供「自动填充」恢复型号 */
   model?: string
+  /** 纬度（十进制，北纬为正），供 {gps} 占位符 */
+  latitude?: number
+  /** 经度（十进制，东经为正），供 {gps} 占位符 */
+  longitude?: number
   /** 根据 Make 自动匹配的内置品牌 id，供「自动填充」恢复品牌 */
   brandId?: string
 }
@@ -139,6 +143,44 @@ export function buildExifText(
     formatIso(raw.iso),
   ].filter(Boolean)
   return parts.join(' ')
+}
+
+/**
+ * 海报参数表（infoLayout='poster'）的「数值/单位」对：焦距(mm) / 光圈(f) / 快门(s) / ISO。
+ * 缺失字段跳过；曝光时间 <1s 显示分母（1/200s → 200 s）。供布局计算与三端渲染共用。
+ */
+export function posterParams(
+  raw: ExifRaw | null,
+  eq: { eqFocal?: boolean; cropFactor?: number } = {},
+): Array<{ v: string; u: string }> {
+  if (!raw) return []
+  const out: Array<{ v: string; u: string }> = []
+  const focal = resolveFocal(raw, !!eq.eqFocal, eq.cropFactor ?? 0)
+  if (focal) out.push({ v: focal.replace(/mm$/, ''), u: 'mm' })
+  if (raw.fNumber != null) out.push({ v: `${raw.fNumber}`, u: 'f' })
+  if (raw.exposureTime != null) {
+    const t = raw.exposureTime
+    out.push(t >= 1 ? { v: `${Math.round(t)}`, u: 's' } : { v: `1/${Math.round(1 / t)}`, u: 's' })
+  }
+  if (raw.iso != null) out.push({ v: `${raw.iso}`, u: 'ISO' })
+  return out
+}
+
+/**
+ * 十进制经纬度 → 度分秒坐标串（`23°51'3"N 113°9'28"E`），任一缺省返回空串。
+ * 供 {gps} 占位符与海报参数表使用。
+ */
+export function formatGps(lat?: number, lon?: number): string {
+  if (lat == null || lon == null) return ''
+  const dms = (v: number, pos: string, neg: string): string => {
+    const dir = v >= 0 ? pos : neg
+    const a = Math.abs(v)
+    const d = Math.floor(a)
+    const m = Math.floor((a - d) * 60)
+    const sec = Math.round(((a - d) * 60 - m) * 60)
+    return `${d}°${m}'${sec}"${dir}`
+  }
+  return `${dms(lat, 'N', 'S')} ${dms(lon, 'E', 'W')}`
 }
 
 /**
@@ -280,7 +322,7 @@ function dateToExifString(dt: unknown): string | undefined {
  */
 export async function parseExif(source: File | Blob | ArrayBuffer | string): Promise<ExifParseResult> {
   const data = await exifr.parse(source, {
-    pick: ['FocalLength', 'FocalLengthIn35mmFilm', 'FNumber', 'ExposureTime', 'ISO', 'Make', 'Model', 'DateTimeOriginal', 'LensMake', 'LensModel'],
+    pick: ['FocalLength', 'FocalLengthIn35mmFilm', 'FNumber', 'ExposureTime', 'ISO', 'Make', 'Model', 'DateTimeOriginal', 'LensMake', 'LensModel', 'latitude', 'longitude'],
   })
 
   if (!data) {
@@ -303,7 +345,9 @@ export async function parseExif(source: File | Blob | ArrayBuffer | string): Pro
   const lensModel = typeof data.LensModel === 'string' ? data.LensModel : undefined
   const lens = cleanLens(lensMake, lensModel)
 
-  const raw: ExifRaw = { focalLength, focalLength35, fNumber, exposureTime, iso, dateTimeOriginal, lensMake, lensModel, model, brandId }
+  const latitude = typeof data.latitude === 'number' ? data.latitude : undefined
+  const longitude = typeof data.longitude === 'number' ? data.longitude : undefined
+  const raw: ExifRaw = { focalLength, focalLength35, fNumber, exposureTime, iso, dateTimeOriginal, lensMake, lensModel, model, brandId, latitude, longitude }
   const text = buildExifText(raw)
 
   if (!text && !model && !brandId && !lens) {

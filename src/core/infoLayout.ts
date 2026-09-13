@@ -12,6 +12,7 @@ import type { FrameConfig } from './types'
 import { DESIGN_CONTAINER, phoneBrandOf } from './constants'
 import { modelAlias } from './modelAlias'
 import { MODEL_MARK_SCALE } from './modelMarks'
+import { posterParams } from '../composables/useExif'
 
 /** 单个 INFO 元素的默认位置（内容区坐标，左上角） */
 export interface FooterRect {
@@ -568,4 +569,80 @@ export function computeVerticalLayout(cfg: FrameConfig, canvasBottom: number): F
   if (hasLens) x += lensS.size + VERT_COL_GAP
   const date = { x, y: topY }
   return { exif, date, model, lens, logo: { x, y: topY }, divider: null }
+}
+
+// ===== poster（海报参数表）：机型 + 刊头标语 + 四栏「数值/单位」参数表 =====
+// 学习「大师水印」画册款：底部留白带自下而上 = 参数表 → 刊头标语(可选, infoTitle) → 机型(可选)。
+// 四栏 = 焦距(mm) / 光圈(f) / 快门(s) / ISO，数值来自 exifRaw（缺失栏跳过），栏间细线分隔。
+// 数值行字号 = 全局 fontSize（粗）、单位行 = dateFontSize ?? fontSize*0.62（细）。
+export const POSTER_COL_GAP = 26 // 栏间距（分隔线居中）
+export const POSTER_ROW_GAP = 12 // 参数表与标语/机型行距
+export const POSTER_V_GAP = 8 // 数值与单位行距
+
+export interface PosterColumn {
+  /** 列左缘（内容区坐标），数值/单位在列内居中（渲染端 textAlign=center） */
+  x: number
+  w: number
+  value: string
+  unit: string
+  /** 数值行顶 / 单位行顶（内容区坐标） */
+  valueY: number
+  unitY: number
+}
+
+export interface PosterLayout {
+  /** 机型行（x = 行中心锚点；渲染端居中绘制，优先机型字标） */
+  model: FooterRect
+  /** 刊头标语行（infoTitle，衬线斜体，x = 行中心锚点）；未填写为 null */
+  title: FooterRect | null
+  cols: PosterColumn[]
+  dividers: Array<{ x: number; y: number; h: number }>
+}
+
+/**
+ * 计算 poster 海报参数表的默认排版（内容区坐标，预览与导出同源）。
+ * 无 EXIF 参数时参数表为空（cols/dividers 空），仅渲染机型/标语行。
+ * 注意：列宽用 measureTextWidth 实测，无 canvas 环境（jsdom/测试）宽度为 0、各列收拢到中轴，
+ * 位置仅保证结构正确——真实渲染以浏览器实测为准。
+ */
+export function computePosterLayout(cfg: FrameConfig, canvasBottom: number): PosterLayout {
+  const center = DESIGN_CONTAINER / 2
+  const modelS = modelTextStyle(cfg)
+  const valueSize = cfg.fontSize
+  const unitSize = cfg.dateFontSize ?? Math.round(cfg.fontSize * 0.62)
+
+  // 自底向上：单位行贴 overlayBottom → 数值行 → 标语 → 机型
+  const unitY = canvasBottom - cfg.overlayBottom - unitSize
+  const valueY = unitY - POSTER_V_GAP - valueSize
+
+  const params = posterParams(cfg.exifRaw, { eqFocal: cfg.eqFocal, cropFactor: cfg.cropFactor })
+  const cols: PosterColumn[] = []
+  const dividers: Array<{ x: number; y: number; h: number }> = []
+  if (params.length) {
+    const widths = params.map((p) =>
+      Math.max(
+        measureTextWidth(p.v, `${cfg.textWeight} ${valueSize}px ${cfg.fontFamily}`),
+        measureTextWidth(p.u, `400 ${unitSize}px ${cfg.fontFamily}`),
+      ),
+    )
+    const total = widths.reduce((a, b) => a + b, 0) + (params.length - 1) * POSTER_COL_GAP
+    let cursor = center - total / 2
+    const colH = unitY + unitSize - valueY
+    params.forEach((p, i) => {
+      cols.push({ x: cursor, w: widths[i], value: p.v, unit: p.u, valueY, unitY })
+      if (i > 0) dividers.push({ x: cursor - POSTER_COL_GAP / 2, y: valueY, h: colH })
+      cursor += widths[i] + POSTER_COL_GAP
+    })
+  }
+
+  // 顶部行：标语（可选）在参数表上方，机型（可选）在最上；位置恒输出，渲染端按开关跳过
+  let top = params.length ? valueY : canvasBottom - cfg.overlayBottom
+  let title: FooterRect | null = null
+  if (cfg.infoTitle) {
+    top -= POSTER_ROW_GAP + MAG_SUB_SIZE
+    title = { x: center, y: top }
+  }
+  const model: FooterRect = { x: center, y: top - POSTER_ROW_GAP - modelS.size }
+
+  return { model, title, cols, dividers }
 }

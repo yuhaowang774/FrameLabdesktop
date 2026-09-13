@@ -15,6 +15,7 @@ import {
   computeCardLayout,
   computeMagazineLayout,
   computeVerticalLayout,
+  computePosterLayout,
   cardThemeColors,
   cardBadgeColors,
   exifTextStyle,
@@ -36,6 +37,7 @@ import {
 } from './infoLayout'
 import { extractPalette, FALLBACK_PALETTE } from './photoPalette'
 import { modelAlias } from './modelAlias'
+import { posterParams } from '../composables/useExif'
 import { activeModelMark, modelMarkTintColor, MODEL_MARK_SCALE, MODEL_MARK_TOP_RATIO } from './modelMarks'
 import { resolveModelMark, preloadModelMark } from '../composables/useModelMarkStore'
 import { rotatedSize, drawRotatedCropped } from './photoEdit'
@@ -260,6 +262,100 @@ function drawMagazineFooter(
   }
 }
 
+/** poster 海报参数表绘制（infoLayout='poster'）：机型/字标 + 刊头标语 + 四栏「数值/单位」参数表。
+ *  布局与 computePosterLayout 同源：机型/标语行居中（x 为中心锚点），参数列内数值/单位居中，
+ *  栏间 1px 细分隔线。无 EXIF 参数时仅渲染机型/标语行。 */
+function drawPosterFooter(
+  ctx: CanvasRenderingContext2D,
+  config: FrameConfig,
+  unitScale: number,
+  logo: ImgSource | undefined,
+  contentOX: number,
+  canvasHpx: number,
+): void {
+  const ox = contentOX * unitScale
+  const s = unitScale
+  const canvasBottomY = canvasHpx / unitScale - config.padding - config.bgExpand
+  const L = computePosterLayout(config, canvasBottomY)
+  const themeColor = config.bgMode === 'solid' && hexLuminance(config.bgColor) > 0.6 ? 0 : 255
+  const paint = (custom: string | null, opacity: number): string =>
+    hexToRgba(custom, opacity) ?? `rgba(${themeColor},${themeColor},${themeColor},${opacity})`
+  const applyTextShadow = (): void => {
+    if (config.bgMode === 'solid') return
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.5)'
+    ctx.shadowBlur = 4 * unitScale
+    ctx.shadowOffsetY = 1 * unitScale
+  }
+
+  // 机型行：优先机型字标（矢量），未就绪回退文字（居中）
+  const modelText = modelAlias(config.cameraModel)
+  const modelS = modelTextStyle(config)
+  if (config.showCameraModel && modelText) {
+    const markDef = activeModelMark(config)
+    const markColor = modelMarkTintColor(config)
+    const markRaw = markDef ? resolveModelMark(markDef.file, markColor) : null
+    const markCanvas = markRaw && markRaw.width > 1 && markRaw.height > 1 ? markRaw : null
+    ctx.save()
+    ctx.globalAlpha = config.cameraModelOpacity
+    applyTextShadow()
+    if (markCanvas) {
+      const mh = modelS.size * unitScale * MODEL_MARK_SCALE
+      const mw = mh * (markCanvas.width / markCanvas.height)
+      ctx.drawImage(markCanvas, ox + L.model.x * s - mw / 2, ox + L.model.y * s, mw, mh)
+    } else {
+      ctx.fillStyle = paint(config.cameraModelColor, config.cameraModelOpacity)
+      ctx.font = fontStr(config.cameraModelWeight, modelS.size * s, config.cameraModelFont, config.cameraModelItalic)
+      ctx.textAlign = 'center'
+      ctx.textBaseline = 'top'
+      ctx.fillText(modelText, ox + L.model.x * s, ox + L.model.y * s)
+    }
+    ctx.restore()
+  }
+
+  // 刊头标语（infoTitle，衬线斜体）
+  if (L.title && config.infoTitle) {
+    ctx.save()
+    ctx.fillStyle = paint(config.cameraModelColor, 0.9)
+    ctx.font = fontStr(600, 20 * s, MAG_TITLE_FONT, true)
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'top'
+    applyTextShadow()
+    ctx.fillText(config.infoTitle, ox + L.title.x * s, ox + L.title.y * s)
+    ctx.restore()
+  }
+
+  // 四栏参数表：数值（粗大）/ 单位（细小）列内居中，栏间细线
+  const valueSize = config.fontSize
+  const unitSize = config.dateFontSize ?? Math.round(config.fontSize * 0.62)
+  const params = posterParams(config.exifRaw, { eqFocal: config.eqFocal, cropFactor: config.cropFactor })
+  for (const col of L.cols) {
+    const p = params.find((q) => q.v === col.value && q.u === col.unit)
+    if (!p) continue
+    ctx.save()
+    ctx.fillStyle = paint(config.exifTextColor, config.textOpacity)
+    ctx.font = fontStr(config.textWeight, valueSize * s, config.fontFamily)
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'top'
+    applyTextShadow()
+    ctx.fillText(p.v, ox + (col.x + col.w / 2) * s, ox + col.valueY * s)
+    ctx.restore()
+    ctx.save()
+    ctx.fillStyle = paint(config.dateTextColor, 0.65)
+    ctx.font = fontStr(400, unitSize * s, config.fontFamily)
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'top'
+    ctx.fillText(p.u, ox + (col.x + col.w / 2) * s, ox + col.unitY * s)
+    ctx.restore()
+  }
+  for (const d of L.dividers) {
+    ctx.save()
+    ctx.fillStyle = paint(null, 0.25)
+    ctx.fillRect(ox + d.x * s, ox + d.y * s, s, d.h * s)
+    ctx.restore()
+  }
+  void logo
+}
+
 /** vertical 竖排装裱绘制（infoLayout='vertical'）：文字旋转 90° 沿照片左缘自上而下竖排。
  *  列几何与 computeVerticalLayout 同源；文字用 rotate(90°) 绘制——本地 +x（行进方向）映射到
  *  屏幕 +y（向下），textBaseline='top' 的字形主体（本地 +y）映射到屏幕 -x（向左），
@@ -342,6 +438,11 @@ async function drawFooter(
   // vertical 竖排装裱：文字旋转 90° 沿照片左缘竖排（独立绘制路径）
   if (config.infoLayout === 'vertical') {
     drawVerticalFooter(ctx, config, unitScale, contentOX, canvasHpx)
+    return
+  }
+  // poster 海报参数表：机型/标语 + 四栏参数表（独立绘制路径）
+  if (config.infoLayout === 'poster') {
+    drawPosterFooter(ctx, config, unitScale, logo, contentOX, canvasHpx)
     return
   }
   // magazine 杂志编辑：顶部标题区 + 取色色卡 + 右侧信息块

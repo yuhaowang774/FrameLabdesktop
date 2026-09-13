@@ -8,7 +8,7 @@
 import type { FrameConfig } from './types'
 import { defaultFrameConfig } from './types'
 import { DESIGN_CONTAINER, phoneBrandOf } from './constants'
-import { computeFooterLayout, computeMagazineLayout, computeCardLayout, computeVerticalLayout, magazineTitleFontSize, measureTextWidth, cardThemeColors, cardBadgeColors, CARD_RADIUS, CARD_BADGE_FONT_SIZE, MAG_SUB_SIZE, MAG_SWATCH_COUNT, MAG_SWATCH_W, MAG_SWATCH_H, CLASSIC_SIDE_INSET, CLASSIC_ROW_GAP, LENS_LINE_GAP } from './infoLayout'
+import { computeFooterLayout, computeMagazineLayout, computeCardLayout, computeVerticalLayout, computePosterLayout, magazineTitleFontSize, measureTextWidth, cardThemeColors, cardBadgeColors, CARD_RADIUS, CARD_BADGE_FONT_SIZE, MAG_SUB_SIZE, MAG_SWATCH_COUNT, MAG_SWATCH_W, MAG_SWATCH_H, CLASSIC_SIDE_INSET, CLASSIC_ROW_GAP, LENS_LINE_GAP } from './infoLayout'
 import { footerTextColor, logoAutoColor, hexLuminance } from './colorUtils'
 import { exportFrame } from './exporter'
 import type { ImgSource } from './bgRenderer'
@@ -154,6 +154,9 @@ export function templateThumbSvg(config: Partial<FrameConfig>, opts: ThumbOption
     if (c.showPalette) {
       for (let i = 0; i < MAG_SWATCH_COUNT; i++) {
         infoContent += `<rect x="${r2(layout.palette.x + i * MAG_SWATCH_W)}" y="${r2(layout.palette.y)}" width="${r2(MAG_SWATCH_W)}" height="${r2(MAG_SWATCH_H)}" fill="${FALLBACK_PALETTE[i % FALLBACK_PALETTE.length]}"/>`
+        if (c.paletteHex) {
+          infoContent += `<text x="${r2(layout.palette.x + i * MAG_SWATCH_W + MAG_SWATCH_W / 2)}" y="${r2(layout.palette.y + MAG_SWATCH_H + 11)}" font-size="9" text-anchor="middle" fill="${text}" opacity="0.6">${FALLBACK_PALETTE[i % FALLBACK_PALETTE.length].toUpperCase()}</text>`
+        }
       }
     }
     if (c.showCameraModel) infoContent += bar(layout.model.x - modelW, layout.model.y, c.cameraModelSize, modelW, c.cameraModelOpacity, text)
@@ -199,6 +202,22 @@ export function templateThumbSvg(config: Partial<FrameConfig>, opts: ThumbOption
     if (c.showExif) infoContent += vbar(layout.exif.x, layout.exif.y, c.fontSize, exifW, c.textOpacity)
     if (c.showLens && c.lensText) infoContent += vbar(layout.lens.x, layout.lens.y, c.fontSize, lensW, c.textOpacity)
     if (c.showDate) infoContent += vbar(layout.date.x, layout.date.y, c.dateFontSize ?? c.fontSize, dateW, c.dateTextOpacity ?? c.textOpacity)
+  } else if (c.infoLayout === 'poster') {
+    // poster：复用 computePosterLayout 共享计算（机型/标语居中条 + 四栏数值/单位条 + 分隔线）。
+    // jsdom 无 canvas 时列宽实测为 0，各列收拢中轴——结构仍在，真实宽度以浏览器为准。
+    const layout = computePosterLayout(
+      { ...c, exifText: DEMO.exif, dateText: DEMO.date, cameraModel: DEMO.model, lensText: DEMO.lens },
+      canvasH - pad - bgExpand,
+    )
+    if (c.showCameraModel) infoContent += bar(r2(pad + bgExpand + layout.model.x - modelW / 2), r2(pad + bgExpand + layout.model.y), c.cameraModelSize, modelW, c.cameraModelOpacity, text)
+    if (layout.title && c.infoTitle) infoContent += bar(r2(pad + bgExpand + layout.title.x - 60), r2(pad + bgExpand + layout.title.y), 20, 120, 0.9, text)
+    for (const col of layout.cols) {
+      infoContent += bar(r2(pad + bgExpand + col.x), r2(pad + bgExpand + col.valueY), c.fontSize, col.w, c.textOpacity, text)
+      infoContent += bar(r2(pad + bgExpand + col.x), r2(pad + bgExpand + col.unitY), Math.round(c.fontSize * 0.62), col.w, 0.55, text)
+    }
+    for (const d of layout.dividers) {
+      infoContent += `<rect x="${r2(pad + bgExpand + d.x)}" y="${r2(pad + bgExpand + d.y)}" width="1" height="${r2(d.h)}" fill="${text}" opacity="0.25"/>`
+    }
   } else {
     // classic：与 computeClassicLayout 完全同构——自底向上 日期 → EXIF 块(含镜头行) → 型号 → Logo，
     // 只为显示行占位，行距 CLASSIC_ROW_GAP，镜头行以 LENS_LINE_GAP 附在参数行下；水平对齐跟随 overlayAlign
@@ -358,6 +377,8 @@ export function buildDemoConfig(config: Partial<FrameConfig>, info?: ThumbInfoOv
     cameraModel: info?.cameraModel ?? DEMO.model,
     lensText: info?.lensText ?? DEMO.lens,
     brand: info?.brand ?? 'sony',
+    // 示意原始字段：poster 参数表与 infoLayer {gps} 等占位符在无真实照片时也有值可渲染
+    exifRaw: config.exifRaw ?? { focalLength: 16, fNumber: 2.8, exposureTime: 1 / 250, iso: 100 },
   }
 }
 

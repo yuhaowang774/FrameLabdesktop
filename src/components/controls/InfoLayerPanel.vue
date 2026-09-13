@@ -230,6 +230,7 @@ async function onCreateTextLogo() {
         <option value="card">手机白底卡</option>
         <option value="magazine">杂志编辑</option>
         <option value="vertical">竖排装裱</option>
+        <option value="poster">海报参数表</option>
       </select>
     </div>
     <!-- 信息位置锚点：classic / inline 可选贴底或贴顶（报头式）；duo/card/magazine/vertical 有自有几何不响应 -->
@@ -273,6 +274,10 @@ async function onCreateTextLogo() {
       <div class="field checkbox-field">
         <label>取色色卡</label>
         <input type="checkbox" v-model="state.showPalette" />
+      </div>
+      <div class="field checkbox-field">
+        <label>色卡色号</label>
+        <input type="checkbox" v-model="state.paletteHex" />
       </div>
       <p class="mag-hint">杂志布局需要较大上边留白（建议 ≥120）容纳标题区，下边留白容纳色卡与信息。</p>
     </template>
