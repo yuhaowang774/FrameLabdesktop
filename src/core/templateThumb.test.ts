@@ -104,10 +104,10 @@ describe('内置模板清单', () => {
     ])
   })
 
-  it('扩充批模板全部就位（共 40 套）且每套带分组标签', () => {
+  it('扩充批模板全部就位（共 49 套）且每套带分组标签', () => {
     const { templates } = useTemplates()
     const builtin = templates.filter((t) => t.builtin)
-    expect(builtin.length).toBe(40)
+    expect(builtin.length).toBe(49)
     for (const t of builtin) {
       expect(t.group, `${t.id} 缺少分组`).toBeTruthy()
       expect(t.desc, `${t.id} 缺少一句话说明`).toBeTruthy()

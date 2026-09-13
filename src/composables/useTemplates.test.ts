@@ -111,12 +111,12 @@ describe('applyTemplateToState 层显示开关保留', () => {
 })
 
 describe('内置模板清单结构校验', () => {
-  it('40 套内置模板：id 唯一、名称非空、config 经 sanitize 无损往返', () => {
+  it('49 套内置模板：id 唯一、名称非空、config 经 sanitize 无损往返', () => {
     const { templates, toTemplateConfig } = useTemplates()
     const builtin = templates.filter((t) => t.builtin)
-    expect(builtin.length).toBe(40)
+    expect(builtin.length).toBe(49)
     const ids = new Set(builtin.map((t) => t.id))
-    expect(ids.size).toBe(40)
+    expect(ids.size).toBe(49)
     for (const t of builtin) {
       expect(t.name.trim().length).toBeGreaterThan(0)
       expect(t.category).toBe('frame')
@@ -166,7 +166,10 @@ describe('全量内置模板应用冒烟（40 套逐套过真实应用链路）'
     const { state, loadConfig } = useFrameConfig()
     loadConfig({ exifRaw: RAW, canvasH: 920 })
     for (const t of builtin) applyTemplateToState(t.config)
-    // 连续切换后仍处于合法状态（收尾为最后一套：报头式·顶部题注）
+    // 收尾应用报头式·顶部题注：状态处于顶锚 classic 且可渲染
+    const masthead = templates.find((t) => t.id === 'm_masthead_top')
+    expect(masthead).toBeTruthy()
+    applyTemplateToState(masthead!.config)
     expect(state.infoLayout).toBe('classic')
     expect(state.overlayAnchor).toBe('top')
     expect(state.canvasH).toBeGreaterThan(0)

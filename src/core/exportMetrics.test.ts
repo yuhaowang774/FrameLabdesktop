@@ -68,8 +68,8 @@ describe('全量内置模板导出度量冒烟（40 套 × 3 类源图，几何�
   // 模拟导入时的 canvasH 初始化：照片设计高(800) + 上 pad + 下 pad+borderRatio（自由模式语义）
   const CANVAS_H = 800 + 60 + 60
 
-  it('模板数量仍为 40（与 useTemplates 测试互为对照）', () => {
-    expect(builtin.length).toBe(40)
+  it('模板数量仍为 49（与 useTemplates 测试互为对照）', () => {
+    expect(builtin.length).toBe(49)
   })
 
   for (const src of SOURCES) {
