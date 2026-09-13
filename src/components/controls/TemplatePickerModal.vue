@@ -1,12 +1,14 @@
 <!-- src/components/controls/TemplatePickerModal.vue -->
 <script setup lang="ts">
-// 模板选择弹窗：左＝模板网格（内置/自定义分组），右＝当前照片+模板实时合成预览。
-// 点击卡片即应用（applyTemplateToState）并保持弹窗打开，便于连续对比；底部「完成」/×/Esc/遮罩关闭。
+// 模板选择弹窗（2026-09-13 改版）：左侧分类侧栏（最近使用/我的模板/风格九组）+ 4 列瀑布流
+// 卡片网格（按模板真实比例展示）+ 底部操作栏（当前模板信息 + 批量应用 + 完成）。
+// 无右栏大预览（设计决策见 AGENTS.md）：点击卡片即实时应用并保持弹窗打开，hover 浮层
+// 显示名称/说明，底部操作栏跟随 hover/选中动态提示。卡片缩略图用当前照片真实合成
+// （photoSrc 缺省走内置示例图），与实际应用效果一致。
+// 界面不使用彩色 Emoji（AGENTS.md UI 设计要求），图标用纯文本符号。
 import { ref, computed, reactive, watch, onMounted, onBeforeUnmount } from 'vue'
-import { useTemplates, applyTemplateToState } from '../../composables/useTemplates'
-import { applyTemplateToPhotos } from '../../composables/useHistory'
+import { useTemplates, applyTemplateToState, recordRecentUsage } from '../../composables/useTemplates'
 import { useAppState } from '../../composables/useAppState'
-import { useLibrary } from '../../composables/useLibrary'
 import { useFrameConfig } from '../../composables/useFrameConfig'
 import { templateThumbDataUrl, renderTemplateThumbDataUrl, type ThumbInfoOverride } from '../../core/templateThumb'
 import type { ImgSource } from '../../core/bgRenderer'
@@ -28,7 +30,6 @@ const emit = defineEmits<{ 'update:modelValue': [value: boolean] }>()
 
 const templates = useTemplates()
 const app = useAppState()
-const library = useLibrary()
 const { state } = useFrameConfig()
 
 const list = computed(() => {
@@ -36,6 +37,82 @@ const list = computed(() => {
   return props.category === 'frame'
     ? templates.templates.filter((t) => t.category === 'frame' || t.category === 'all')
     : templates.templates.filter((t) => t.category === props.category)
+})
+
+// ===== 视图状态：侧栏分类（recent / custom / all / 组名）+ 搜索 =====
+// 界面不使用彩色 Emoji（AGENTS.md）：搜索框无图标，用途由 placeholder 表达。
+const TEMPLATE_GROUPS = ['经典', '极简轻量', '杂志编辑', '胶片复古', '暗调影廊', '联名卡', '社交尺寸', '水印署名', '创意排版'] as const
+type SideView = 'recent' | 'custom' | 'all' | (typeof TEMPLATE_GROUPS)[number]
+const activeView = ref<SideView>('all')
+const search = ref('')
+
+const customAll = computed(() => list.value.filter((t) => !t.builtin))
+const builtinAll = computed(() => list.value.filter((t) => t.builtin))
+const groupCounts = computed<Record<string, number>>(() => {
+  const counts: Record<string, number> = {}
+  for (const t of builtinAll.value) {
+    if (t.group) counts[t.group] = (counts[t.group] ?? 0) + 1
+  }
+  return counts
+})
+
+const filtered = computed(() => {
+  let out: typeof list.value
+  if (props.customOnly || activeView.value === 'custom') {
+    out = customAll.value
+  } else if (activeView.value === 'recent') {
+    const order = new Map(templates.recentIds.map((id, i) => [id, i]))
+    out = builtinAll.value
+      .filter((t) => order.has(t.id))
+      .sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0))
+  } else if (activeView.value !== 'all') {
+    out = builtinAll.value.filter((t) => t.group === activeView.value)
+  } else {
+    out = list.value
+  }
+  const q = search.value.trim().toLowerCase()
+  if (q) {
+    out = out.filter((t) => t.name.toLowerCase().includes(q) || (t.desc ?? '').toLowerCase().includes(q))
+  }
+  return out
+})
+
+/** 主区分区：全部视图 = 内置 + 我的模板两段；其余视图单段 */
+const sections = computed(() => {
+  if (props.customOnly || activeView.value === 'custom') {
+    return [{ key: 'custom', title: '我的模板', items: filtered.value }]
+  }
+  if (activeView.value === 'recent') {
+    return [{ key: 'recent', title: '最近使用', items: filtered.value }]
+  }
+  if (activeView.value !== 'all') {
+    return [{ key: activeView.value, title: activeView.value, items: filtered.value }]
+  }
+  const builtin = filtered.value.filter((t) => t.builtin)
+  const custom = filtered.value.filter((t) => !t.builtin)
+  const out: Array<{ key: string; title: string; items: typeof list.value }> = []
+  if (builtin.length) out.push({ key: 'builtin', title: '全部模板', items: builtin })
+  if (custom.length) out.push({ key: 'custom', title: '我的模板', items: custom })
+  return out
+})
+
+const emptyText = computed(() => {
+  if (search.value.trim()) return '没有匹配的模板，换个分类或关键词试试。'
+  if (activeView.value === 'recent') return '还没有最近使用的模板，点击应用后会出现在这里。'
+  if (props.customOnly || activeView.value === 'custom') return '还没有自定义模板。调好样式后点上方按钮保存。'
+  return '暂无模板。'
+})
+
+// ===== 选中 / hover：底部操作栏动态提示（hover 优先，回退选中，回退默认文案） =====
+const selectedId = ref<string | null>(null)
+const hoveredId = ref<string | null>(null)
+const selected = computed(() => templates.templates.find((t) => t.id === selectedId.value) ?? null)
+const hovered = computed(() => templates.templates.find((t) => t.id === hoveredId.value) ?? null)
+const hintTemplate = computed(() => hovered.value ?? selected.value)
+const footHint = computed(() => {
+  const t = hintTemplate.value
+  if (!t) return '点击卡片即应用模板并返回编辑界面'
+  return `当前模板：${t.name} — ${t.desc ?? '自定义模板'}`
 })
 
 // ===== 保存当前配置为模板（customOnly 模式：保存表单内嵌弹窗顶部） =====
@@ -52,25 +129,48 @@ function onSaveCurrent() {
   clearTimeout(tipTimer)
   tipTimer = setTimeout(() => (savedTip.value = ''), 2500)
 }
-const builtinList = computed(() => list.value.filter((t) => t.builtin))
-const customList = computed(() => list.value.filter((t) => !t.builtin))
 
-const selectedId = ref<string | null>(null)
-const selected = computed(
-  () =>
-    list.value.find((t) => t.id === selectedId.value) ??
-    (props.customOnly ? null : builtinList.value[0]) ??
-    null,
-)
-// desc 字段由后续任务加入 FrameTemplate；此处防御式读取避免类型错误
-const selectedDesc = computed(() => {
-  const raw = (selected.value as { desc?: string } | null)?.desc
-  return raw || '自定义模板（导出/导入保存的参数预设）'
-})
+// ===== 模板包：自定义模板批量导入 / 全部导出（.json，kind=frame-template-pack）=====
+const packInput = ref<HTMLInputElement | null>(null)
+const packTip = ref('')
+let packTipTimer: ReturnType<typeof setTimeout> | undefined
+function showPackTip(msg: string) {
+  packTip.value = msg
+  clearTimeout(packTipTimer)
+  packTipTimer = setTimeout(() => (packTip.value = ''), 3000)
+}
+function onPickPackFile() {
+  packInput.value?.click()
+}
+async function onPackFileChange(e: Event) {
+  const input = e.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = '' // 允许连续导入同一文件
+  if (!file) return
+  const text = await file.text()
+  const res = templates.importJson(text)
+  if (res.ok) {
+    showPackTip(`已导入 ${res.count ?? 0} 个模板，点击卡片即可应用`)
+  } else {
+    showPackTip(`导入失败：${res.error ?? '未知错误'}`)
+  }
+}
+function onExportPack() {
+  const customCount = templates.templates.filter((t) => !t.builtin).length
+  if (!customCount) return
+  const json = templates.exportPack()
+  const blob = new Blob([json], { type: 'application/json' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `framelab-templates-${new Date().toISOString().slice(0, 10)}.json`
+  a.click()
+  URL.revokeObjectURL(url)
+  showPackTip(`已导出 ${customCount} 个模板`)
+}
 
 // 网格缩略图：SVG 即时占位 → 用「当前选中照片 + 模板」真实合成（photoSrc 缺省走内置示例图）。
-// 照片切换（photoSrc）或 INFO 文本变化（previewInfo，与大预览同源）时重渲，
-// 保证缩略图与右侧大预览、实际应用效果一致（此前网格固定用示意 INFO 文本，与实际不符）。
+// 照片切换（photoSrc）或 INFO 文本变化（previewInfo，与大网格同源）时重渲。
 const thumbs = reactive<Record<string, string>>({})
 const prevThumbSrc = ref<null | string>(null)
 const prevThumbInfo = ref<ThumbInfoOverride | null | undefined>(null)
@@ -99,8 +199,7 @@ async function photoDrawableSrc(src: string | null): Promise<string | ImgSource 
 }
 
 // 当前照片的真实 INFO（exifText/dateText/cameraModel/lensText/brand，可留空）：
-// 网格缩略图与右栏大预览共用，保证「缩略图 = 大预览 = 实际应用效果」三处一致。
-// 声明须在下方网格缩略图 watch 之前（其 immediate 回调会立即读取本值）。
+// 缩略图与实际应用效果一致。声明须在下方网格缩略图 watch 之前（其 immediate 回调会立即读取本值）。
 const previewInfo = computed<ThumbInfoOverride | undefined>(() => {
   const has = state.exifText || state.dateText || state.cameraModel || state.lensText
   return has
@@ -133,7 +232,7 @@ watch(
       void (async () => {
         try {
           const ds = await photoDrawableSrc(src)
-          const url = await renderTemplateThumbDataUrl(t.config, ds, 480, info)
+          const url = await renderTemplateThumbDataUrl(t.config, ds, 640, info)
           if (seq === thumbSeq) thumbs[t.id] = url
         } catch {
           /* templateThumb 已内建 SVG 兜底 */
@@ -145,7 +244,7 @@ watch(
 )
 
 // 审查报告 U15：剔除已删除模板的缩略图缓存（其它入口删除 / 导入覆盖后的残留，
-// 组件常驻左栏、长期累积）
+// 组件常驻左栏、长期累积）。以完整模板清单为准（视图切换不触发重渲）。
 watch(
   () => list.value.map((t) => t.id),
   (ids) => {
@@ -156,48 +255,15 @@ watch(
   },
 )
 
-// 右栏大预览：选中模板 + 当前编辑照片合成（photoSrc 缺省时走内置示例图）。
-// INFO 复用上方 previewInfo（当前照片真实内容），
-// 点击卡片应用后 state 回填真实信息 → watch 依赖 info 实时重渲，预览即「应用后效果」。
-const previewId = ref<string | null>(null)
-const previewUrl = ref('')
-watch(
-  () => [selected.value?.id, previewInfo.value, state.photoSrc] as const,
-  () => {
-    const t = selected.value
-    if (!t) return
-    previewId.value = t.id
-    // 静默换图：已有预览图时保留旧图作底，重渲完成后直接替换，避免 SVG 占位闪烁
-    if (!previewUrl.value || previewUrl.value.startsWith('data:image/svg')) {
-      previewUrl.value = templateThumbDataUrl(t.config)
-    }
-    void (async () => {
-      try {
-        const photoSrc = await photoDrawableSrc(state.photoSrc || null)
-        const url = await renderTemplateThumbDataUrl(t.config, photoSrc, 960, previewInfo.value)
-        if (previewId.value === t.id) previewUrl.value = url
-      } catch {
-        // 渲染异常：回退 SVG 示意图，避免停留在上一个模板的旧图上
-        if (previewId.value === t.id) previewUrl.value = templateThumbDataUrl(t.config)
-      }
-    })()
-  },
-  { immediate: true }, // 打开弹窗即渲染默认选中模板（内置第一项）的大预览
-)
-
-// ===== 应用 / 批量 / 删除 =====
+// ===== 应用 / 删除 =====
 const missingOpen = ref(false)
 const missingMsg = ref('')
-
-const batchTargets = computed(() => {
-  const sel = library.items.filter((i) => i.selected)
-  return sel.length > 0 ? sel : library.items
-})
 
 function selectAndApply(t: { id: string }) {
   const found = templates.templates.find((x) => x.id === t.id)
   if (!found) return
   selectedId.value = t.id
+  recordRecentUsage(t.id)
   const missing = applyTemplateToState(found.config)
   app.state.rightOpen = true
   app.setPanel('right', 'background', true)
@@ -206,21 +272,9 @@ function selectAndApply(t: { id: string }) {
     missingMsg.value = `当前照片未识别到以下 INFO 信息：${missing.join('、')}。已用「自定义」占位，可在右侧 INFO 面板手动填写。`
     missingOpen.value = true
   }
-}
-
-async function applyBatch(t: { id: string; name: string }) {
-  const found = templates.templates.find((x) => x.id === t.id)
-  if (!found) return
-  const ids = batchTargets.value.map((i) => i.id)
-  if (!ids.length) return
-  const anyMissing = await applyTemplateToPhotos(ids, found.config, `应用模板「${found.name}」`)
-  app.state.rightOpen = true
-  app.setPanel('right', 'background', true)
-  app.setPanel('right', 'border', true)
-  if (anyMissing) {
-    missingMsg.value = '部分照片未识别到 EXIF / 镜头 / 日期等信息，已用「自定义」占位，可在编辑页右侧 INFO 面板逐张手动填写。'
-    missingOpen.value = true
-  }
+  // 用户流程（2026-09-13）：点击模板即应用并直接返回编辑界面，不停留在弹窗；
+  // INFO 缺失提示弹窗挂在组件根（弹窗外层），关闭模板库后仍会正常弹出。
+  close()
 }
 
 function removeCustom(t: { id: string }) {
@@ -255,6 +309,7 @@ onMounted(() => window.addEventListener('keydown', onKeydown))
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKeydown)
   clearTimeout(tipTimer)
+  clearTimeout(packTipTimer)
 })
 </script>
 
@@ -263,14 +318,67 @@ onBeforeUnmount(() => {
     <div v-if="modelValue" class="tp-mask" @click.self="close">
       <div class="tp-modal">
         <div class="tp-head">
+          <button class="tp-back" title="返回编辑 (Esc)" @click="close">←</button>
           <span class="tp-title">{{ props.title || '相框模板库' }}</span>
-          <span class="tp-count" v-if="list.length">共 {{ list.length }} 套</span>
-          <button class="tp-close" title="关闭 (Esc)" @click="close">✕</button>
+          <input
+            v-model="search"
+            class="tp-search"
+            type="text"
+            placeholder="搜索模板名称 / 说明…"
+            maxlength="30"
+          />
+          <span class="tp-count" v-if="filtered.length">共 {{ filtered.length }} 套</span>
         </div>
 
+        <!-- 隐藏的模板包文件选择器（放 v-for 外，避免 ref 变数组；按钮在「我的模板」分区头） -->
+        <input
+          ref="packInput"
+          type="file"
+          accept=".json,application/json"
+          class="tp-pack-input"
+          @change="onPackFileChange"
+        />
+
         <div class="tp-body">
-          <!-- 左：模板网格 -->
-          <div class="tp-col tp-grid-col">
+          <!-- 左：分类侧栏（customOnly 模式无侧栏） -->
+          <div v-if="!customOnly" class="tp-side">
+            <div class="tp-cap">工作区</div>
+            <button
+              class="tp-item"
+              :class="{ active: activeView === 'recent' }"
+              @click="activeView = activeView === 'recent' ? 'all' : 'recent'"
+            >
+              <span class="tp-item-n">最近使用</span>
+              <span v-if="templates.recentIds.length" class="tp-item-c">{{ templates.recentIds.length }}</span>
+            </button>
+            <button
+              class="tp-item"
+              :class="{ active: activeView === 'custom' }"
+              @click="activeView = activeView === 'custom' ? 'all' : 'custom'"
+            >
+              <span class="tp-item-n">我的模板</span>
+              <span v-if="customAll.length" class="tp-item-c">{{ customAll.length }}</span>
+            </button>
+            <div class="tp-sep" />
+            <div class="tp-cap">风格分类</div>
+            <button class="tp-item" :class="{ active: activeView === 'all' }" @click="activeView = 'all'">
+              <span class="tp-item-n">全部</span>
+              <span class="tp-item-c">{{ builtinAll.length || '' }}</span>
+            </button>
+            <button
+              v-for="g in TEMPLATE_GROUPS"
+              :key="g"
+              class="tp-item"
+              :class="{ active: activeView === g }"
+              @click="activeView = activeView === g ? 'all' : g"
+            >
+              <span class="tp-item-n">{{ g }}</span>
+              <span class="tp-item-c">{{ groupCounts[g] || '' }}</span>
+            </button>
+          </div>
+
+          <!-- 中：瀑布流网格 -->
+          <div class="tp-main">
             <!-- 我的模板模式：顶部内嵌「保存当前配置」表单 -->
             <div v-if="customOnly" class="tp-save">
               <input
@@ -282,70 +390,59 @@ onBeforeUnmount(() => {
               />
               <button class="tp-save-btn" @click="onSaveCurrent">保存当前配置</button>
             </div>
-            <p v-if="customOnly && savedTip" class="tp-save-tip">{{ savedTip }}</p>
-            <p v-if="list.length === 0" class="tp-empty">
-              {{ customOnly ? '还没有自定义模板。调好样式后点上方按钮保存。' : '暂无模板。' }}
-            </p>
-            <template v-else>
-              <h4 class="tp-group" v-if="!customOnly && builtinList.length">内置模板（{{ builtinList.length }}）</h4>
-              <div class="tp-grid">
-                <div
-                  v-for="t in builtinList"
-                  :key="t.id"
-                  class="tp-card"
-                  :class="{ active: selected?.id === t.id }"
-                  @click="selectAndApply(t)"
-                >
-                  <img class="tp-card-thumb" :src="thumbs[t.id]" :alt="t.name" draggable="false" />
-                  <div class="tp-card-meta">
-                    <span class="tp-card-name">{{ t.name }}</span>
-                    <span class="tp-card-desc" v-if="t.desc">{{ t.desc }}</span>
-                    <span class="tp-card-batch" title="批量应用到选中照片（无选中=全部）" @click.stop="applyBatch(t)">⇉</span>
-                  </div>
-                </div>
-              </div>
-              <h4 class="tp-group" v-if="customList.length">我的模板（{{ customList.length }}）</h4>
-              <div class="tp-grid">
-                <div
-                  v-for="t in customList"
-                  :key="t.id"
-                  class="tp-card"
-                  :class="{ active: selected?.id === t.id }"
-                  @click="selectAndApply(t)"
-                >
-                  <img class="tp-card-thumb" :src="thumbs[t.id]" :alt="t.name" draggable="false" />
-                  <div class="tp-card-meta">
-                    <span class="tp-card-name">{{ t.name }}</span>
-                    <span class="tp-card-desc tp-card-desc-custom">自定义模板</span>
-                    <span class="tp-card-ren" title="重命名" @click.stop="askRename(t)">✎</span>
-                    <span class="tp-card-del" title="删除该模板" @click.stop="removeCustom(t)">✕</span>
-                  </div>
-                </div>
-              </div>
-            </template>
-          </div>
+            <p v-if="customOnly && savedTip" class="tp-pack-tip">{{ savedTip }}</p>
 
-          <!-- 右：大预览 -->
-          <div class="tp-col tp-preview-col">
-            <template v-if="selected">
-              <div class="tp-preview-box">
-                <img class="tp-preview-img" :src="previewUrl" :alt="selected.name" draggable="false" />
-              </div>
-              <div class="tp-preview-meta">
-                <div class="tp-preview-name">{{ selected.name }}</div>
-                <div class="tp-preview-desc">{{ selectedDesc }}</div>
-              </div>
-              <button class="btn batch-main" :disabled="batchTargets.length === 0" @click="applyBatch(selected)">
-                ⇉ 批量应用到 {{ batchTargets.length ? batchTargets.length : '全部' }} 张
-              </button>
+            <p v-if="sections.length === 0" class="tp-empty">{{ emptyText }}</p>
+            <template v-else>
+              <section v-for="sec in sections" :key="sec.key" class="tp-sec">
+                <div class="tp-sec-head">
+                  <h3 class="tp-sec-title">{{ sec.title }}</h3>
+                  <span class="tp-sec-count">{{ sec.items.length }} 套</span>
+                  <template v-if="sec.key === 'custom'">
+                    <button class="tp-sec-btn" title="从 .json 模板包批量导入（单模板或打包文件均可）" @click="onPickPackFile">
+                      导入
+                    </button>
+                    <button
+                      class="tp-sec-btn"
+                      :disabled="!customAll.length"
+                      title="把全部自定义模板打包导出为一个 .json 模板包"
+                      @click="onExportPack"
+                    >
+                      导出全部
+                    </button>
+                  </template>
+                  <span v-if="sec.key !== 'custom'" class="tp-sec-hint">点击卡片即应用并返回编辑</span>
+                </div>
+                <div class="tp-masonry">
+                  <div
+                    v-for="t in sec.items"
+                    :key="t.id"
+                    class="tp-card"
+                    :class="{ sel: selectedId === t.id }"
+                    :data-id="t.id"
+                    @click="selectAndApply(t)"
+                    @mouseenter="hoveredId = t.id"
+                    @mouseleave="hoveredId = hoveredId === t.id ? null : hoveredId"
+                  >
+                    <img class="tp-card-thumb" :src="thumbs[t.id]" :alt="t.name" draggable="false" />
+                    <span v-if="selectedId === t.id" class="tp-card-tag">当前</span>
+                    <span v-if="!t.builtin" class="tp-card-ren" title="重命名" @click.stop="askRename(t)">✎</span>
+                    <span v-if="!t.builtin" class="tp-card-del" title="删除该模板" @click.stop="removeCustom(t)">✕</span>
+                    <div class="tp-card-ov">
+                      <span class="tp-card-name">{{ t.name }}</span>
+                      <span class="tp-card-desc">{{ t.desc || '自定义模板' }}</span>
+                    </div>
+                  </div>
+                </div>
+              </section>
             </template>
-            <p v-else class="tp-preview-empty">暂无模板可选</p>
           </div>
         </div>
 
+        <!-- 底部操作栏：当前模板动态提示（关闭 = 右上角 ✕ 或 Esc，无「完成」按钮） -->
         <div class="tp-foot">
-          <span class="tp-hint">点击卡片即实时应用到当前照片，可对比挑选</span>
-          <button class="btn tp-done" @click="close">完成</button>
+          <span class="tp-hint">{{ footHint }}</span>
+          <p v-if="packTip" class="tp-foot-tip">{{ packTip }}</p>
         </div>
       </div>
     </div>
@@ -373,102 +470,196 @@ onBeforeUnmount(() => {
   background: rgba(0, 0, 0, 0.6);
   display: flex; align-items: center; justify-content: center;
 }
+/* 全窗化（用户要求）：弹窗与软件界面同大，铺满整个应用窗口 */
 .tp-modal {
-  width: min(1120px, 94vw); height: min(720px, 94vh);
+  width: 100%; height: 100%;
   display: flex; flex-direction: column;
-  background: var(--panel); border: 1px solid var(--border);
-  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.45);
+  background: var(--panel); border: none; box-shadow: none;
   color: var(--text); border-radius: 0;
 }
+/* 细滚动条（暗色），侧栏与主区共用 */
+.tp-side::-webkit-scrollbar, .tp-main::-webkit-scrollbar { width: 10px; }
+.tp-side::-webkit-scrollbar-track, .tp-main::-webkit-scrollbar-track { background: transparent; }
+.tp-side::-webkit-scrollbar-thumb, .tp-main::-webkit-scrollbar-thumb {
+  background: var(--border); border-radius: 5px; border: 2px solid transparent; background-clip: content-box;
+}
+.tp-side::-webkit-scrollbar-thumb:hover, .tp-main::-webkit-scrollbar-thumb:hover { background: var(--text-num); background-clip: content-box; }
+
+/* ===== 顶栏 ===== */
 .tp-head {
-  display: flex; align-items: center; gap: 10px;
-  height: 40px; padding: 0 14px;
+  display: flex; align-items: center; gap: 12px;
+  height: 52px; padding: 0 18px;
   border-bottom: 1px solid var(--border); flex: none;
 }
-.tp-title { flex: 1; font-size: 14px; font-weight: 500; }
-.tp-count { font-size: 12px; color: var(--text-dim); }
-.tp-close {
-  width: 26px; height: 26px; cursor: pointer;
-  background: transparent; border: 1px solid transparent;
-  color: var(--text-dim); font-size: 13px; line-height: 24px;
+.tp-back {
+  width: 32px; height: 32px; cursor: pointer;
+  background: transparent; border: none; border-radius: 8px;
+  color: var(--text-dim); font-size: 17px; line-height: 30px;
+  transition: background 0.12s, color 0.12s;
 }
-.tp-close:hover { background: var(--hover); color: var(--text); }
-.tp-body { flex: 1; display: grid; grid-template-columns: 2fr 5fr; min-height: 0; }
-.tp-col { min-height: 0; overflow-y: auto; padding: 12px; }
-.tp-grid-col { border-right: 1px solid var(--border); }
-.tp-group {
-  margin: 4px 0 8px; font-size: 12px; font-weight: 400;
-  color: var(--text-dim); letter-spacing: 0;
+.tp-back:hover { background: var(--hover); color: var(--text); }
+.tp-title { font-size: 15px; font-weight: 600; letter-spacing: 0.5px; }
+.tp-search {
+  flex: 1; max-width: 400px; margin-left: auto; height: 30px; padding: 0 12px;
+  border: 1px solid var(--border); border-radius: 8px; background: var(--shell);
+  color: var(--text); font-size: 12.5px; font-family: inherit;
+  transition: border-color 0.12s, box-shadow 0.12s;
 }
-.tp-grid { display: grid; grid-template-columns: repeat(1, minmax(0, 1fr)); gap: 10px; margin-bottom: 14px; }
+.tp-search:focus {
+  outline: none; border-color: var(--slider-thumb);
+  box-shadow: 0 0 0 2px rgba(167, 171, 178, 0.18);
+}
+.tp-search::placeholder { color: var(--text-num); }
+.tp-count {
+  flex: none; font-size: 11.5px; color: var(--text-num);
+  background: var(--shell); border: 1px solid var(--border);
+  border-radius: 10px; padding: 2px 10px;
+}
+
+/* ===== 主体：侧栏 + 瀑布流 ===== */
+.tp-body { flex: 1; display: flex; min-height: 0; }
+/* —— 左：分类侧栏 —— */
+.tp-side {
+  flex: none; width: 184px; background: var(--shell);
+  border-right: 1px solid var(--border); overflow-y: auto; padding: 12px 8px 16px;
+}
+.tp-cap {
+  padding: 8px 12px 6px; font-size: 10.5px; color: var(--text-num);
+  letter-spacing: 1.5px; user-select: none;
+}
+.tp-item {
+  position: relative; display: flex; align-items: center; gap: 8px;
+  width: 100%; height: 34px; padding: 0 12px 0 16px; margin-bottom: 2px;
+  font-size: 13px; color: var(--text-dim); font-family: inherit;
+  background: transparent; border: none; border-radius: 8px; cursor: pointer; text-align: left;
+  transition: background 0.12s, color 0.12s;
+}
+.tp-item:hover { background: var(--hover); color: var(--text); }
+.tp-item.active { background: var(--accent); color: #fff; }
+.tp-item.active::before {
+  content: ''; position: absolute; left: 5px; top: 9px; bottom: 9px; width: 3px;
+  border-radius: 2px; background: var(--slider-thumb);
+}
+.tp-item-n { flex: 1; }
+.tp-item-c {
+  flex: none; min-width: 22px; text-align: center;
+  font-size: 10.5px; color: var(--text-num);
+  background: rgba(255, 255, 255, 0.07); border-radius: 9px; padding: 1px 7px;
+}
+.tp-item.active .tp-item-c { color: #fff; background: rgba(255, 255, 255, 0.16); }
+.tp-sep { height: 1px; background: var(--border); margin: 10px 10px; }
+
+/* —— 中：瀑布流 —— */
+.tp-main { flex: 1; min-width: 0; overflow-y: auto; padding: 16px 18px 24px; }
+.tp-sec { margin-bottom: 8px; }
+.tp-sec-head { display: flex; align-items: baseline; gap: 10px; margin: 2px 2px 12px; }
+.tp-sec-title { font-size: 14px; font-weight: 600; margin: 0; letter-spacing: 0.3px; }
+.tp-sec-count {
+  font-size: 11px; color: var(--text-num);
+  background: var(--shell); border: 1px solid var(--border);
+  border-radius: 10px; padding: 1px 9px;
+}
+.tp-sec-hint { margin-left: auto; font-size: 11.5px; color: var(--text-num); }
+.tp-sec-btn {
+  height: 24px; padding: 0 12px; font-size: 11.5px; line-height: 22px;
+  border: 1px solid var(--border); border-radius: 6px; background: var(--btn-bg);
+  color: var(--text); cursor: pointer; font-family: inherit;
+  transition: background 0.12s;
+}
+.tp-sec-btn:hover:not(:disabled) { background: var(--hover); }
+.tp-sec-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.tp-pack-input { display: none; }
+/* 瀑布流：3 列自适应，卡片按缩略图真实比例展示（与成片同构） */
+.tp-masonry { columns: 3; column-gap: 14px; }
+@media (max-width: 1100px) { .tp-masonry { columns: 2; } }
+@media (max-width: 760px) { .tp-masonry { columns: 1; } }
 .tp-card {
-  position: relative;
-  border: 1px solid var(--border); background: var(--panel-2);
+  position: relative; break-inside: avoid; margin: 0 0 14px;
+  background: var(--panel-3); border: 1px solid var(--border); border-radius: 0;
   cursor: pointer; overflow: hidden;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
 }
-.tp-card:hover { background: var(--hover); }
-.tp-card.active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
-.tp-card-thumb { display: block; width: 100%; height: 190px; object-fit: contain; background: var(--panel-3); }
-.tp-card-meta { display: flex; align-items: baseline; gap: 6px; padding: 5px 8px 6px; }
-.tp-card-name { flex: none; font-size: 12px; max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tp-card-desc { flex: 1; min-width: 0; font-size: 11px; color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tp-card-batch, .tp-card-del {
-  position: absolute; top: 6px; right: 6px;
-  width: 22px; height: 22px; line-height: 20px; text-align: center;
-  cursor: pointer; color: var(--text-dim); font-size: 13px;
-  background: rgba(0, 0, 0, 0.35); border: 1px solid transparent;
+.tp-card:hover {
+  transform: translateY(-2px);
+  border-color: var(--slider-thumb);
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.45);
 }
-.tp-card-batch:hover, .tp-card-del:hover, .tp-card-ren:hover { color: var(--text); background: rgba(0, 0, 0, 0.6); border-color: var(--border); }
-.tp-card-del { right: 30px; }
-.tp-card-ren { right: 54px; }
-.tp-empty { color: var(--text-dim); font-size: 12px; }
+.tp-card.sel {
+  border-color: var(--slider-thumb);
+  box-shadow: 0 0 0 2px var(--slider-thumb), 0 10px 26px rgba(0, 0, 0, 0.35);
+}
+.tp-card-thumb { display: block; width: 100%; height: auto; background: var(--panel-3); }
+/* hover 浮层：底部渐变 + 名称/说明（信息唯一来源，无右栏预览） */
+.tp-card-ov {
+  position: absolute; inset: 0; display: flex; flex-direction: column;
+  justify-content: flex-end; padding: 12px 12px 10px;
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0) 52%, rgba(0, 0, 0, 0.78) 100%);
+  opacity: 0; transition: opacity 0.15s;
+  pointer-events: none;
+}
+.tp-card:hover .tp-card-ov { opacity: 1; }
+.tp-card-name { font-size: 13px; color: #fff; font-weight: 600; letter-spacing: 0.3px; }
+.tp-card-desc {
+  font-size: 11px; color: rgba(255, 255, 255, 0.75); margin-top: 3px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+/* 角标：重命名/删除（仅自定义卡片，hover 时出现） */
+.tp-card-del, .tp-card-ren {
+  position: absolute; top: 8px; height: 22px; padding: 0 8px;
+  background: rgba(0, 0, 0, 0.55); border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 6px;
+  color: #fff; font-size: 11px; line-height: 20px; cursor: pointer;
+  opacity: 0; transition: opacity 0.12s;
+}
+.tp-card:hover .tp-card-del, .tp-card:hover .tp-card-ren { opacity: 1; }
+.tp-card-del { right: 8px; }
+.tp-card-ren { right: 38px; }
+.tp-card-tag {
+  position: absolute; left: 10px; top: 10px; height: 20px; padding: 0 9px;
+  background: var(--slider-thumb); color: #10131a; font-size: 11px;
+  line-height: 20px; font-weight: 600; border-radius: 10px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+}
+.tp-empty { color: var(--text-dim); font-size: 12.5px; text-align: center; padding: 48px 0; }
+
 /* 我的模板模式：顶部保存当前配置表单 */
-.tp-save { display: flex; gap: 6px; }
+.tp-save { display: flex; gap: 8px; margin-bottom: 10px; }
 .tp-save-inp {
-  flex: 1; min-width: 0; height: 26px; padding: 0 8px;
-  border: 1px solid var(--border); background: var(--panel-2);
-  color: var(--text); font-size: 12px; font-family: inherit;
+  flex: 1; min-width: 0; height: 30px; padding: 0 12px;
+  border: 1px solid var(--border); border-radius: 8px; background: var(--shell);
+  color: var(--text); font-size: 12.5px; font-family: inherit;
+  transition: border-color 0.12s, box-shadow 0.12s;
 }
-.tp-save-inp:focus { outline: none; border-color: var(--accent); }
-.tp-save-inp::placeholder { color: var(--text-dim); }
+.tp-save-inp:focus {
+  outline: none; border-color: var(--slider-thumb);
+  box-shadow: 0 0 0 2px rgba(167, 171, 178, 0.18);
+}
+.tp-save-inp::placeholder { color: var(--text-num); }
 .tp-save-btn {
-  flex: none; height: 26px; padding: 0 12px;
-  border: 1px solid var(--accent); background: var(--accent);
-  color: var(--text); font-size: 12px; line-height: 16px;
-  cursor: pointer; font-family: inherit;
+  flex: none; height: 30px; padding: 0 14px;
+  border: none; border-radius: 8px; background: var(--slider-thumb);
+  color: #10131a; font-size: 12.5px; line-height: 30px;
+  cursor: pointer; font-family: inherit; font-weight: 600;
+  transition: filter 0.12s;
 }
 .tp-save-btn:hover { filter: brightness(1.08); }
 .tp-save-btn:active { background: var(--pressed); }
-.tp-save-tip { font-size: 11px; color: var(--text); }
-.tp-preview-col { display: flex; flex-direction: column; align-items: stretch; gap: 10px; }
-.tp-preview-box {
-  flex: 1; display: flex; align-items: center; justify-content: center;
-  background: var(--panel-3); border: 1px solid var(--border); min-height: 0;
-}
-.tp-preview-img { max-width: 100%; max-height: 100%; object-fit: contain; }
-.tp-preview-empty { color: var(--text-dim); font-size: 12px; }
-.tp-preview-name { font-size: 14px; font-weight: 500; }
-.tp-preview-desc { font-size: 12px; color: var(--text-dim); }
-.btn {
-  height: 26px; padding: 0 14px; cursor: pointer;
-  border: 1px solid var(--border); background: var(--btn-bg);
-  color: var(--text); font-size: 12px; font-weight: 400; line-height: 16px;
-}
-.btn:hover { background: var(--hover); color: var(--text-normal); }
-.btn:active { background: var(--pressed); }
-.btn:disabled { opacity: 0.5; cursor: not-allowed; }
-.batch-main { align-self: flex-start; }
+.tp-pack-tip { flex: none; margin: 0 0 8px; font-size: 11px; color: var(--text); }
+
+/* ===== 底部操作栏 ===== */
 .tp-foot {
   flex: none; display: flex; align-items: center; gap: 10px;
-  height: 42px; padding: 0 14px;
-  border-top: 1px solid var(--border);
+  height: 44px; padding: 0 18px;
+  border-top: 1px solid var(--border); background: var(--shell);
 }
-.tp-hint { flex: 1; font-size: 12px; color: var(--text-dim); }
-.tp-done { min-width: 72px; background: var(--accent); border-color: var(--accent); }
+.tp-hint {
+  flex: 1; min-width: 0; font-size: 12px; color: var(--text-dim);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.tp-foot-tip { flex: none; margin: 0; font-size: 11px; color: var(--text); }
 
-@media (max-width: 768px) {
-  .tp-body { grid-template-columns: 1fr; grid-template-rows: 1fr 1fr; }
-  .tp-grid-col { border-right: none; border-bottom: 1px solid var(--border); }
-  .tp-preview-box { min-height: 120px; }
+@media (max-width: 900px) {
+  .tp-side { display: none; }
+  .tp-body { display: block; }
 }
 </style>
