@@ -1,5 +1,5 @@
 // 同域统计代理（Cloudflare Pages Functions，随站点自动部署，无需额外建 Worker）：
-// 聚合 GitHub 公开数据（星数 / 最新版本 / 累计下载）并做 5 分钟边缘缓存。
+// 聚合 GitHub 公开数据（星数 / 最新版本 / 累计安装包下载）并做 5 分钟边缘缓存。
 // 访客能打开本页就一定能访问同域 /api/gh-stats（可达性与页面本身一致）。
 //
 // 上游策略（针对 Cloudflare 边缘共享出口 IP 极易耗尽 GitHub 匿名限额 60 次/时/IP）：
@@ -7,7 +7,8 @@
 //   Location 含 tag 名（如 /releases/tag/v0.2.7）——github.com 网页不限流、无需鉴权，最可靠
 // - 星数 / 下载量：api.github.com；若在 Pages 后台配置了环境变量 GITHUB_TOKEN（只需公开库
 //   读权限，classic token 零勾选即可），则带鉴权调用（5,000 次/时），稳定实时；
-//   未配置时尝试匿名，403 则跳过（前端自动回退直连/烘焙值兜底）
+//   未配置时尝试匿名——实测边缘匿名请求几乎必然 403（限额按出口 IP 共享耗尽），
+//   实时链路失效、只能靠 6 小时烘焙值兜底，**务必在 Pages 后台配置 GITHUB_TOKEN**
 // - 仅上游拿到有效数据才写边缘缓存；失败响应 no-store，避免瞬时故障被钉死 5 分钟
 const GH_API = 'https://api.github.com/repos/yuhaowang774/FrameLabdesktop'
 const GH_REPO_URL = 'https://github.com/yuhaowang774/FrameLabdesktop'
@@ -49,7 +50,9 @@ export async function onRequestGet(context) {
       .catch(() => {}),
   )
 
-  // 累计下载：分页汇总全部 Release 资产的 download_count（与宣传页/烘焙脚本口径一致）
+  // 累计下载：仅统计「安装包」资产（.exe 结尾，与页面文案一致）。
+  // .exe.sig / latest.json 是更新机制的校验与清单文件（每次更新检查都会下载），
+  // 计入会把更新检查次数误当安装包下载量（此前全量资产口径数字虚高约 2.7 倍）。
   tasks.push(
     (async () => {
       let total = 0
@@ -60,7 +63,11 @@ export async function onRequestGet(context) {
         okAny = true
         const list = await r.json()
         if (!Array.isArray(list) || !list.length) break
-        for (const rel of list) for (const a of rel.assets || []) total += a.download_count || 0
+        for (const rel of list) {
+          for (const a of rel.assets || []) {
+            if (String(a.name || '').endsWith('.exe')) total += a.download_count || 0
+          }
+        }
         if (list.length < 100) break
       }
       if (okAny) stats.downloads = total

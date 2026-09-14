@@ -66,6 +66,7 @@ push 到 main 后 Pages 自动重新构建发布（约 1 分钟）。HTML 已配
 |---|---|
 | push 后未更新 | Pages 部署记录查看构建日志；确认输出目录为 `/website` |
 | 版本号/下载数显示「—」 | 三层实时已生效时几乎不出现：`/api/gh-stats` 同域代理（5 分钟边缘缓存）→ 直连 GitHub → 烘焙值。若代理 404 说明 `functions/` 目录未被 Pages 识别（应位于仓库根而非 website/ 内），检查部署日志 |
+| 下载数长期滞后（数字正确但数小时不更新） | 同域代理的匿名 GitHub API 调用被限流（Cloudflare 边缘共享出口 IP 极易耗尽 60 次/时）：到 Pages 项目 → **Settings → Environment variables** 配置 `GITHUB_TOKEN`（公开库只读权限即可），实时链路即恢复（≤5 分钟）；未配置时仅靠 6 小时烘焙值兜底 |
 | 字体/图片 404 | 检查 `website/assets/` 文件是否已提交进仓库 |
 | 回滚到旧版本 | Pages → Deployments → 选中历史部署 → **Rollback to this deployment**（一键秒回） |
 | 构建额度 | 免费版每月 500 次构建，正常迭代足够 |

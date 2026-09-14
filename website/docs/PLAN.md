@@ -37,7 +37,7 @@
 - 字体（2026-09-08 对标参考站更新）：**DM Sans 可变字体**（`assets/fonts/dm-sans-latin.woff2` 62KB 自托管，OFL 开源许可，覆盖拉丁/数字/常用符号，字重 100–1000）+ 中文回退苹方/雅黑——与参考站完全同构；`font-display: swap` 不阻塞渲染
 - 视觉素材（2026-09-08 用户提供）：`assets/icon.png`（软件图标，导航 + favicon）与 `assets/screenshot.jpg`（软件实际截图，替代 CSS mockup）
 - 背景特效（2026-09-08 用户素材）：**瓦肯三角粒子交互背景**（[particles-bg.js](../assets/particles-bg.js)）——`WYHlogo.jpg` 暗色笔画采样为粒子（亮度 70–200 映射，避免与文字抢对比度），鼠标/触摸涡流扰动 + 弹性回归；Canvas `fixed z-index:0 pointer-events:none` 置于内容层下，窄屏自动放大采样间隔降粒子数，`prefers-reduced-motion` 仅静态一帧，图片缺失静默降级纯渐变
-- 数据元素：累计下载数（GitHub Releases 全量资产求和，实时）、star 数徽章、版本药丸（GitHub API，失败回退内置值）
+- 数据元素：累计安装包下载数（仅统计 .exe 安装包资产；.sig / latest.json 为更新机制流量不计入）、star 数徽章、版本药丸（GitHub API，失败回退内置值）
 
 ### 1.3 页面结构（单页锚点导航，总长控制在约两屏）
 
