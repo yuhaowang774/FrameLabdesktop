@@ -6,6 +6,7 @@ import { useAppState } from '../../composables/useAppState'
 import { useLibrary } from '../../composables/useLibrary'
 import FrameContainer from '../preview/FrameContainer.vue'
 import { DESIGN_CONTAINER } from '../../core/constants'
+import { pinchStep, pinchSample, type PinchPoint } from '../../core/pinch'
 
 defineProps<{
   photoSrc: string | null
@@ -159,9 +160,9 @@ function applyWheelZoom() {
   // 已达上限/下限时倍率不变、平移不动，鼠标下的内容点保持固定，画面不偏移。
   viewer.setZoomAt(viewer.zoom.value * factor, dx, dy)
 }
-// ===== 双击快速放大 / 复位（放大预览）=====
-// 未放大时：以双击位置为锚点放大 2x（查看细节）；已放大（zoom>1 或有平移）时：复位视图。
-function onDblClick(e: MouseEvent) {
+// ===== 双击（鼠标双击 / 触屏双轻点）快速放大 / 复位（放大预览）=====
+// 未放大时：以点击位置为锚点放大 2x（查看细节）；已放大（zoom>1 或有平移）时：复位视图。
+function zoomAtPoint(x: number, y: number) {
   if (viewer.zoom.value > 1.01 || viewer.panX.value !== 0 || viewer.panY.value !== 0) {
     viewer.resetView()
     return
@@ -172,28 +173,98 @@ function onDblClick(e: MouseEvent) {
     viewer.setZoom(factor)
     return
   }
-  // 与滚轮缩放同一套锚点数学：双击点下的内容保持不动
-  const dx = e.clientX - (wrapOrigin.x + viewer.panX.value)
-  const dy = e.clientY - (wrapOrigin.y + viewer.panY.value)
+  // 与滚轮 / 双指缩放同一套锚点数学：点击点下的内容保持不动
+  const dx = x - (wrapOrigin.x + viewer.panX.value)
+  const dy = y - (wrapOrigin.y + viewer.panY.value)
   viewer.setZoom(factor)
   viewer.setPan(-(factor - 1) * dx, -(factor - 1) * dy)
 }
+function onDblClick(e: MouseEvent) {
+  // 触屏双轻点已由 detectDoubleTap 处理：合成 dblclick 可能随后到达，避免二次触发
+  if (Date.now() < suppressDblClickUntil) return
+  zoomAtPoint(e.clientX, e.clientY)
+}
+
+// ===== 触控（平板 / 触屏 / 触控笔）=====
+// 指针事件天然覆盖 touch 与 pen（单指平移、点击、长按菜单均可用）；这里补齐三件事：
+// 1) 双指缩放：以两指中点为锚点（与滚轮 / 双击同一套锚点数学，pinchStep 纯函数可测）；
+// 2) 双轻点放大 / 复位：合成 dblclick 在嵌入式 WebView 中不可靠，自行判定；
+// 3) pointercancel 兜底：系统手势打断时不残留 dragging（幽灵平移）。
+const touchPoints = new Map<number, PinchPoint>() // pointerId → 当前屏幕坐标（touch / pen）
+const touchDown = new Map<number, PinchPoint>() // pointerId → 按下点（区分轻点与拖动）
+let pinchPrev: ReturnType<typeof pinchSample> = null
+let multiTouch = false // 本次手势是否为多指（多指手势不参与双轻点判定）
+let lastTapAt = 0
+let lastTapPos = { x: 0, y: 0 }
+let suppressDblClickUntil = 0
+
+/** 触屏双轻点判定：两次轻点在 300ms / 30px 内、均未拖动、且非多指手势 → 视作双击 */
+function detectDoubleTap(x: number, y: number, moved: number) {
+  if (multiTouch || touchPoints.size > 0 || moved > 12) return
+  const now = Date.now()
+  if (now - lastTapAt < 300 && Math.hypot(x - lastTapPos.x, y - lastTapPos.y) < 30) {
+    lastTapAt = 0
+    suppressDblClickUntil = now + 600
+    zoomAtPoint(x, y)
+    return
+  }
+  lastTapAt = now
+  lastTapPos = { x, y }
+}
 
 // ===== 拖拽平移（绑定在 stage：画布内图片或画布外空白区域均可拖动）=====
-// 任何缩放倍率下均可拖动（未缩放时也能直接移动照片位置；
+// 任何缩放倍率下均可拖动（未缩放时也能直接移动照片位置；触屏单指同样走此路径；
 // Esc / 双击 / 底部工具栏「适应屏幕」均可复位视图）
 function onPointerDown(e: PointerEvent) {
   // 审查报告 U9：仅左键开始平移；右键（打开菜单）/中键 / 点击菜单项本身均不抢指针
   //（此前按住右键拖动会平移画布；点菜单项时指针被捕获还可能吞掉 click）
   if (e.button !== 0) return
   if ((e.target as HTMLElement | null)?.closest('.ctx-menu')) return
+  const el = e.currentTarget as HTMLElement
+  if (e.pointerType !== 'mouse') {
+    touchPoints.set(e.pointerId, { x: e.clientX, y: e.clientY })
+    touchDown.set(e.pointerId, { x: e.clientX, y: e.clientY })
+    if (touchPoints.size >= 2) {
+      // 第二指落下：进入双指手势（缩放 + 平移），停止单指平移计算
+      multiTouch = true
+      lastTapAt = 0
+      dragging.value = false
+      pinchPrev = pinchSample([...touchPoints.values()])
+      try {
+        el.setPointerCapture(e.pointerId)
+      } catch {
+        /* 指针捕获失败可忽略（仍能从 stage 收到 move） */
+      }
+      return
+    }
+  }
   // INFO 面板展开时：点击 INFO 元素由 FooterInfo 处理元素拖拽（已 stopPropagation），
   // 点击元素外区域则正常平移画布。
   dragging.value = true
   dragStart.value = { x: e.clientX, y: e.clientY, px: viewer.panX.value, py: viewer.panY.value }
-  ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
+  el.setPointerCapture(e.pointerId)
 }
 function onPointerMove(e: PointerEvent) {
+  // 触控：≥2 指 → 双指缩放 + 平移（与滚轮 / 双击同一锚点数学）
+  if (e.pointerType !== 'mouse' && touchPoints.has(e.pointerId)) {
+    touchPoints.set(e.pointerId, { x: e.clientX, y: e.clientY })
+    if (touchPoints.size >= 2) {
+      dragging.value = false
+      const cur = pinchSample([...touchPoints.values()])
+      if (cur && pinchPrev) {
+        const next = pinchStep(
+          pinchPrev,
+          cur,
+          { zoom: viewer.zoom.value, panX: viewer.panX.value, panY: viewer.panY.value },
+          wrapOrigin,
+        )
+        viewer.setZoom(next.zoom)
+        viewer.setPan(next.panX, next.panY)
+      }
+      pinchPrev = cur
+      return
+    }
+  }
   if (!dragging.value) return
   viewer.setPan(
     dragStart.value.px + (e.clientX - dragStart.value.x),
@@ -201,11 +272,47 @@ function onPointerMove(e: PointerEvent) {
   )
 }
 function onPointerUp(e: PointerEvent) {
-  dragging.value = false
+  endStagePointer(e, false)
+}
+// pointercancel：系统手势 / 触控被系统接管时按「抬起」收尾，避免 dragging 残留
+function onPointerCancel(e: PointerEvent) {
+  endStagePointer(e, true)
+}
+function endStagePointer(e: PointerEvent, cancelled: boolean) {
   const el = e.currentTarget as HTMLElement
   // 仅在确实持有指针捕获时释放：pointerdown 可能未经过 stage（如 INFO 元素自身的
   // 拖拽拦截了事件），无条件 release 会抛 NotFoundError 触发「组件错误」弹窗
-  if (el.hasPointerCapture?.(e.pointerId)) el.releasePointerCapture(e.pointerId)
+  if (el.hasPointerCapture?.(e.pointerId)) {
+    try {
+      el.releasePointerCapture(e.pointerId)
+    } catch {
+      /* 指针捕获可能已自动释放 */
+    }
+  }
+  if (e.pointerType === 'mouse') {
+    dragging.value = false
+    return
+  }
+  // ===== 触控收尾 =====
+  const down = touchDown.get(e.pointerId)
+  const moved = down ? Math.hypot(e.clientX - down.x, e.clientY - down.y) : 99
+  touchDown.delete(e.pointerId)
+  touchPoints.delete(e.pointerId)
+  if (!cancelled) detectDoubleTap(e.clientX, e.clientY, moved)
+  if (touchPoints.size >= 2) {
+    pinchPrev = pinchSample([...touchPoints.values()])
+  } else {
+    pinchPrev = null
+    if (touchPoints.size === 0) multiTouch = false
+    const rest = [...touchPoints.values()][0]
+    if (rest && !cancelled) {
+      // 双指手势后剩下一指：以剩余触点重新锚定，无缝续接单指平移
+      dragging.value = true
+      dragStart.value = { x: rest.x, y: rest.y, px: viewer.panX.value, py: viewer.panY.value }
+    } else {
+      dragging.value = false
+    }
+  }
 }
 
 // 总缩放 = fit * 用户 zoom
@@ -271,6 +378,7 @@ onBeforeUnmount(closeCtxMenu)
       @pointerdown="onPointerDown"
       @pointermove="onPointerMove"
       @pointerup="onPointerUp"
+      @pointercancel="onPointerCancel"
       @contextmenu="onStageContextMenu"
     >
       <div
