@@ -12,7 +12,7 @@
      缓存带 6 小时时效：过期后退回烘焙值/常量，避免发新版后老访客长期停留在旧版本号。 */
   var LS_STATS_KEY = 'gh-stats-cache';
   var CACHE_TTL_MS = 6 * 60 * 60 * 1000;
-  var CACHE_REV = 2; // 统计口径版本：口径变更时 +1，令旧缓存立即失效（不必等 6 小时）
+  var CACHE_REV = 3; // 统计口径版本：口径变更时 +1，令旧缓存立即失效（不必等 6 小时）
   function readCache() {
     try {
       var v = JSON.parse(localStorage.getItem(LS_STATS_KEY) || 'null');
@@ -88,7 +88,7 @@
     if (pill && v) pill.textContent = v;
   }
 
-  /* ---------- 累计下载数（仅统计安装包 .exe 的 download_count） ---------- */
+  /* ---------- 累计下载数（全部资产：安装包 + 更新检查 latest.json + 校验 .sig） ---------- */
   function renderTotal(n) {
     var el = document.getElementById('dlTotal');
     if (el && typeof n === 'number' && n > 0) el.textContent = n.toLocaleString('en-US');
@@ -142,7 +142,7 @@
           })
           .catch(function () { /* 忽略 */ });
 
-        // 累计下载数（仅安装包 .exe；releases 可能多页，逐页汇总）
+        // 累计下载数（全部资产：安装包 + 更新检查 latest.json + 校验 .sig；releases 可能多页，逐页汇总）
         (function sumDownloads() {
           var total = 0;
           function page(n) {
@@ -151,10 +151,7 @@
               .then(function (list) {
                 if (!Array.isArray(list) || !list.length) return total;
                 list.forEach(function (rel) {
-                  (rel.assets || []).forEach(function (a) {
-                    /* .sig / latest.json 为更新机制流量，不计入安装包下载量 */
-                    if ((a.name || '').slice(-4) === '.exe') total += a.download_count || 0;
-                  });
+                  (rel.assets || []).forEach(function (a) { total += a.download_count || 0; });
                 });
                 return list.length === 100 ? page(n + 1) : total;
               });

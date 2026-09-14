@@ -50,9 +50,9 @@ export async function onRequestGet(context) {
       .catch(() => {}),
   )
 
-  // 累计下载：仅统计「安装包」资产（.exe 结尾，与页面文案一致）。
-  // .exe.sig / latest.json 是更新机制的校验与清单文件（每次更新检查都会下载），
-  // 计入会把更新检查次数误当安装包下载量（此前全量资产口径数字虚高约 2.7 倍）。
+  // 累计下载：统计全部 Release 资产（安装包 .exe + 更新检查清单 latest.json + 校验 .sig）。
+  // 口径决策（2026-09-14 用户确认）：更新检查流量也计入（每次自动/手动检查更新都会拉 latest.json）；
+  // 页面文案为「累计下载（含更新检查）」，代理 / 烘焙脚本 / 前端直连三端口径一致。
   tasks.push(
     (async () => {
       let total = 0
@@ -63,11 +63,7 @@ export async function onRequestGet(context) {
         okAny = true
         const list = await r.json()
         if (!Array.isArray(list) || !list.length) break
-        for (const rel of list) {
-          for (const a of rel.assets || []) {
-            if (String(a.name || '').endsWith('.exe')) total += a.download_count || 0
-          }
-        }
+        for (const rel of list) for (const a of rel.assets || []) total += a.download_count || 0
         if (list.length < 100) break
       }
       if (okAny) stats.downloads = total

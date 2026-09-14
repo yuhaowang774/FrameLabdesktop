@@ -34,18 +34,14 @@ try {
   ])
   stats.stars = repo.stargazers_count || 0
   if (latest && typeof latest.tag_name === 'string') stats.version = latest.tag_name
-  // 累计下载：仅统计「安装包」资产（.exe 结尾，与页面文案「累计安装包下载」一致）。
-  // 注意：.exe.sig 与 latest.json 属更新机制的校验/清单文件，每次更新检查都会下载，
-  // 计入会把「更新检查次数」误当「安装包下载量」（此前全量资产口径导致数字虚高约 2.7 倍）。
+  // 累计下载：统计全部 Release 资产（安装包 .exe + 更新检查清单 latest.json + 校验 .sig）。
+  // 口径决策（2026-09-14 用户确认）：更新检查流量也计入；页面文案为「累计下载（含更新检查）」，
+  // 与代理（functions/api/gh-stats.js）及前端直连兜底（website/assets/main.js）三端一致。
   let total = 0
   for (let page = 1; page <= 10; page++) {
     const list = await jfetch(`${API}/releases?per_page=100&page=${page}`)
     if (!Array.isArray(list) || !list.length) break
-    for (const rel of list) {
-      for (const a of rel.assets || []) {
-        if (String(a.name || '').endsWith('.exe')) total += a.download_count || 0
-      }
-    }
+    for (const rel of list) for (const a of rel.assets || []) total += a.download_count || 0
     if (list.length < 100) break
   }
   stats.downloads = total
