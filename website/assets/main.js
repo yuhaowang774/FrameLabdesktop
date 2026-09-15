@@ -12,7 +12,9 @@
      缓存带 6 小时时效：过期后退回烘焙值/常量，避免发新版后老访客长期停留在旧版本号。 */
   var LS_STATS_KEY = 'gh-stats-cache';
   var CACHE_TTL_MS = 6 * 60 * 60 * 1000;
-  var CACHE_REV = 3; // 统计口径版本：口径变更时 +1，令旧缓存立即失效（不必等 6 小时）
+  var CACHE_REV = 4; // 统计口径版本：口径变更时 +1，令旧缓存立即失效（不必等 6 小时）
+  // rev 4（2026-09-15）：下载口径从「全部资产含更新检查」改为「仅安装包 .exe」，
+  // 老访客 localStorage 里缓存的旧口径值（虚高）必须立即作废，故 +1
   function readCache() {
     try {
       var v = JSON.parse(localStorage.getItem(LS_STATS_KEY) || 'null');
@@ -88,7 +90,7 @@
     if (pill && v) pill.textContent = v;
   }
 
-  /* ---------- 累计下载数（全部资产：安装包 + 更新检查 latest.json + 校验 .sig） ---------- */
+  /* ---------- 累计下载数（口径：各版本安装包 .exe 之和，含自动更新下载） ---------- */
   function renderTotal(n) {
     var el = document.getElementById('dlTotal');
     if (el && typeof n === 'number' && n > 0) el.textContent = n.toLocaleString('en-US');
@@ -142,7 +144,9 @@
           })
           .catch(function () { /* 忽略 */ });
 
-        // 累计下载数（全部资产：安装包 + 更新检查 latest.json + 校验 .sig；releases 可能多页，逐页汇总）
+        // 累计下载数（口径：各版本安装包 *.exe 下载次数之和，含应用内自动更新下载；
+        // 排除更新检查清单 latest.json 与校验 .sig——签名内嵌在清单里，App 不单独拉 sig。
+        // releases 可能多页，逐页汇总）
         (function sumDownloads() {
           var total = 0;
           function page(n) {
@@ -151,7 +155,9 @@
               .then(function (list) {
                 if (!Array.isArray(list) || !list.length) return total;
                 list.forEach(function (rel) {
-                  (rel.assets || []).forEach(function (a) { total += a.download_count || 0; });
+                  (rel.assets || []).forEach(function (a) {
+                    if (/\.exe$/i.test(a.name || '')) total += a.download_count || 0;
+                  });
                 });
                 return list.length === 100 ? page(n + 1) : total;
               });

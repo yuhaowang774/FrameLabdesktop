@@ -43,7 +43,7 @@ CSS 仅使用基线特性（flex/grid/clamp/radial-gradient/IntersectionObserver
 ## 四、优化建议（按优先级）
 
 1. **P1 域名替换**：上线前将 `index.html`（canonical/OG/JSON-LD）与 `sitemap.xml`、`robots.txt` 中的 `framelab.example.com` 全局替换为真实域名（当前 4 处/文件）。
-2. **P2 真实下载计数口径**：当前统计为 Releases 全部资产下载次数（含历史版本）。如需「本次版本下载量」，可改用 `/releases/latest` 的 assets 求和（`main.js` 中 `sumDownloads` 一处改动）。
+2. **P2 真实下载计数口径**：已定口径（2026-09-15）= 各版本安装包 `*.exe` 下载次数之和（含自动更新下载，排除 latest.json 检查流量与 .sig），`main.js` 的 `sumDownloads` 按此实现。如需改为「仅最新版下载量」，把求和范围收窄到 `/releases/latest` 即可（一处改动）。
 3. **P2 社媒预览图**：OG 当前无 `og:image`。发布后可截一张应用真实截图上传服务器并补 `<meta property="og:image">`，社交分享点击率会明显更好。
 4. **P3 性能加分项**：页面已足够轻；如追求 Lighthouse 满分，可将 GitHub API 请求合并为一个（`/releases?per_page=1` 同时含版本与资产数）。
 5. **P3 SEO 迭代**：当前单页内容较精简；若后续要竞争「照片相框」「EXIF 水印」等关键词，建议增加功能详情/图文教程子页并互链。
