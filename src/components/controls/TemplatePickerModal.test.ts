@@ -1,7 +1,7 @@
 // src/components/controls/TemplatePickerModal.test.ts
-// 模板中心 2.0（侧栏 + 4 列瀑布流 + 底部操作栏，无右栏预览）：
-// 骨架/关闭/空态、分区渲染、缩略图合成、点卡即应用、最近使用、侧栏分类过滤、
-// 搜索、批量（底部按钮 + 卡片角标）、自定义模板删除。
+// 模板中心 2.0（侧栏 + 3 列瀑布流 + 底部操作栏，无右栏预览）：
+// 骨架/关闭/空态、分区渲染、缩略图合成、点卡预览 → 确认应用（或退回继续选择）、最近使用、
+// 侧栏分类过滤、搜索、自定义模板删除。
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import { nextTick } from 'vue'
@@ -181,21 +181,23 @@ describe('分区与渲染（瀑布流）', () => {
     const w = mountModal(true)
     await w.findAll('.tp-item').find((i) => i.text().includes('我的模板'))!.trigger('click')
     expect(w.findAll('.tp-card').length).toBe(1)
-    expect(w.find('.tp-card').text()).toContain('我的预设')
+    // 卡片不再渲染文字（模板信息只在预览弹窗里），按 img alt 断言模板归属
+    expect(w.find('.tp-card img').attributes('alt')).toBe('我的预设')
 
     mock.recordMock('b2')
     await w.findAll('.tp-item').find((i) => i.text().includes('最近使用'))!.trigger('click')
     const cards = w.findAll('.tp-card')
     expect(cards.length).toBe(1)
-    expect(cards[0].text()).toContain('圆角悬浮·模糊延展')
+    expect(cards[0].find('img').attributes('alt')).toBe('圆角悬浮·模糊延展')
     w.unmount()
   })
 
   it('搜索框按名称过滤卡片', async () => {
     const w = mountModal(true)
     await w.find('.tp-search').setValue('圆角悬浮')
-    expect(w.findAll('.tp-card').length).toBe(1)
-    expect(w.findAll('.tp-card')[0].text()).toContain('圆角悬浮·模糊延展')
+    const cards = w.findAll('.tp-card')
+    expect(cards.length).toBe(1)
+    expect(cards[0].find('img').attributes('alt')).toContain('圆角悬浮·模糊延展')
     w.unmount()
   })
 })
@@ -218,34 +220,81 @@ describe('缩略图合成', () => {
   })
 })
 
-describe('点卡即应用与最近使用', () => {
-  it('点击卡片：应用模板 + 记录最近使用 + 展开右栏 + 直接关闭弹窗返回编辑', async () => {
+describe('点卡预览 → 确认应用（2026-09-15 交互）', () => {
+  it('点击卡片：打开预览层（用用户照片合成大图），不应用、不关闭弹窗', async () => {
     const w = mountModal(true)
-    const card = w.findAll('.tp-card')[1]
-    await card.trigger('click')
+    await w.findAll('.tp-card')[1].trigger('click')
     await flushPromises()
+    expect(w.find('.tp-pv').exists()).toBe(true)
+    expect(w.find('.tp-pv-title').text()).toContain('圆角悬浮·模糊延展')
+    expect(w.find('.tp-pv-img').exists()).toBe(true)
+    // 模板信息集中在预览弹窗里（名称 + 说明），卡片上不再有 hover 浮层
+    expect(w.find('.tp-pv-name').text()).toContain('圆角悬浮·模糊延展')
+    expect(w.find('.tp-pv-desc').text()).toContain('圆角悬浮照片')
+    // 预览走 1600 上限（大图），区别于网格缩略图的 640
+    expect(mock.renderThumb.mock.calls.some((c) => c[1] === 'blob:photo-1' && c[2] === 1600)).toBe(true)
+    expect(mock.applyMock).not.toHaveBeenCalled()
+    expect(w.emitted('update:modelValue')).toBeUndefined()
+    w.unmount()
+  })
+
+  it('预览层「退回继续选择」：回到模板列表且未应用', async () => {
+    const w = mountModal(true)
+    await w.findAll('.tp-card')[0].trigger('click')
+    await flushPromises()
+    await w.find('.tp-pv-cancel').trigger('click')
+    expect(w.find('.tp-pv').exists()).toBe(false)
+    expect(w.find('.tp-card').exists()).toBe(true)
+    expect(mock.applyMock).not.toHaveBeenCalled()
+    expect(w.emitted('update:modelValue')).toBeUndefined()
+    w.unmount()
+  })
+
+  it('预览层「确认应用」：应用模板 + 记录最近使用 + 展开右栏 + 关闭弹窗返回编辑', async () => {
+    const w = mountModal(true)
+    await w.findAll('.tp-card')[1].trigger('click')
+    await flushPromises()
+    await w.find('.tp-pv-ok').trigger('click')
     expect(mock.applyMock).toHaveBeenCalledWith({ bgMode: 'blur' })
     expect(mock.setPanelMock).toHaveBeenCalledWith('right', 'background', true)
     expect(mock.setPanelMock).toHaveBeenCalledWith('right', 'border', true)
     expect(mock.recordMock).toHaveBeenCalledWith('b2')
-    // 用户流程：点击即应用并返回编辑界面（弹窗自动关闭）
     expect(lastEmit(w.emitted('update:modelValue'))).toEqual([false])
     w.unmount()
   })
 
-  it('默认底部显示默认提示；hover 卡片时提示跟随（无需点击）', async () => {
+  it('预览态 Esc 退回列表（不关弹窗）、Enter 直接确认应用；列表态 Esc 关弹窗', async () => {
     const w = mountModal(true)
-    expect(w.find('.tp-hint').text()).toContain('点击卡片即应用模板并返回编辑界面')
-    await w.findAll('.tp-card')[0].trigger('mouseenter')
-    expect(w.find('.tp-hint').text()).toContain('白框参数卡')
-    await w.findAll('.tp-card')[0].trigger('mouseleave')
-    expect(w.find('.tp-hint').text()).toContain('点击卡片即应用模板并返回编辑界面')
+    await w.findAll('.tp-card')[0].trigger('click')
+    await flushPromises()
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    await nextTick()
+    expect(w.find('.tp-pv').exists()).toBe(false)
+    expect(w.emitted('update:modelValue')).toBeUndefined()
+
+    await w.findAll('.tp-card')[0].trigger('click')
+    await flushPromises()
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+    await nextTick()
+    expect(mock.applyMock).toHaveBeenCalledWith({ bgMode: 'solid', bgColor: '#ffffff' })
+    expect(lastEmit(w.emitted('update:modelValue'))).toEqual([false])
     w.unmount()
   })
 
-  it('应用后重新打开弹窗：该卡片带「当前」标签与选中描边', async () => {
+  it('底栏为固定提示；卡片无 hover 信息浮层（模板信息只在预览弹窗里呈现）', async () => {
+    const w = mountModal(true)
+    expect(w.find('.tp-hint').text()).toContain('点击卡片预览效果')
+    expect(w.find('.tp-card-ov').exists()).toBe(false)
+    await w.findAll('.tp-card')[0].trigger('mouseenter')
+    expect(w.find('.tp-hint').text()).toContain('点击卡片预览效果')
+    w.unmount()
+  })
+
+  it('确认应用后重新打开弹窗：该卡片带「当前」标签与选中描边', async () => {
     const w = mountModal(true)
     await w.findAll('.tp-card')[0].trigger('click')
+    await flushPromises()
+    await w.find('.tp-pv-ok').trigger('click')
     expect(lastEmit(w.emitted('update:modelValue'))).toEqual([false])
     // 重新打开（组件常驻，selectedId 保留）
     await w.setProps({ modelValue: true })

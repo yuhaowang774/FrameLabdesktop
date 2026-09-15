@@ -105,17 +105,10 @@ const emptyText = computed(() => {
   return '暂无模板。'
 })
 
-// ===== 选中 / hover：底部操作栏动态提示（hover 优先，回退选中，回退默认文案） =====
+// ===== 选中：应用后卡片带「当前」标签；底栏为固定提示 =====
+// （2026-09-15 用户拍板：卡片不再有 hover 信息浮层，模板信息统一在预览弹窗里呈现）
 const selectedId = ref<string | null>(null)
-const hoveredId = ref<string | null>(null)
-const selected = computed(() => templates.templates.find((t) => t.id === selectedId.value) ?? null)
-const hovered = computed(() => templates.templates.find((t) => t.id === hoveredId.value) ?? null)
-const hintTemplate = computed(() => hovered.value ?? selected.value)
-const footHint = computed(() => {
-  const t = hintTemplate.value
-  if (!t) return '点击卡片即应用模板并返回编辑界面'
-  return `当前模板：${t.name} — ${t.desc ?? '自定义模板'}`
-})
+const footHint = '点击卡片预览效果，满意后「确认应用」返回编辑'
 
 // ===== 保存当前配置为模板（customOnly 模式：保存表单内嵌弹窗顶部） =====
 const saveName = ref('')
@@ -265,11 +258,12 @@ watch(
 const missingOpen = ref(false)
 const missingMsg = ref('')
 
-function selectAndApply(t: { id: string }) {
-  const found = templates.templates.find((x) => x.id === t.id)
+/** 应用模板到当前状态并展开右栏（确认预览后调用） */
+function applyTemplate(id: string) {
+  const found = templates.templates.find((x) => x.id === id)
   if (!found) return
-  selectedId.value = t.id
-  recordRecentUsage(t.id)
+  selectedId.value = id
+  recordRecentUsage(id)
   const missing = applyTemplateToState(found.config)
   app.state.rightOpen = true
   app.setPanel('right', 'background', true)
@@ -278,8 +272,55 @@ function selectAndApply(t: { id: string }) {
     missingMsg.value = `当前照片未识别到以下 INFO 信息：${missing.join('、')}。已用「自定义」占位，可在右侧 INFO 面板手动填写。`
     missingOpen.value = true
   }
-  // 用户流程（2026-09-13）：点击模板即应用并直接返回编辑界面，不停留在弹窗；
   // INFO 缺失提示弹窗挂在组件根（弹窗外层），关闭模板库后仍会正常弹出。
+}
+
+// ===== 预览确认流程（2026-09-15 用户拍板）=====
+// 点卡片不再直接应用：先在弹窗内用**用户自己的照片**合成一张大图预览（与成片同一渲染管线），
+// 满意点「确认应用」才应用并返回编辑界面；不满意点「退回继续选择」回到模板列表。
+// 未打开照片时（网页版空图库）预览回退该模板的样张，并在底部注明。
+const PREVIEW_MAX_EDGE = 1600
+const preview = ref<{ id: string; name: string; desc: string; group?: string } | null>(null)
+const previewUrl = ref('')
+const previewLoading = ref(false)
+const previewNoPhoto = ref(false)
+let previewSeq = 0
+
+async function openPreview(t: { id: string }) {
+  const found = templates.templates.find((x) => x.id === t.id)
+  if (!found) return
+  preview.value = { id: found.id, name: found.name, desc: found.desc ?? '自定义模板', group: found.group }
+  previewUrl.value = ''
+  previewLoading.value = true
+  previewNoPhoto.value = !state.photoSrc
+  const seq = ++previewSeq
+  try {
+    const hasPhoto = !!state.photoSrc
+    // 有照片：用户照片 + 当前 INFO（与编辑界面所见一致）；无照片：该模板样张 + 示意 INFO
+    const ds = (hasPhoto ? await photoDrawableSrc(state.photoSrc) : undefined) ?? sampleForTemplate(found.id)
+    const url = await renderTemplateThumbDataUrl(found.config, ds, PREVIEW_MAX_EDGE, hasPhoto ? previewInfo.value : undefined)
+    if (seq === previewSeq) previewUrl.value = url
+  } catch {
+    /* templateThumb 已内建 SVG 兜底 */
+  } finally {
+    if (seq === previewSeq) previewLoading.value = false
+  }
+}
+
+/** 退回模板列表（清空预览并作废在途渲染） */
+function closePreview() {
+  previewSeq++
+  preview.value = null
+  previewUrl.value = ''
+  previewLoading.value = false
+}
+
+/** 确认应用：应用模板 → 关闭预览与模板库 → 回到编辑界面 */
+function confirmPreview() {
+  const p = preview.value
+  if (!p) return
+  applyTemplate(p.id)
+  closePreview()
   close()
 }
 
@@ -309,6 +350,18 @@ function close() {
   emit('update:modelValue', false)
 }
 function onKeydown(e: KeyboardEvent) {
+  // 预览态：Esc 退回模板列表（不关闭模板库），Enter 直接确认应用
+  if (preview.value) {
+    if (e.key === 'Escape') {
+      closePreview()
+      return
+    }
+    if (e.key === 'Enter' && !previewLoading.value && (e.target as HTMLElement | null)?.tagName !== 'INPUT') {
+      confirmPreview()
+      return
+    }
+    return
+  }
   if (e.key === 'Escape') close()
 }
 onMounted(() => window.addEventListener('keydown', onKeydown))
@@ -417,7 +470,7 @@ onBeforeUnmount(() => {
                       导出全部
                     </button>
                   </template>
-                  <span v-if="sec.key !== 'custom'" class="tp-sec-hint">点击卡片即应用并返回编辑</span>
+                  <span v-if="sec.key !== 'custom'" class="tp-sec-hint">点击卡片预览效果</span>
                 </div>
                 <div class="tp-masonry">
                   <div
@@ -426,22 +479,41 @@ onBeforeUnmount(() => {
                     class="tp-card"
                     :class="{ sel: selectedId === t.id }"
                     :data-id="t.id"
-                    @click="selectAndApply(t)"
-                    @mouseenter="hoveredId = t.id"
-                    @mouseleave="hoveredId = hoveredId === t.id ? null : hoveredId"
+                    @click="openPreview(t)"
                   >
                     <img class="tp-card-thumb" :src="thumbs[t.id]" :alt="t.name" draggable="false" />
                     <span v-if="selectedId === t.id" class="tp-card-tag">当前</span>
                     <span v-if="!t.builtin" class="tp-card-ren" title="重命名" @click.stop="askRename(t)">✎</span>
                     <span v-if="!t.builtin" class="tp-card-del" title="删除该模板" @click.stop="removeCustom(t)">✕</span>
-                    <div class="tp-card-ov">
-                      <span class="tp-card-name">{{ t.name }}</span>
-                      <span class="tp-card-desc">{{ t.desc || '自定义模板' }}</span>
-                    </div>
                   </div>
                 </div>
               </section>
             </template>
+          </div>
+        </div>
+
+        <!-- 预览确认层（2026-09-15）：点卡片后覆盖全窗，用「你的照片 + 该模板」真实合成大图 -->
+        <div v-if="preview" class="tp-pv">
+          <div class="tp-pv-head">
+            <button class="tp-back" title="退回模板列表 (Esc)" @click="closePreview">←</button>
+            <span class="tp-pv-title">{{ preview.name }}</span>
+            <span v-if="preview.group" class="tp-count">{{ preview.group }}</span>
+          </div>
+          <div class="tp-pv-stage">
+            <p v-if="previewLoading" class="tp-pv-loading">正在用当前照片生成预览…</p>
+            <img v-else-if="previewUrl" class="tp-pv-img" :src="previewUrl" :alt="preview.name" draggable="false" />
+            <p v-else class="tp-pv-loading">预览生成失败，可直接确认应用</p>
+          </div>
+          <div class="tp-pv-foot">
+            <div class="tp-pv-info">
+              <span class="tp-pv-name">{{ preview.name }}</span>
+              <span class="tp-pv-desc">
+                {{ preview.desc }}
+                <em v-if="previewNoPhoto" class="tp-pv-note">（当前未打开照片，预览为模板样张）</em>
+              </span>
+            </div>
+            <button class="tp-pv-cancel" @click="closePreview">退回继续选择</button>
+            <button class="tp-pv-ok" :disabled="previewLoading" @click="confirmPreview">确认应用</button>
           </div>
         </div>
 
@@ -478,6 +550,7 @@ onBeforeUnmount(() => {
 }
 /* 全窗化（用户要求）：弹窗与软件界面同大，铺满整个应用窗口 */
 .tp-modal {
+  position: relative; /* 预览确认层（.tp-pv）以本容器为定位上下文铺满内容区 */
   width: 100%; height: 100%;
   display: flex; flex-direction: column;
   background: var(--panel); border: none; box-shadow: none;
@@ -575,9 +648,10 @@ onBeforeUnmount(() => {
 .tp-sec-btn:hover:not(:disabled) { background: var(--hover); }
 .tp-sec-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 .tp-pack-input { display: none; }
-/* 瀑布流：最多 3 列（用户确认，不再随宽屏加列），窗口变窄时递减为 2 / 1 列；
+/* 瀑布流：宽屏 4 列，随窗口宽度递减为 3 / 2 / 1 列（响应式保留）；
    卡片按缩略图真实比例展示（与成片同构）——高度自然错落，不追求行对齐 */
-.tp-masonry { columns: 3; column-gap: 12px; }
+.tp-masonry { columns: 4; column-gap: 12px; }
+@media (max-width: 1360px) { .tp-masonry { columns: 3; } }
 @media (max-width: 1000px) { .tp-masonry { columns: 2; } }
 @media (max-width: 700px) { .tp-masonry { columns: 1; } }
 .tp-card {
@@ -595,21 +669,8 @@ onBeforeUnmount(() => {
   border-color: var(--slider-thumb);
   box-shadow: 0 0 0 2px var(--slider-thumb), 0 10px 26px rgba(0, 0, 0, 0.35);
 }
+/* 卡片只呈现成片本身：不加 hover 信息浮层（模板信息统一在预览弹窗里呈现，2026-09-15 用户拍板） */
 .tp-card-thumb { display: block; width: 100%; height: auto; background: var(--panel-3); }
-/* hover 浮层：底部渐变 + 名称/说明（信息唯一来源，无右栏预览） */
-.tp-card-ov {
-  position: absolute; inset: 0; display: flex; flex-direction: column;
-  justify-content: flex-end; padding: 12px 12px 10px;
-  background: linear-gradient(180deg, rgba(0, 0, 0, 0) 52%, rgba(0, 0, 0, 0.78) 100%);
-  opacity: 0; transition: opacity 0.15s;
-  pointer-events: none;
-}
-.tp-card:hover .tp-card-ov { opacity: 1; }
-.tp-card-name { font-size: 13px; color: #fff; font-weight: 600; letter-spacing: 0.3px; }
-.tp-card-desc {
-  font-size: 11px; color: rgba(255, 255, 255, 0.75); margin-top: 3px;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
 /* 角标：重命名/删除（仅自定义卡片，hover 时出现） */
 .tp-card-del, .tp-card-ren {
   position: absolute; top: 8px; height: 22px; padding: 0 8px;
@@ -652,6 +713,51 @@ onBeforeUnmount(() => {
 .tp-save-btn:hover { filter: brightness(1.08); }
 .tp-save-btn:active { background: var(--pressed); }
 .tp-pack-tip { flex: none; margin: 0 0 8px; font-size: 11px; color: var(--text); }
+
+/* ===== 预览确认层（覆盖整个弹窗内容区：返回 + 大图 + 确认/退回）===== */
+.tp-pv {
+  position: absolute; inset: 0; z-index: 5;
+  display: flex; flex-direction: column; background: var(--panel);
+}
+.tp-pv-head {
+  flex: none; display: flex; align-items: center; gap: 12px;
+  height: 52px; padding: 0 18px; border-bottom: 1px solid var(--border);
+}
+.tp-pv-title { font-size: 15px; font-weight: 600; letter-spacing: 0.5px; }
+.tp-pv-stage {
+  flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center;
+  padding: 18px; background: var(--shell);
+}
+.tp-pv-img { display: block; max-width: 100%; max-height: 100%; box-shadow: 0 18px 48px rgba(0, 0, 0, 0.5); }
+.tp-pv-loading { margin: 0; font-size: 12.5px; color: var(--text-dim); }
+.tp-pv-foot {
+  flex: none; display: flex; align-items: center; gap: 10px;
+  min-height: 56px; padding: 9px 18px; border-top: 1px solid var(--border); background: var(--shell);
+}
+/* 模板信息（名称 + 说明）只在预览弹窗里呈现（卡片不再有 hover 浮层） */
+.tp-pv-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.tp-pv-name { font-size: 13px; font-weight: 600; color: var(--text); letter-spacing: 0.2px; }
+.tp-pv-desc {
+  font-size: 11.5px; color: var(--text-dim);
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+.tp-pv-note { font-style: normal; color: var(--text-num); }
+.tp-pv-cancel {
+  flex: none; height: 32px; padding: 0 16px;
+  border: 1px solid var(--border); border-radius: 8px; background: var(--btn-bg);
+  color: var(--text); font-size: 12.5px; font-family: inherit; cursor: pointer;
+  transition: background 0.12s;
+}
+.tp-pv-cancel:hover { background: var(--hover); }
+.tp-pv-ok {
+  flex: none; height: 32px; padding: 0 20px;
+  border: none; border-radius: 8px; background: var(--slider-thumb);
+  color: #10131a; font-size: 12.5px; font-weight: 600; font-family: inherit; cursor: pointer;
+  transition: filter 0.12s;
+}
+.tp-pv-ok:hover:not(:disabled) { filter: brightness(1.08); }
+.tp-pv-ok:disabled { opacity: 0.55; cursor: not-allowed; }
 
 /* ===== 底部操作栏 ===== */
 .tp-foot {
