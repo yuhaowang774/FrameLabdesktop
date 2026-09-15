@@ -1,7 +1,7 @@
 <!-- src/components/controls/TemplatePickerModal.vue -->
 <script setup lang="ts">
-// 模板选择弹窗（2026-09-13 改版）：左侧分类侧栏（最近使用/我的模板/风格九组）+ 4 列瀑布流
-// 卡片网格（按模板真实比例展示）+ 底部操作栏（当前模板信息 + 批量应用 + 完成）。
+// 模板选择弹窗（2026-09-13 改版）：左侧分类侧栏（最近使用/我的模板/风格分组）+ 3 列瀑布流
+// 卡片网格（最多 3 列，窄屏递减 2/1；按模板真实比例展示）+ 底部操作栏（当前模板动态提示）。
 // 无右栏大预览（设计决策见 AGENTS.md）：点击卡片即实时应用并保持弹窗打开，hover 浮层
 // 显示名称/说明，底部操作栏跟随 hover/选中动态提示。卡片缩略图用**该模板自己的样张照片**
 // 真实合成（core/templateSamples.ts，55 套各一张；自定义模板无样张时回退当前照片/内置示例图），
@@ -575,10 +575,9 @@ onBeforeUnmount(() => {
 .tp-sec-btn:hover:not(:disabled) { background: var(--hover); }
 .tp-sec-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 .tp-pack-input { display: none; }
-/* 瀑布流：列数随窗口自适应（宽屏 4 列 / 中屏 3 列 / 窄屏 2 列 / 极窄 1 列），
+/* 瀑布流：最多 3 列（用户确认，不再随宽屏加列），窗口变窄时递减为 2 / 1 列；
    卡片按缩略图真实比例展示（与成片同构）——高度自然错落，不追求行对齐 */
-.tp-masonry { columns: 4; column-gap: 12px; }
-@media (max-width: 1360px) { .tp-masonry { columns: 3; } }
+.tp-masonry { columns: 3; column-gap: 12px; }
 @media (max-width: 1000px) { .tp-masonry { columns: 2; } }
 @media (max-width: 700px) { .tp-masonry { columns: 1; } }
 .tp-card {
