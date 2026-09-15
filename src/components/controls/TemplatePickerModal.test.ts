@@ -145,10 +145,10 @@ describe('TemplatePickerModal 骨架', () => {
 })
 
 describe('分区与渲染（瀑布流）', () => {
-  it('全部视图 = 「全部模板」+「我的模板」两段，卡片走 masonry 容器', async () => {
+  it('全部视图 = 按侧栏分类顺序分段（本例「经典」）+「我的模板」，卡片走 masonry 容器', async () => {
     const w = mountModal(true)
     const titles = w.findAll('.tp-sec-title').map((g) => g.text())
-    expect(titles).toEqual(['全部模板', '我的模板'])
+    expect(titles).toEqual(['经典', '我的模板'])
     expect(w.findAll('.tp-card').length).toBe(3)
     expect(w.find('.tp-masonry').exists()).toBe(true)
     w.unmount()

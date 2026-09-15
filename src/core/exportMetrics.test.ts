@@ -55,7 +55,7 @@ describe('estimateExportSize', () => {
   })
 })
 
-describe('全量内置模板导出度量冒烟（55 套 × 3 类源图，几何不允许 NaN/非正数）', () => {
+describe('全量内置模板导出度量冒烟（79 套 × 3 类源图，几何不允许 NaN/非正数）', () => {
   // 模板配置经 defaultFrameConfig 兜底后，逐套跑导出度量纯计算。
   // 捕捉目标：frameRatio/竖排/顶部锚点/card/magazine 等任何分支产生 NaN、0 或负值画布。
   const { templates } = useTemplates()
@@ -68,8 +68,8 @@ describe('全量内置模板导出度量冒烟（55 套 × 3 类源图，几何�
   // 模拟导入时的 canvasH 初始化：照片设计高(800) + 上 pad + 下 pad+borderRatio（自由模式语义）
   const CANVAS_H = 800 + 60 + 60
 
-  it('模板数量仍为 55（与 useTemplates 测试互为对照）', () => {
-    expect(builtin.length).toBe(55)
+  it('模板数量仍为 79（与 useTemplates 测试互为对照）', () => {
+    expect(builtin.length).toBe(79)
   })
 
   for (const src of SOURCES) {

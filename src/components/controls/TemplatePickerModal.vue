@@ -43,7 +43,7 @@ const list = computed(() => {
 
 // ===== 视图状态：侧栏分类（recent / custom / all / 组名）+ 搜索 =====
 // 界面不使用彩色 Emoji（AGENTS.md）：搜索框无图标，用途由 placeholder 表达。
-const TEMPLATE_GROUPS = ['经典', '极简轻量', '杂志编辑', '胶片复古', '暗调影廊', '联名卡', '社交尺寸', '水印署名', '多彩色卡', '大师水印', '日历边框', '运动边框', '设备样机', '创意排版'] as const
+const TEMPLATE_GROUPS = ['经典', '极简轻量', '杂志编辑', '胶片复古', '暗调影廊', '联名卡', '社交尺寸', '水印署名', '多彩色卡', '大师水印', '日历边框', '运动边框', '设备样机', '纸品印刷', '创意排版'] as const
 type SideView = 'recent' | 'custom' | 'all' | (typeof TEMPLATE_GROUPS)[number]
 const activeView = ref<SideView>('all')
 const search = ref('')
@@ -90,10 +90,16 @@ const sections = computed(() => {
   if (activeView.value !== 'all') {
     return [{ key: activeView.value, title: activeView.value, items: filtered.value }]
   }
-  const builtin = filtered.value.filter((t) => t.builtin)
-  const custom = filtered.value.filter((t) => !t.builtin)
+  // 全部视图（2026-09-15 用户拍板）：**按左侧侧栏分类顺序分段**，每个分类一段，
+  // 段与段之间留出明显间隙；未在侧栏登记的分组收尾为「其他」，自定义模板最后一段。
   const out: Array<{ key: string; title: string; items: typeof list.value }> = []
-  if (builtin.length) out.push({ key: 'builtin', title: '全部模板', items: builtin })
+  for (const g of TEMPLATE_GROUPS) {
+    const items = filtered.value.filter((t) => t.builtin && t.group === g)
+    if (items.length) out.push({ key: `g:${g}`, title: g, items })
+  }
+  const rest = filtered.value.filter((t) => t.builtin && !(TEMPLATE_GROUPS as readonly string[]).includes(t.group ?? ''))
+  if (rest.length) out.push({ key: 'g:其他', title: '其他', items: rest })
+  const custom = filtered.value.filter((t) => !t.builtin)
   if (custom.length) out.push({ key: 'custom', title: '我的模板', items: custom })
   return out
 })
@@ -107,7 +113,27 @@ const emptyText = computed(() => {
 
 // ===== 选中：应用后卡片带「当前」标签；底栏为固定提示 =====
 // （2026-09-15 用户拍板：卡片不再有 hover 信息浮层，模板信息统一在预览弹窗里呈现）
+// 滚动联动「预选高亮」（用户 2026-09-15）：侧栏本体固定不动，右侧列表滑到哪个分类，
+// 左侧对应分类项即轻微高亮（预选态 spy），与「当前视图」高亮（active）区分。
 const selectedId = ref<string | null>(null)
+const spyGroup = ref('')
+let spyRaf = 0
+function onMainScroll(e: Event) {
+  const main = e.target as HTMLElement
+  if (spyRaf) return
+  spyRaf = requestAnimationFrame(() => {
+    spyRaf = 0
+    const top = main.getBoundingClientRect().top
+    let g = ''
+    for (const c of main.querySelectorAll<HTMLElement>('.tp-card')) {
+      if (c.getBoundingClientRect().bottom - 60 > top) {
+        g = c.dataset.group || ''
+        break
+      }
+    }
+    spyGroup.value = g
+  })
+}
 const footHint = '点击卡片预览效果，满意后「确认应用」返回编辑'
 
 // ===== 保存当前配置为模板（customOnly 模式：保存表单内嵌弹窗顶部） =====
@@ -369,6 +395,7 @@ onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKeydown)
   clearTimeout(tipTimer)
   clearTimeout(packTipTimer)
+  cancelAnimationFrame(spyRaf)
 })
 </script>
 
@@ -428,7 +455,7 @@ onBeforeUnmount(() => {
               v-for="g in TEMPLATE_GROUPS"
               :key="g"
               class="tp-item"
-              :class="{ active: activeView === g }"
+              :class="{ active: activeView === g, spy: spyGroup === g && activeView !== g }"
               @click="activeView = activeView === g ? 'all' : g"
             >
               <span class="tp-item-n">{{ g }}</span>
@@ -437,7 +464,7 @@ onBeforeUnmount(() => {
           </div>
 
           <!-- 中：瀑布流网格 -->
-          <div class="tp-main">
+          <div class="tp-main" @scroll="onMainScroll">
             <!-- 我的模板模式：顶部内嵌「保存当前配置」表单 -->
             <div v-if="customOnly" class="tp-save">
               <input
@@ -479,6 +506,7 @@ onBeforeUnmount(() => {
                     class="tp-card"
                     :class="{ sel: selectedId === t.id }"
                     :data-id="t.id"
+                    :data-group="t.group"
                     @click="openPreview(t)"
                   >
                     <img class="tp-card-thumb" :src="thumbs[t.id]" :alt="t.name" draggable="false" />
@@ -619,6 +647,12 @@ onBeforeUnmount(() => {
   content: ''; position: absolute; left: 5px; top: 9px; bottom: 9px; width: 3px;
   border-radius: 2px; background: var(--slider-thumb);
 }
+/* 滚动联动预选：右侧列表滑到某分类时，左侧对应项轻微高亮（侧栏本身不滚动、文字不动） */
+.tp-item.spy { background: var(--hover); color: var(--text); }
+.tp-item.spy::before {
+  content: ''; position: absolute; left: 5px; top: 12px; bottom: 12px; width: 3px;
+  border-radius: 2px; background: var(--text-num);
+}
 .tp-item-n { flex: 1; }
 .tp-item-c {
   flex: none; min-width: 22px; text-align: center;
@@ -630,9 +664,11 @@ onBeforeUnmount(() => {
 
 /* —— 中：瀑布流 —— */
 .tp-main { flex: 1; min-width: 0; overflow-y: auto; padding: 16px 18px 24px; }
-.tp-sec { margin-bottom: 8px; }
+/* 分区间留出明显间隙（用户 2026-09-15：参考图那种大块留白 + 细分隔线） */
+.tp-sec { margin-bottom: 64px; }
+.tp-sec + .tp-sec { border-top: 1px solid var(--border); padding-top: 34px; }
 .tp-sec-head { display: flex; align-items: baseline; gap: 10px; margin: 2px 2px 12px; }
-.tp-sec-title { font-size: 14px; font-weight: 600; margin: 0; letter-spacing: 0.3px; }
+.tp-sec-title { font-size: 16px; font-weight: 600; margin: 0; letter-spacing: 1.2px; }
 .tp-sec-count {
   font-size: 11px; color: var(--text-num);
   background: var(--shell); border: 1px solid var(--border);
