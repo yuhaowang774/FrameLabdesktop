@@ -111,12 +111,12 @@ describe('applyTemplateToState 层显示开关保留', () => {
 })
 
 describe('内置模板清单结构校验', () => {
-  it('62 套内置模板：id 唯一、名称非空、config 经 sanitize 无损往返', () => {
+  it('55 套内置模板：id 唯一、名称非空、config 经 sanitize 无损往返', () => {
     const { templates, toTemplateConfig } = useTemplates()
     const builtin = templates.filter((t) => t.builtin)
-    expect(builtin.length).toBe(62)
+    expect(builtin.length).toBe(55)
     const ids = new Set(builtin.map((t) => t.id))
-    expect(ids.size).toBe(62)
+    expect(ids.size).toBe(55)
     for (const t of builtin) {
       expect(t.name.trim().length).toBeGreaterThan(0)
       expect(t.category).toBe('frame')
@@ -130,7 +130,7 @@ describe('内置模板清单结构校验', () => {
   it('效果字段不用时显式归零：非颗粒/水印模板不带残留效果', () => {
     const { templates } = useTemplates()
     for (const t of templates.filter((x) => x.builtin)) {
-      const usesGrain = t.id === 'm_kodak_years' || t.id === 'm_polaroid' || t.id === 'm_darkroom_contact' || t.id === 'm_ccd_flash'
+      const usesGrain = t.id === 'm_kodak_years' || t.id === 'm_polaroid' || t.id === 'm_darkroom_contact'
       const usesVignette = usesGrain || t.id === 'm_edge_vertical' || t.id === 'm_finder_cross' || t.id === 'm_credit_block' || t.id === 'm_cover_masthead' || t.id === 'm_cover_exhibit' || t.id === 'm_gps_coord' || t.id === 'm_sport_dark'
       const usesWatermark = t.id === 'm_darkroom_contact' || t.id === 'm_watermark_tile' || t.id === 'm_watermark_corner' || t.id === 'm_ticket_horizontal' || t.id === 'm_ticket_vertical'
       if (!usesGrain) expect(t.config.grain ?? 0, t.id).toBe(0)

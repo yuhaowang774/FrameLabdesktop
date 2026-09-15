@@ -482,12 +482,14 @@ function blobToDataUrl(blob: Blob): Promise<string> {
 // 源图缓存：同一「图片 URL/图源对象 + 降采样上限」→ 已解码/已降采样的源图，
 // 避免每次渲染都重新解码大照片（解码是缩略图管线里最重的步骤之一）。
 const sourceCache = new Map<string, ImgSource>()
-const SOURCE_CACHE_MAX = 6
+// 模板库样张场景下每套模板一个不同图源（55 套），缓存过小会来回滚动时反复解码/降采样
+const SOURCE_CACHE_MAX = 16
 // 结果缓存：「模板配置 + INFO + 源图 + 尺寸」→ 渲染产物 dataURL。
 // 用户在模板间来回对比挑选时，已看过的模板瞬时换图，无需重跑合成管线。
 // 两个缓存均按插入序做简单 FIFO 淘汰（照片切换/模板删除后的旧键自然让位）。
 const renderCache = new Map<string, string>()
-const RENDER_CACHE_MAX = 40
+// 样张模式下「模板 × 样张」组合数 ≈ 模板总数，缓存覆盖整屏以上滚动范围
+const RENDER_CACHE_MAX = 80
 
 // 非字符串图源（App 预览 canvas/ImageBitmap 复用）的稳定键：WeakMap 不阻止其回收
 const srcObjIds = new WeakMap<ImgSource, string>()

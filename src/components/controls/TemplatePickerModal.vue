@@ -3,14 +3,16 @@
 // 模板选择弹窗（2026-09-13 改版）：左侧分类侧栏（最近使用/我的模板/风格九组）+ 4 列瀑布流
 // 卡片网格（按模板真实比例展示）+ 底部操作栏（当前模板信息 + 批量应用 + 完成）。
 // 无右栏大预览（设计决策见 AGENTS.md）：点击卡片即实时应用并保持弹窗打开，hover 浮层
-// 显示名称/说明，底部操作栏跟随 hover/选中动态提示。卡片缩略图用当前照片真实合成
-// （photoSrc 缺省走内置示例图），与实际应用效果一致。
+// 显示名称/说明，底部操作栏跟随 hover/选中动态提示。卡片缩略图用**该模板自己的样张照片**
+// 真实合成（core/templateSamples.ts，55 套各一张；自定义模板无样张时回退当前照片/内置示例图），
+// 卡片高度随样张比例自然错落。
 // 界面不使用彩色 Emoji（AGENTS.md UI 设计要求），图标用纯文本符号。
 import { ref, computed, reactive, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useTemplates, applyTemplateToState, recordRecentUsage } from '../../composables/useTemplates'
 import { useAppState } from '../../composables/useAppState'
 import { useFrameConfig } from '../../composables/useFrameConfig'
 import { templateThumbDataUrl, renderTemplateThumbDataUrl, type ThumbInfoOverride } from '../../core/templateThumb'
+import { sampleForTemplate } from '../../core/templateSamples'
 import type { ImgSource } from '../../core/bgRenderer'
 import { photoImage } from '../../composables/useUi'
 import GlassModal from '../common/GlassModal.vue'
@@ -231,8 +233,12 @@ watch(
       if (!cachedReal) thumbs[t.id] = templateThumbDataUrl(t.config)
       void (async () => {
         try {
-          const ds = await photoDrawableSrc(src)
-          const url = await renderTemplateThumbDataUrl(t.config, ds, 640, info)
+          // 卡片统一展示该模板自己的样张（用户要求：模板库内始终是「55 套 × 样张」的效果，
+          // 卡片高度随样张比例自然错落，而非所有卡片共用当前照片造成的等高网格）。
+          // 只有没有样张的自定义模板才回退当前照片 / 内置示例图。
+          const sample = sampleForTemplate(t.id)
+          const ds = sample ?? (await photoDrawableSrc(src))
+          const url = await renderTemplateThumbDataUrl(t.config, ds, 640, sample ? undefined : info)
           if (seq === thumbSeq) thumbs[t.id] = url
         } catch {
           /* templateThumb 已内建 SVG 兜底 */
@@ -569,12 +575,14 @@ onBeforeUnmount(() => {
 .tp-sec-btn:hover:not(:disabled) { background: var(--hover); }
 .tp-sec-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 .tp-pack-input { display: none; }
-/* 瀑布流：3 列自适应，卡片按缩略图真实比例展示（与成片同构） */
-.tp-masonry { columns: 3; column-gap: 14px; }
-@media (max-width: 1100px) { .tp-masonry { columns: 2; } }
-@media (max-width: 760px) { .tp-masonry { columns: 1; } }
+/* 瀑布流：列数随窗口自适应（宽屏 4 列 / 中屏 3 列 / 窄屏 2 列 / 极窄 1 列），
+   卡片按缩略图真实比例展示（与成片同构）——高度自然错落，不追求行对齐 */
+.tp-masonry { columns: 4; column-gap: 12px; }
+@media (max-width: 1360px) { .tp-masonry { columns: 3; } }
+@media (max-width: 1000px) { .tp-masonry { columns: 2; } }
+@media (max-width: 700px) { .tp-masonry { columns: 1; } }
 .tp-card {
-  position: relative; break-inside: avoid; margin: 0 0 14px;
+  position: relative; break-inside: avoid; margin: 0 0 12px;
   background: var(--panel-3); border: 1px solid var(--border); border-radius: 0;
   cursor: pointer; overflow: hidden;
   transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
