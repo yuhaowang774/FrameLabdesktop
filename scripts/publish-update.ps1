@@ -15,6 +15,11 @@ param(
 $ErrorActionPreference = 'Stop'
 $env:GCM_INTERACTIVE = 'never'   # 凭据缺失时不弹交互 UI，直接报错
 
+# 参数防呆：Owner/Repo 必须是合法的 GitHub 名称。此前用 Start-Process 传 -Notes 时若漏加引号，
+# 参数会按位置错位成 Owner='+' / Repo='左栏常驻…'，脚本一路编到 API 才以 404 失败（排查成本高）。
+if ($Owner -notmatch '^[A-Za-z0-9][A-Za-z0-9-]*$') { throw "Owner 参数非法：'$Owner'（检查 -Notes 等含空格的参数是否漏加引号）" }
+if ($Repo -notmatch '^[A-Za-z0-9._-]+$') { throw "Repo 参数非法：'$Repo'（检查 -Notes 等含空格的参数是否漏加引号）" }
+
 $root = Split-Path -Parent $PSScriptRoot
 Set-Location $root
 
