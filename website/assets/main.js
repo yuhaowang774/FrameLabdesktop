@@ -3,7 +3,7 @@
   'use strict';
 
   var GH_API = 'https://api.github.com/repos/yuhaowang774/FrameLabdesktop';
-  var FALLBACK_VERSION = 'v0.2.7';
+  var FALLBACK_VERSION = 'v0.2.9';
 
   /* ---------- 统计数据三层兜底：localStorage 上次实时值 → 构建烘焙值 → 内置常量 ----------
      GitHub API 在部分访客网络下会限流（未认证 60 次/时/IP）或不可达，实时拉取可能失败；
