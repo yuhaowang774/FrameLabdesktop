@@ -1,0 +1,1166 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>模板画廊 · FrameLab</title>
+<style>
+  :root {
+    --bg: #121316;
+    --bg-2: #191b1f;
+    --bg-3: #202329;
+    --line: #2c3037;
+    --line-2: #383d45;
+    --fg: #e9e9ec;
+    --fg-2: #a8adb7;
+    --fg-3: #71767f;
+    --accent: #d8b36a;
+    --accent-dim: rgba(216, 179, 106, 0.14);
+    --radius: 10px;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--fg);
+    font: 13px/1.55 'Segoe UI', 'Microsoft YaHei', system-ui, sans-serif;
+    overflow: hidden;
+  }
+  button, input, select { font: inherit; color: inherit; }
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-thumb { background: #33383f; border-radius: 6px; border: 2px solid var(--bg); }
+  ::-webkit-scrollbar-track { background: transparent; }
+
+  /* ===== 顶栏 ===== */
+  header {
+    height: 58px; display: flex; align-items: center; gap: 14px; padding: 0 18px;
+    background: var(--bg-2); border-bottom: 1px solid var(--line);
+  }
+  .brand { display: flex; align-items: baseline; gap: 9px; flex: none; }
+  .brand b { font-size: 15px; font-weight: 650; letter-spacing: .3px; }
+  .brand span { font-size: 11px; color: var(--fg-3); letter-spacing: 1.6px; text-transform: uppercase; }
+  .search {
+    flex: 1 1 260px; max-width: 400px; height: 34px; padding: 0 12px;
+    background: var(--bg-3); border: 1px solid var(--line); border-radius: 8px; outline: none;
+  }
+  .search:focus { border-color: var(--line-2); background: #23262c; }
+  .search::placeholder { color: var(--fg-3); }
+  select.pick {
+    height: 34px; max-width: 220px; padding: 0 8px; background: var(--bg-3);
+    border: 1px solid var(--line); border-radius: 8px; outline: none;
+  }
+  .spacer { flex: 1; }
+  .counter { font-size: 12px; color: var(--fg-2); white-space: nowrap; }
+  .counter b { color: var(--accent); font-weight: 650; }
+  .btn {
+    height: 34px; padding: 0 13px; background: var(--bg-3); border: 1px solid var(--line);
+    border-radius: 8px; cursor: pointer; white-space: nowrap; color: var(--fg-2);
+  }
+  .btn:hover { border-color: var(--line-2); color: var(--fg); }
+  .btn.on { background: var(--accent-dim); border-color: rgba(216,179,106,.42); color: var(--accent); }
+  .btn.ghost { background: transparent; }
+
+  /* ===== 布局 ===== */
+  .shell { display: flex; height: calc(100% - 58px); }
+  aside {
+    width: 274px; flex: none; overflow-y: auto; padding: 14px 14px 40px;
+    background: var(--bg-2); border-right: 1px solid var(--line);
+  }
+  main { flex: 1; overflow-y: auto; padding: 16px 20px 60px; }
+
+  .facet { margin-bottom: 16px; }
+  .facet > h4 {
+    margin: 0 0 7px; font-size: 11.5px; font-weight: 600; color: var(--fg-3);
+    letter-spacing: .6px; display: flex; justify-content: space-between;
+  }
+  .facet > h4 em { font-style: normal; color: var(--fg-3); font-weight: 400; }
+  .chips { display: flex; flex-wrap: wrap; gap: 5px; }
+  .chip {
+    padding: 3px 9px; border-radius: 999px; background: var(--bg-3);
+    border: 1px solid var(--line); color: var(--fg-2); cursor: pointer; font-size: 12px;
+    display: inline-flex; align-items: center; gap: 5px;
+  }
+  .chip:hover { border-color: var(--line-2); color: var(--fg); }
+  .chip.on { background: var(--accent-dim); border-color: rgba(216,179,106,.45); color: var(--accent); }
+  .chip i { font-style: normal; font-size: 10.5px; color: var(--fg-3); }
+  .chip.on i { color: rgba(216,179,106,.75); }
+  .chip[data-empty="1"] { opacity: .34; pointer-events: none; }
+
+  .facet-note { font-size: 11px; color: var(--fg-3); margin: -2px 0 8px; }
+
+  /* ===== 生效筛选 ===== */
+  .active-bar {
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; min-height: 26px;
+  }
+  .active-bar .tag {
+    display: inline-flex; align-items: center; gap: 6px; padding: 2px 8px 2px 10px;
+    border-radius: 999px; background: var(--bg-3); border: 1px solid var(--line-2);
+    font-size: 12px; color: var(--fg-2);
+  }
+  .active-bar .tag button { border: 0; background: none; cursor: pointer; color: var(--fg-3); padding: 0 1px; }
+  .active-bar .tag button:hover { color: var(--fg); }
+
+  /* ===== 卡片瀑布流 ===== */
+  .grid { columns: var(--cols, 4) 260px; column-gap: 14px; }
+  .card {
+    break-inside: avoid; margin: 0 0 14px; background: var(--bg-2); border: 1px solid var(--line);
+    border-radius: var(--radius); overflow: hidden; cursor: zoom-in; position: relative;
+    transition: border-color .15s, transform .15s;
+  }
+  .card:hover { border-color: var(--line-2); transform: translateY(-1px); }
+  .card .shot { display: block; width: 100%; height: auto; background: #0d0e11; }
+  .card .ph {
+    display: flex; align-items: center; justify-content: center; color: var(--fg-3);
+    font-size: 11.5px; background: repeating-linear-gradient(135deg, #16181c, #16181c 8px, #131417 8px, #131417 16px);
+    min-height: 120px;
+  }
+  .card .bar {
+    display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap;
+    padding: 7px 10px; border-top: 1px solid var(--line);
+  }
+  .card .bar .src {
+    flex: 1 1 100%; font-size: 10px; color: var(--fg-3);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .card .bar .nm { font-size: 12.5px; color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .card .bar .gp { font-size: 10.5px; color: var(--fg-3); white-space: nowrap; flex: none; }
+  .card .ov {
+    position: absolute; left: 0; right: 0; top: 0; padding: 9px 10px;
+    display: flex; justify-content: space-between; gap: 8px;
+    background: linear-gradient(180deg, rgba(8,9,11,.78), rgba(8,9,11,0));
+    opacity: 0; transition: opacity .15s; pointer-events: none;
+  }
+  .card:hover .ov { opacity: 1; }
+  .card .ov span { font-size: 10.5px; letter-spacing: .5px; color: #d9dbe0; }
+  .card .er { padding: 16px 10px; color: #d98a8a; font-size: 11.5px; text-align: center; }
+  .empty { color: var(--fg-3); text-align: center; padding: 80px 0; }
+
+  /* ===== 甄选标记 ===== */
+  .card.v-keep { border-color: rgba(134, 201, 147, .6); }
+  .card.v-maybe { border-color: rgba(216, 179, 106, .6); }
+  .card.v-drop { opacity: .45; }
+  .card.v-drop:hover { opacity: .85; }
+  .vbadge {
+    position: absolute; top: 8px; right: 8px; z-index: 3;
+    min-width: 34px; padding: 2px 8px; border-radius: 999px; border: 1px solid transparent;
+    font-size: 11px; letter-spacing: 1px; cursor: pointer; text-align: center;
+    background: rgba(10, 11, 13, .72); color: var(--fg-3); backdrop-filter: blur(2px);
+  }
+  .vbadge:hover { color: var(--fg); border-color: var(--line-2); }
+  .vbadge.keep { background: rgba(24, 46, 31, .88); border-color: rgba(134, 201, 147, .55); color: #a9dfb6; }
+  .vbadge.maybe { background: rgba(48, 38, 18, .88); border-color: rgba(216, 179, 106, .55); color: #ecd39a; }
+  .vbadge.drop { background: rgba(50, 24, 26, .88); border-color: rgba(217, 138, 138, .55); color: #eeb0b0; }
+  .vstats { font-size: 12px; color: var(--fg-2); white-space: nowrap; }
+  .vstats b { font-weight: 650; }
+  .vstats .k { color: #a9dfb6; }
+  .vstats .m { color: #ecd39a; }
+  .vstats .d { color: #eeb0b0; }
+  .cols-pick { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; color: var(--fg-3); white-space: nowrap; }
+  .cols-pick input { width: 86px; accent-color: var(--accent); }
+  .pv-verdicts { display: flex; gap: 8px; }
+  .pv-verdicts .btn.on-keep { background: rgba(24, 46, 31, .9); border-color: rgba(134, 201, 147, .55); color: #a9dfb6; }
+  .pv-verdicts .btn.on-maybe { background: rgba(48, 38, 18, .9); border-color: rgba(216, 179, 106, .55); color: #ecd39a; }
+  .pv-verdicts .btn.on-drop { background: rgba(50, 24, 26, .9); border-color: rgba(217, 138, 138, .55); color: #eeb0b0; }
+
+  /* ===== 预览层 ===== */
+  .modal {
+    position: fixed; inset: 0; background: rgba(8, 9, 11, .9); display: none;
+    grid-template-columns: 1fr 328px; backdrop-filter: blur(3px); z-index: 30;
+  }
+  .modal.open { display: grid; }
+  /* 单行撑满视口 + 隐藏溢出：成片无论横竖都完整缩放进舞台，不被裁切 */
+  .modal { grid-template-rows: 100%; overflow: hidden; }
+  .stage { display: flex; align-items: center; justify-content: center; padding: 26px; min-width: 0; min-height: 0; overflow: hidden; }
+  .stage img { max-width: 100%; max-height: 100%; width: auto; height: auto; object-fit: contain; box-shadow: 0 24px 70px rgba(0,0,0,.6); border-radius: 3px; }
+  .stage .wait { color: var(--fg-3); }
+  .panel {
+    background: var(--bg-2); border-left: 1px solid var(--line); padding: 20px 20px 26px;
+    overflow-y: auto; display: flex; flex-direction: column; gap: 16px;
+  }
+  .panel h2 { margin: 0; font-size: 17px; font-weight: 650; }
+  .panel .sub { color: var(--fg-3); font-size: 11.5px; margin-top: -12px; }
+  .panel .desc { color: var(--fg-2); font-size: 12.5px; }
+  .kv { display: grid; grid-template-columns: 76px 1fr; gap: 6px 10px; font-size: 12px; }
+  .kv dt { color: var(--fg-3); }
+  .kv dd { margin: 0; color: var(--fg); word-break: break-word; }
+  .panel .acts { display: flex; gap: 8px; margin-top: auto; flex-wrap: wrap; }
+  .close-x {
+    position: absolute; top: 16px; right: 348px; width: 34px; height: 34px; border-radius: 8px;
+    background: var(--bg-3); border: 1px solid var(--line); color: var(--fg-2); cursor: pointer;
+  }
+  .close-x:hover { color: var(--fg); border-color: var(--line-2); }
+  .nav {
+    position: absolute; top: 50%; transform: translateY(-50%); width: 40px; height: 60px;
+    background: rgba(25,27,31,.82); border: 1px solid var(--line); color: var(--fg-2);
+    cursor: pointer; border-radius: 8px; font-size: 17px;
+  }
+  .nav:hover { color: var(--fg); border-color: var(--line-2); }
+  .nav.prev { left: 12px; }
+  .nav.next { right: 340px; }
+  .hint { position: absolute; left: 18px; bottom: 14px; color: var(--fg-3); font-size: 11px; }
+
+  /* ===== INFO 折叠面板 ===== */
+  .info-pop {
+    position: absolute; top: 52px; right: 16px; width: 330px; background: var(--bg-2);
+    border: 1px solid var(--line-2); border-radius: 10px; padding: 16px; display: none; z-index: 20;
+    box-shadow: 0 20px 50px rgba(0,0,0,.5);
+  }
+  .info-pop.open { display: block; }
+  .info-pop label { display: block; margin-bottom: 9px; font-size: 11.5px; color: var(--fg-3); }
+  .info-pop input {
+    display: block; width: 100%; height: 30px; margin-top: 3px; padding: 0 9px;
+    background: var(--bg-3); border: 1px solid var(--line); border-radius: 7px; outline: none; color: var(--fg);
+  }
+  .info-pop input:focus { border-color: var(--line-2); }
+  .info-pop .row { display: flex; gap: 10px; }
+  .info-pop .row label { flex: 1; }
+  .info-pop .tip { font-size: 11px; color: var(--fg-3); margin: 2px 0 10px; }
+
+  .toast {
+    position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%);
+    background: var(--bg-3); border: 1px solid var(--line-2); border-radius: 8px;
+    padding: 8px 16px; font-size: 12px; color: var(--fg-2); opacity: 0;
+    transition: opacity .2s; pointer-events: none; z-index: 40;
+  }
+  .toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+<header>
+  <div class="brand"><b>FrameLab 模板画廊</b><span>template gallery</span></div>
+  <input id="q" class="search" type="text" placeholder="搜索模板名称 / 说明 / 标识…" />
+  <select id="photo" class="pick" title="选择预览使用的照片"></select>
+  <input id="upload" type="file" accept="image/*" multiple hidden />
+  <button id="uploadBtn" class="btn ghost" type="button">上传照片</button>
+  <button id="infoBtn" class="btn ghost" type="button">INFO 文案</button>
+  <button id="sampleBtn" class="btn ghost" type="button" title="每张卡片改用该模板自带的样张照片">模板样张</button>
+  <button id="pairBtn" class="btn on" type="button" title="每张卡片各配一张照片（按模板画幅自动配对，可逐张更换）">一图一模板</button>
+  <div class="spacer"></div>
+  <label class="cols-pick" title="每行卡片列数">列数<input id="cols" type="range" min="2" max="6" step="1" /></label>
+  <select id="sort" class="pick">
+    <option value="lib">库内顺序</option>
+    <option value="name">按名称</option>
+    <option value="group">按分组</option>
+    <option value="layout">按布局</option>
+    <option value="verdict">按甄选（入选在前）</option>
+  </select>
+  <div class="counter" id="counter"></div>
+  <span class="vstats" id="vstats"></span>
+  <button id="exportBtn" class="btn ghost" type="button" title="复制入选/待定/淘汰清单，可直接贴给 AI 或存档">复制甄选</button>
+  <button id="reset" class="btn ghost" type="button">重置</button>
+</header>
+
+<div class="shell">
+  <aside id="facets"></aside>
+  <main>
+    <div class="active-bar" id="active"></div>
+    <div class="grid" id="grid"></div>
+    <div class="empty" id="empty" hidden>没有符合当前筛选条件的模板</div>
+  </main>
+</div>
+
+<div class="info-pop" id="infoPop">
+  <div class="tip">以下文案会替换模板里的示意信息，用于检查排版在真实文案下的表现。</div>
+  <label>机型<input id="fModel" type="text" placeholder="A7R V" /></label>
+  <label>品牌标识<input id="fBrand" type="text" placeholder="sony" /></label>
+  <label>镜头<input id="fLens" type="text" placeholder="FE 24mm F1.4 GM" /></label>
+  <label>参数行<input id="fExif" type="text" placeholder="24mm f/1.8 1/500s ISO100" /></label>
+  <label>日期<input id="fDate" type="text" placeholder="2026/08/30" /></label>
+  <button id="infoApply" class="btn" type="button">应用并重渲染</button>
+</div>
+
+<div class="modal" id="modal">
+  <button class="close-x" id="closeX" type="button" title="关闭（Esc）">✕</button>
+  <button class="nav prev" id="navPrev" type="button" title="上一个（←）">‹</button>
+  <button class="nav next" id="navNext" type="button" title="下一个（→）">›</button>
+  <div class="stage" id="stage"></div>
+  <div class="panel" id="panel"></div>
+  <div class="hint">← → 切换模板 · Esc 关闭 · 1 入选 / 2 待定 / 3 淘汰（打标自动跳下一套） · 0 清除标记</div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script type="module">
+import { useTemplates } from '/src/composables/useTemplates.ts'
+import { renderTemplateThumbDataUrl } from '/src/core/templateThumb.ts'
+import { sampleForTemplate } from '/src/core/templateSamples.ts'
+import { hexLuminance } from '/src/core/colorUtils.ts'
+import { seedPhotos, photosFromFiles } from '/src/core/galleryPhotos.ts'
+import { APP_CUSTOM_TEMPLATES } from '/src/core/appTemplatesSync.ts'
+
+/* ============================ 状态 ============================ */
+const CARD_EDGE = 720
+const PREVIEW_EDGE = 1600
+
+const INFO_DEFAULT = { cameraModel: '', brand: '', lensText: '', exifText: '', dateText: '' }
+const infoText = { ...INFO_DEFAULT }
+
+const filters = {
+  verdict: new Set(),
+  source: new Set(),
+  group: new Set(),
+  layout: new Set(),
+  ratio: new Set(),
+  bg: new Set(),
+  tone: new Set(),
+  tag: new Set(),
+}
+let keyword = ''
+let sortMode = 'lib'
+let useSamplePhoto = false
+let photos = seedPhotos()
+let currentPhoto = photos[0] ?? null
+
+/* ============================ 甄选标记 ============================ */
+const VERDICT_META = { keep: { label: '入选' }, maybe: { label: '待定' }, drop: { label: '淘汰' } }
+const VERDICTS_KEY = 'frame-gallery-verdicts'
+const verdicts = (() => {
+  try {
+    const raw = JSON.parse(localStorage.getItem(VERDICTS_KEY) ?? '{}')
+    const map = new Map()
+    for (const [id, v] of Object.entries(raw ?? {})) {
+      if (VERDICT_META[v]) map.set(id, v)
+    }
+    return map
+  } catch { return new Map() }
+})()
+
+function saveVerdicts() {
+  try { localStorage.setItem(VERDICTS_KEY, JSON.stringify(Object.fromEntries(verdicts))) } catch { /* ignore */ }
+}
+
+function verdictOf(id) {
+  return verdicts.get(id) ?? ''
+}
+
+/* ============================ 一图一模板配对 ============================ */
+// 每套模板配一张不同照片：比例锁定（frameRatio）的模板优先拿画幅最接近的照片，
+// 其余模板按「横图略优」的温和偏好分配，照片不重复；可逐张手动更换（覆盖值持久化）。
+let pairMode = true
+const PAIRS_KEY = 'frame-gallery-pairs'
+const pairMap = {}
+const pairOverrides = (() => {
+  try { return JSON.parse(localStorage.getItem(PAIRS_KEY) ?? '{}') ?? {} } catch { return {} }
+})()
+const aspectCache = new Map()
+
+function savePairOverrides() {
+  try { localStorage.setItem(PAIRS_KEY, JSON.stringify(pairOverrides)) } catch { /* ignore */ }
+}
+
+function loadAspect(p) {
+  if (aspectCache.has(p.id)) return Promise.resolve(aspectCache.get(p.id))
+  return new Promise((res) => {
+    const im = new Image()
+    im.onload = () => { const a = im.naturalWidth / (im.naturalHeight || 1); aspectCache.set(p.id, a); res(a) }
+    im.onerror = () => { aspectCache.set(p.id, 1.5); res(1.5) }
+    im.src = p.src
+  })
+}
+
+/** 生成「模板 → 照片」映射（确定性：同一批照片与模板顺序结果稳定；同步执行，零解码开销） */
+function buildPairing() {
+  // 先满足比例严格的模板，再排宽松的「原始画幅」，避免好照片被先到先得吃掉
+  const strict = all.filter((d) => d.config.frameRatio != null)
+  const loose = all.filter((d) => d.config.frameRatio == null)
+  const used = new Set()
+  for (const d of [...strict, ...loose]) {
+    const ov = pairOverrides[d.id]
+    if (ov && photos.some((p) => p.id === ov)) { pairMap[d.id] = ov; used.add(ov); continue }
+    const target = d.config.frameRatio ?? 1.5
+    const weight = d.config.frameRatio != null ? 1 : 0.3
+    let best = null
+    let bestScore = Infinity
+    for (const p of photos) {
+      if (used.has(p.id)) continue
+      const a = p.aspect ?? aspectCache.get(p.id) ?? 1.5
+      const score = Math.abs(Math.log(a / target)) * weight
+      if (score < bestScore) { bestScore = score; best = p }
+    }
+    if (best) {
+      pairMap[d.id] = best.id
+      used.add(best.id)
+    } else {
+      // 照片用尽（模板数 > 照片数）时循环取用，保证每张卡片都有图
+      const fallback = photos.length ? photos[all.indexOf(d) % photos.length] : null
+      if (fallback) pairMap[d.id] = fallback.id
+    }
+  }
+}
+
+/** 当前卡片应当使用的照片：模板样张 > 一图一模板配对 > 全局所选照片 */
+function photoFor(d) {
+  if (useSamplePhoto) {
+    const s = sampleForTemplate(d.id)
+    if (s) return { src: s, label: '模板样张' }
+  }
+  if (pairMode) {
+    const id = pairOverrides[d.id] ?? pairMap[d.id]
+    const p = photos.find((x) => x.id === id)
+    if (p) return { src: p.src, label: p.label }
+  }
+  return { src: currentPhoto?.src, label: currentPhoto?.label ?? '未选照片' }
+}
+
+/** 排序权重：入选 → 待定 → 未标记 → 淘汰 */
+function verdictRank(d) {
+  return { keep: 0, maybe: 1, '': 2, unmarked: 2, drop: 3 }[verdictOf(d.id) || 'unmarked'] ?? 2
+}
+
+/* ============================ 模板描述符 ============================ */
+const LAYOUT_LABEL = {
+  classic: '纵向堆叠', duo: '杂志双栏', inline: '悬浮居中', card: '联名水印卡',
+  magazine: '杂志编辑', vertical: '竖排装裱', poster: '海报参数表',
+  calendar: '月历网格', sport: '运动遥测',
+}
+const BG_LABEL = { blur: '模糊延展', solid: '纯色边框', photo: '自定义背景图' }
+const TONE_LABEL = { light: '浅色底（深字）', dark: '深色底（浅字）', photo: '照片压字' }
+const RATIO_TABLE = [
+  [1, '1:1'], [4 / 5, '4:5'], [3 / 4, '3:4'], [2 / 3, '2:3'], [9 / 16, '9:16'],
+  [16 / 9, '16:9'], [3 / 2, '3:2'], [9 / 14, '9:14'], [0.5625, '9:16'],
+]
+
+function ratioKind(frameRatio) {
+  if (frameRatio == null) return '原始画幅'
+  for (const [v, name] of RATIO_TABLE) {
+    if (Math.abs(frameRatio - v) < 0.012) return name
+  }
+  return `其他（${Number(frameRatio).toFixed(3)}）`
+}
+
+/** 判断模板里是否含自由元素 / 竖排 / 无字等特性 */
+function deriveTags(config, layout) {
+  const c = config ?? {}
+  const els = c.infoLayer?.elements ?? []
+  const tags = []
+  if ((c.grain ?? 0) > 0) tags.push('颗粒')
+  if ((c.vignette ?? 0) > 0) tags.push('暗角')
+  if (layout === 'magazine' && (c.showPalette ?? true)) tags.push('取色色卡')
+  if (c.paletteHex) tags.push('色号标注')
+  if (c.showWatermark) tags.push('自定义水印')
+  if (c.deviceMockup && c.deviceMockup !== 'none') tags.push('设备样机')
+  if (layout === 'card') tags.push('品牌标块')
+  if ((c.photoRadius ?? 0) > 0 || (c.borderRadius ?? 0) > 0) tags.push('圆角')
+  if ((c.shadow ?? 0) > 0) tags.push('投影')
+  if (els.length) tags.push('自由元素')
+  if (els.some((e) => Math.abs(((e.rotate ?? 0) % 360 + 360) % 360 - 90) < 1)) tags.push('竖排文字')
+  const hasText = c.showLogo || c.showExif || c.showLens || c.showDate || c.showCameraModel
+  if (!hasText && !els.length) tags.push('纯边框无字')
+  if (c.showLogo) tags.push('品牌标识')
+  if (c.showCameraModel && c.modelMark !== false) tags.push('机型字标')
+  if (c.showLens) tags.push('镜头行')
+  if (c.showDate) tags.push('日期行')
+  return tags
+}
+
+function describe(t) {
+  const c = t.config ?? {}
+  const layout = c.infoLayout ?? 'classic'
+  const bgMode = c.bgMode ?? 'blur'
+  const frameColor = c.borderColor ?? c.bgColor ?? '#000000'
+  let tone = 'photo'
+  if (bgMode === 'solid') tone = hexLuminance(frameColor) > 0.6 ? 'light' : 'dark'
+  const d = {
+    t,
+    id: t.id,
+    name: t.name,
+    group: t.group ?? '未分组',
+    desc: t.desc ?? '',
+    layout,
+    bgMode,
+    tone,
+    ratio: ratioKind(c.frameRatio),
+    tags: deriveTags(c, layout),
+    config: c,
+    builtin: !!t.builtin,
+  }
+  if (t.fromApp) d.tags.push('软件同步')
+  return d
+}
+
+/* ============================ 初始化 ============================ */
+const { templates } = useTemplates()
+// 与软件模板库同步：内置套同源；「我的模板」来自软件存储的同步快照（appTemplatesSync.ts）
+const appCustoms = APP_CUSTOM_TEMPLATES
+  .filter((t) => !templates.some((x) => x.id === t.id))
+  .map((t) => ({ ...t, fromApp: true }))
+const all = [...templates, ...appCustoms].map(describe)
+
+const el = {
+  q: document.getElementById('q'),
+  photo: document.getElementById('photo'),
+  upload: document.getElementById('upload'),
+  uploadBtn: document.getElementById('uploadBtn'),
+  infoBtn: document.getElementById('infoBtn'),
+  infoPop: document.getElementById('infoPop'),
+  infoApply: document.getElementById('infoApply'),
+  sampleBtn: document.getElementById('sampleBtn'),
+  sort: document.getElementById('sort'),
+  counter: document.getElementById('counter'),
+  reset: document.getElementById('reset'),
+  facets: document.getElementById('facets'),
+  active: document.getElementById('active'),
+  grid: document.getElementById('grid'),
+  empty: document.getElementById('empty'),
+  modal: document.getElementById('modal'),
+  stage: document.getElementById('stage'),
+  panel: document.getElementById('panel'),
+  closeX: document.getElementById('closeX'),
+  navPrev: document.getElementById('navPrev'),
+  navNext: document.getElementById('navNext'),
+  toast: document.getElementById('toast'),
+  vstats: document.getElementById('vstats'),
+  exportBtn: document.getElementById('exportBtn'),
+  cols: document.getElementById('cols'),
+  pairBtn: document.getElementById('pairBtn'),
+}
+for (const id of ['fModel', 'fBrand', 'fLens', 'fExif', 'fDate']) {
+  el[id] = document.getElementById(id)
+}
+
+function toast(msg) {
+  el.toast.textContent = msg
+  el.toast.classList.add('show')
+  clearTimeout(toast._t)
+  toast._t = setTimeout(() => el.toast.classList.remove('show'), 2200)
+}
+
+/* ============================ 照片选择器 ============================ */
+function renderPhotoPicker() {
+  const groups = [
+    { label: '内置照片', items: photos.filter((p) => p.source === 'seed') },
+    { label: '本次上传', items: photos.filter((p) => p.source === 'upload') },
+  ]
+  el.photo.innerHTML = ''
+  for (const g of groups) {
+    if (!g.items.length) continue
+    const og = document.createElement('optgroup')
+    og.label = g.label
+    for (const p of g.items) {
+      const o = document.createElement('option')
+      o.value = p.id
+      o.textContent = p.label
+      og.appendChild(o)
+    }
+    el.photo.appendChild(og)
+  }
+  if (currentPhoto) el.photo.value = currentPhoto.id
+}
+
+function setPhoto(p) {
+  currentPhoto = p
+  renderCache.clear()
+  redrawAll()
+}
+
+/* ============================ 筛选逻辑 ============================ */
+const DIMS = ['verdict', 'source', 'group', 'layout', 'ratio', 'bg', 'tone', 'tag']
+
+function hit(d, dim) {
+  if (keyword) {
+    const k = keyword.toLowerCase()
+    const hay = `${d.name} ${d.desc} ${d.id} ${d.group} ${d.tags.join(' ')} ${LAYOUT_LABEL[d.layout] ?? ''}`.toLowerCase()
+    if (!hay.includes(k)) return false
+  }
+  if (dim !== 'verdict' && filters.verdict.size && !filters.verdict.has(verdictOf(d.id) || 'unmarked')) return false
+  if (dim !== 'source' && filters.source.size && !filters.source.has(d.builtin ? 'builtin' : 'custom')) return false
+  if (dim !== 'group' && filters.group.size && !filters.group.has(d.group)) return false
+  if (dim !== 'layout' && filters.layout.size && !filters.layout.has(d.layout)) return false
+  if (dim !== 'ratio' && filters.ratio.size && !filters.ratio.has(d.ratio)) return false
+  if (dim !== 'bg' && filters.bg.size && !filters.bg.has(d.bgMode)) return false
+  if (dim !== 'tone' && filters.tone.size && !filters.tone.has(d.tone)) return false
+  if (dim !== 'tag' && filters.tag.size && !d.tags.some((x) => filters.tag.has(x))) return false
+  return true
+}
+
+function filtered() {
+  const list = all.filter((d) => hit(d, null))
+  const by = {
+    lib: null,
+    name: (a, b) => a.name.localeCompare(b.name, 'zh'),
+    group: (a, b) => a.group.localeCompare(b.group, 'zh') || a.name.localeCompare(b.name, 'zh'),
+    layout: (a, b) => a.layout.localeCompare(b.layout) || a.name.localeCompare(b.name, 'zh'),
+    verdict: (a, b) => verdictRank(a) - verdictRank(b) || a.name.localeCompare(b.name, 'zh'),
+  }[sortMode]
+  return by ? [...list].sort(by) : list
+}
+
+/** 某一维度上「其它条件已满足」的模板集合（标准分面计数） */
+function poolFor(dim) {
+  return all.filter((d) => hit(d, dim))
+}
+
+const countOf = (pool, pick) => pool.reduce((n, d) => n + (pick(d) ? 1 : 0), 0)
+
+/* ============================ 侧栏渲染 ============================ */
+function chipRow(title, dim, entries) {
+  const pool = poolFor(dim)
+  const wrap = document.createElement('div')
+  wrap.className = 'facet'
+  const h = document.createElement('h4')
+  h.innerHTML = `<span>${title}</span><em>${filters[dim].size ? filters[dim].size + ' 已选' : ''}</em>`
+  wrap.appendChild(h)
+  const chips = document.createElement('div')
+  chips.className = 'chips'
+  for (const [value, label] of entries) {
+    const n = countOf(pool, (d) => (dim === 'tag' ? d.tags.includes(value) : valueOf(d, dim) === value))
+    const b = document.createElement('button')
+    b.type = 'button'
+    b.className = 'chip' + (filters[dim].has(value) ? ' on' : '')
+    if (!n && !filters[dim].has(value)) b.dataset.empty = '1'
+    b.innerHTML = `${label}<i>${n}</i>`
+    b.addEventListener('click', () => {
+      if (filters[dim].has(value)) filters[dim].delete(value)
+      else filters[dim].add(value)
+      render()
+    })
+    chips.appendChild(b)
+  }
+  wrap.appendChild(chips)
+  return wrap
+}
+
+function valueOf(d, dim) {
+  if (dim === 'verdict') return verdictOf(d.id) || 'unmarked'
+  if (dim === 'source') return d.builtin ? 'builtin' : 'custom'
+  if (dim === 'group') return d.group
+  if (dim === 'layout') return d.layout
+  if (dim === 'ratio') return d.ratio
+  if (dim === 'bg') return d.bgMode
+  if (dim === 'tone') return d.tone
+  return ''
+}
+
+function uniq(values) {
+  return [...new Set(values)].sort((a, b) => String(a).localeCompare(String(b), 'zh'))
+}
+
+function renderFacets() {
+  el.facets.innerHTML = ''
+  const intro = document.createElement('div')
+  intro.className = 'facet-note'
+  intro.textContent = '点选条件即时筛选；括号内为当前条件下可用数量。'
+  el.facets.appendChild(intro)
+
+  el.facets.appendChild(chipRow('甄选', 'verdict', [['keep', '入选'], ['maybe', '待定'], ['drop', '淘汰'], ['unmarked', '未标记']]))
+
+  const groups = uniq(all.filter((d) => poolFor('group').includes(d)).map((d) => d.group))
+  const layouts = uniq(all.filter((d) => poolFor('layout').includes(d)).map((d) => d.layout))
+  const ratios = uniq(all.filter((d) => poolFor('ratio').includes(d)).map((d) => d.ratio))
+  const bgs = uniq(all.map((d) => d.bgMode))
+  const tones = uniq(all.map((d) => d.tone))
+  const tags = uniq(all.flatMap((d) => d.tags))
+
+  el.facets.appendChild(chipRow('来源', 'source', [['builtin', '内置模板'], ['custom', '我的模板']]))
+  el.facets.appendChild(chipRow('分组', 'group', groups.map((g) => [g, g])))
+  el.facets.appendChild(chipRow('信息布局', 'layout', layouts.map((l) => [l, `${LAYOUT_LABEL[l] ?? l}`])))
+  el.facets.appendChild(chipRow('画幅比例', 'ratio', ratios.map((r) => [r, r])))
+  el.facets.appendChild(chipRow('背景模式', 'bg', bgs.map((b) => [b, BG_LABEL[b] ?? b])))
+  el.facets.appendChild(chipRow('底色明暗', 'tone', tones.map((t) => [t, TONE_LABEL[t] ?? t])))
+  el.facets.appendChild(chipRow('视觉特性', 'tag', tags.map((t) => [t, t])))
+}
+
+/* ============================ 生效筛选条 ============================ */
+function renderActive() {
+  el.active.innerHTML = ''
+  const add = (dim, value, label) => {
+    const tag = document.createElement('span')
+    tag.className = 'tag'
+    const txt = document.createElement('span')
+    txt.textContent = label
+    const x = document.createElement('button')
+    x.type = 'button'
+    x.textContent = '✕'
+    x.addEventListener('click', () => { filters[dim].delete(value); render() })
+    tag.append(txt, x)
+    el.active.appendChild(tag)
+  }
+  for (const dim of DIMS) {
+    for (const v of filters[dim]) {
+      let label = v
+      if (dim === 'layout') label = LAYOUT_LABEL[v] ?? v
+      else if (dim === 'bg') label = BG_LABEL[v] ?? v
+      else if (dim === 'tone') label = TONE_LABEL[v] ?? v
+      else if (dim === 'verdict') label = { keep: '入选', maybe: '待定', drop: '淘汰', unmarked: '未标记' }[v] ?? v
+      else if (dim === 'source') label = v === 'builtin' ? '内置模板' : '我的模板'
+      add(dim, v, label)
+    }
+  }
+  if (keyword) {
+    const tag = document.createElement('span')
+    tag.className = 'tag'
+    tag.textContent = `搜索：${keyword}`
+    el.active.appendChild(tag)
+  }
+  if (el.active.childElementCount) {
+    const clear = document.createElement('button')
+    clear.type = 'button'
+    clear.className = 'btn ghost'
+    clear.style.height = '26px'
+    clear.textContent = '清空筛选'
+    clear.addEventListener('click', resetFilters)
+    el.active.appendChild(clear)
+  }
+}
+
+/* ============================ 渲染队列 ============================ */
+const renderCache = new Map()
+const queue = []
+let running = 0
+const MAX_PARALLEL = 3
+let pending = 0
+let finished = 0
+
+function pump() {
+  while (running < MAX_PARALLEL && queue.length) {
+    const job = queue.shift()
+    running++
+    job().catch(() => {}).finally(() => {
+      running--
+      finished++
+      updateCounter()
+      pump()
+    })
+  }
+}
+
+function enqueue(job) {
+  pending++
+  queue.push(job)
+  updateCounter()
+  pump()
+}
+
+function sourceFor(d) {
+  return photoFor(d).src
+}
+
+function renderOne(d, edge) {
+  const src = sourceFor(d)
+  const info = {
+    cameraModel: infoText.cameraModel || undefined,
+    brand: infoText.brand || undefined,
+    lensText: infoText.lensText || undefined,
+    exifText: infoText.exifText || undefined,
+    dateText: infoText.dateText || undefined,
+  }
+  const key = `${d.id}|${edge}|${src ?? ''}|${JSON.stringify(info)}`
+  if (renderCache.has(key)) return Promise.resolve(renderCache.get(key))
+  return renderTemplateThumbDataUrl(d.config, src, edge, info).then((url) => {
+    renderCache.set(key, url)
+    return url
+  })
+}
+
+let resultList = []
+
+function updateCounter() {
+  const shown = resultList.length
+  const done = Math.min(finished, pending)
+  el.counter.innerHTML = `共 ${all.length} 套 · 命中 <b>${shown}</b> 套` +
+    (pending > done ? ` · 渲染中 ${done}/${pending}` : '')
+}
+
+function redrawAll() {
+  queue.length = 0
+  pending = 0
+  finished = 0
+  renderGrid()
+}
+
+function renderGrid() {
+  el.grid.innerHTML = ''
+  resultList = filtered()
+  el.empty.hidden = resultList.length > 0
+  const io = new IntersectionObserver((entries) => {
+    for (const e of entries) {
+      if (!e.isIntersecting) continue
+      io.unobserve(e.target)
+      const d = e.target.__d
+      const img = e.target.querySelector('img') ?? e.target.querySelector('.ph')
+      enqueue(async () => {
+        try {
+          const url = await renderOne(d, CARD_EDGE)
+          if (img.tagName === 'IMG') img.src = url
+          else {
+            const real = document.createElement('img')
+            real.className = 'shot'
+            real.alt = d.name
+            real.src = url
+            img.replaceWith(real)
+          }
+        } catch (err) {
+          const box = e.target.querySelector('.ph') ?? e.target.querySelector('img')
+          if (box) {
+            const fail = document.createElement('div')
+            fail.className = 'er'
+            fail.textContent = `渲染失败：${err?.message ?? err}`
+            box.replaceWith(fail)
+          }
+        }
+      })
+    }
+  }, { rootMargin: '320px 0px' })
+
+  for (const d of resultList) {
+    const card = document.createElement('article')
+    const v0 = verdictOf(d.id)
+    card.className = 'card' + (v0 ? ` v-${v0}` : '')
+    card.__d = d
+    card.title = `${d.name}｜${d.group}｜${LAYOUT_LABEL[d.layout] ?? d.layout}`
+    const badge = document.createElement('button')
+    badge.type = 'button'
+    badge.className = 'vbadge' + (v0 ? ` ${v0}` : '')
+    badge.textContent = VERDICT_META[v0]?.label ?? '标'
+    badge.title = '点击循环切换：入选 → 待定 → 淘汰 → 清除（不影响打开预览）'
+    badge.addEventListener('click', (e) => {
+      e.stopPropagation()
+      const order = ['', 'keep', 'maybe', 'drop']
+      const next = order[(order.indexOf(verdictOf(d.id)) + 1) % order.length]
+      setVerdict(d.id, next)
+    })
+    const ph = document.createElement('div')
+    ph.className = 'ph'
+    ph.textContent = '待渲染'
+    const ov = document.createElement('div')
+    ov.className = 'ov'
+    const a = document.createElement('span')
+    a.textContent = LAYOUT_LABEL[d.layout] ?? d.layout
+    const b = document.createElement('span')
+    b.textContent = d.ratio
+    ov.append(a, b)
+    const bar = document.createElement('div')
+    bar.className = 'bar'
+    const nm = document.createElement('span')
+    nm.className = 'nm'
+    nm.textContent = d.name
+    const gp = document.createElement('span')
+    gp.className = 'gp'
+    gp.textContent = d.group
+    const srcLine = document.createElement('span')
+    srcLine.className = 'src'
+    srcLine.textContent = photoFor(d).label
+    bar.append(nm, gp, srcLine)
+    card.append(badge, ov, ph, bar)
+    card.addEventListener('click', () => openPreview(d))
+    el.grid.appendChild(card)
+    io.observe(card)
+  }
+  updateCounter()
+}
+
+function render() {
+  renderFacets()
+  renderActive()
+  redrawAll()
+}
+
+function resetFilters() {
+  for (const dim of DIMS) filters[dim].clear()
+  keyword = ''
+  el.q.value = ''
+  render()
+}
+
+/* ============================ 预览层 ============================ */
+let previewList = []
+let previewIndex = -1
+
+function openPreview(d) {
+  previewList = resultList
+  previewIndex = previewList.findIndex((x) => x === d)
+  if (previewIndex < 0) previewIndex = 0
+  el.modal.classList.add('open')
+  showPreview()
+}
+
+function closePreview() {
+  el.modal.classList.remove('open')
+  el.stage.innerHTML = ''
+  el.panel.innerHTML = ''
+}
+
+function step(delta) {
+  if (!previewList.length) return
+  previewIndex = (previewIndex + delta + previewList.length) % previewList.length
+  showPreview()
+}
+
+function showPreview() {
+  const d = previewList[previewIndex]
+  if (!d) return
+  el.stage.innerHTML = '<div class="wait">渲染中…</div>'
+  renderOne(d, PREVIEW_EDGE)
+    .then((url) => {
+      if (previewList[previewIndex] !== d) return
+      el.stage.innerHTML = ''
+      const img = document.createElement('img')
+      img.alt = d.name
+      img.src = url
+      el.stage.appendChild(img)
+    })
+    .catch((err) => {
+      el.stage.innerHTML = `<div class="wait">渲染失败：${err?.message ?? err}</div>`
+    })
+
+  const c = d.config
+  const rows = [
+    ['模板 id', d.id],
+    ['配对照片', photoFor(d).label],
+    ['分组', d.group],
+    ['信息布局', LAYOUT_LABEL[d.layout] ?? d.layout],
+    ['背景模式', BG_LABEL[d.bgMode] ?? d.bgMode],
+    ['底色明暗', TONE_LABEL[d.tone] ?? d.tone],
+    ['画幅比例', d.ratio],
+    ['下边留白', `padding ${c.padding ?? 60} ＋ 额外 ${c.borderRatio ?? 0}`],
+    ['圆角 / 投影', `${c.photoRadius ?? 0} / ${(c.shadow ?? 0).toFixed(2)}`],
+    ['效果', [ (c.grain ?? 0) > 0 ? `颗粒 ${c.grain}` : '', (c.vignette ?? 0) > 0 ? `暗角 ${c.vignette}` : '' ].filter(Boolean).join(' · ') || '无'],
+    ['自由元素', `${(c.infoLayer?.elements ?? []).length} 个`],
+    ['视觉特性', d.tags.join(' · ') || '无'],
+  ]
+  el.panel.innerHTML = ''
+  const h2 = document.createElement('h2')
+  h2.textContent = d.name
+  const sub = document.createElement('div')
+  sub.className = 'sub'
+  sub.textContent = `${previewIndex + 1} / ${previewList.length}`
+  const desc = document.createElement('p')
+  desc.className = 'desc'
+  desc.textContent = d.desc || '（该模板未填写说明）'
+  const dl = document.createElement('dl')
+  dl.className = 'kv'
+  for (const [k, v] of rows) {
+    const dt = document.createElement('dt')
+    dt.textContent = k
+    const dd = document.createElement('dd')
+    dd.textContent = v
+    dl.append(dt, dd)
+  }
+  const pv = document.createElement('div')
+  pv.className = 'pv-verdicts'
+  const mk = (v, label) => {
+    const b = document.createElement('button')
+    b.type = 'button'
+    b.className = 'btn' + (verdictOf(d.id) === v ? ` on-${v}` : '')
+    b.textContent = label
+    b.addEventListener('click', () => setVerdict(d.id, verdictOf(d.id) === v ? '' : v, true))
+    return b
+  }
+  pv.append(mk('keep', '入选 1'), mk('maybe', '待定 2'), mk('drop', '淘汰 3'))
+  const mkClear = document.createElement('button')
+  mkClear.type = 'button'
+  mkClear.className = 'btn ghost'
+  mkClear.textContent = '清除 0'
+  mkClear.addEventListener('click', () => { setVerdict(d.id, ''); showPreview() })
+  pv.append(mkClear)
+
+  const acts = document.createElement('div')
+  acts.className = 'acts'
+  const b1 = document.createElement('button')
+  b1.type = 'button'
+  b1.className = 'btn'
+  b1.textContent = '上一套'
+  b1.addEventListener('click', () => step(-1))
+  const b2 = document.createElement('button')
+  b2.type = 'button'
+  b2.className = 'btn'
+  b2.textContent = '下一套'
+  b2.addEventListener('click', () => step(1))
+  const b3 = document.createElement('button')
+  b3.type = 'button'
+  b3.className = 'btn ghost'
+  b3.textContent = '下载大图'
+  b3.addEventListener('click', () => {
+    const img = el.stage.querySelector('img')
+    if (!img) return
+    const a = document.createElement('a')
+    a.href = img.src
+    a.download = `${d.id}.jpg`
+    a.click()
+  })
+  const b4 = document.createElement('button')
+  b4.type = 'button'
+  b4.className = 'btn ghost'
+  b4.textContent = '换配对照片'
+  b4.addEventListener('click', () => cyclePairPhoto(d))
+  const b5 = document.createElement('button')
+  b5.type = 'button'
+  b5.className = 'btn ghost'
+  b5.textContent = '恢复自动配对'
+  b5.addEventListener('click', () => resetPairPhoto(d))
+  acts.append(b1, b2, b3, b4, b5)
+  el.panel.append(h2, sub, desc, pv, dl, acts)
+}
+
+/* ============================ 甄选操作 ============================ */
+function applyVerdictCard(card, d) {
+  const v = verdictOf(d.id)
+  card.className = 'card' + (v ? ` v-${v}` : '')
+  const badge = card.querySelector('.vbadge')
+  if (badge) {
+    badge.className = 'vbadge' + (v ? ` ${v}` : '')
+    badge.textContent = VERDICT_META[v]?.label ?? '标'
+  }
+}
+
+/** 打标：写存储 → 同步卡片角标与统计 → 刷新侧栏计数；（advance=true 时自动跳下一套，流水线过片） */
+function setVerdict(id, v, advance = false) {
+  if (v) verdicts.set(id, v)
+  else verdicts.delete(id)
+  saveVerdicts()
+  const card = [...el.grid.children].find((c) => c.__d && c.__d.id === id)
+  if (card) applyVerdictCard(card, card.__d)
+  renderVstats()
+  renderFacets()
+  if (advance) step(1)
+}
+
+function renderVstats() {
+  const n = { keep: 0, maybe: 0, drop: 0 }
+  for (const v of verdicts.values()) n[v]++
+  el.vstats.innerHTML =
+    `入选 <b class="k">${n.keep}</b> · 待定 <b class="m">${n.maybe}</b> · 淘汰 <b class="d">${n.drop}</b>`
+}
+
+/** 换一张配对照片：顺延到照片列表的下一张（覆盖值持久化，只影响这一套模板） */
+function cyclePairPhoto(d) {
+  if (!photos.length) return
+  const cur = pairOverrides[d.id] ?? pairMap[d.id]
+  const i = photos.findIndex((p) => p.id === cur)
+  const next = photos[(i + 1 + photos.length) % photos.length]
+  pairOverrides[d.id] = next.id
+  savePairOverrides()
+  pairMode = true
+  el.pairBtn.classList.add('on')
+  renderCache.clear()
+  redrawAll()
+  showPreview()
+  toast(`已换为：${next.label}`)
+}
+
+function resetPairPhoto(d) {
+  delete pairOverrides[d.id]
+  savePairOverrides()
+  renderCache.clear()
+  redrawAll()
+  showPreview()
+  toast('已恢复自动配对')
+}
+
+/* ============================ 事件 ============================ */
+el.q.addEventListener('input', () => {
+  keyword = el.q.value.trim()
+  render()
+})
+el.sort.addEventListener('change', () => { sortMode = el.sort.value; renderGrid(); renderActive() })
+el.reset.addEventListener('click', resetFilters)
+el.closeX.addEventListener('click', closePreview)
+el.navPrev.addEventListener('click', () => step(-1))
+el.navNext.addEventListener('click', () => step(1))
+el.modal.addEventListener('click', (e) => { if (e.target === el.modal) closePreview() })
+el.photo.addEventListener('change', () => {
+  const p = photos.find((x) => x.id === el.photo.value)
+  if (!p) return
+  // 手动指定照片 = 退出逐张配对，回到「同一张 × 全部模板」
+  pairMode = false
+  el.pairBtn.classList.remove('on')
+  setPhoto(p)
+  toast(`全部模板改用同一张：${p.label}`)
+})
+el.pairBtn.addEventListener('click', () => {
+  pairMode = !pairMode
+  el.pairBtn.classList.toggle('on', pairMode)
+  renderCache.clear()
+  redrawAll()
+  toast(pairMode ? '已按模板逐张配对照片' : '已回到「同一张照片 × 全部模板」')
+})
+el.uploadBtn.addEventListener('click', () => el.upload.click())
+el.upload.addEventListener('change', async () => {
+  const added = photosFromFiles(el.upload.files)
+  if (!added.length) return
+  photos = [...photos, ...added]
+  renderPhotoPicker()
+  setPhoto(added[0])
+  await Promise.all(added.map(loadAspect)) // 上传照片解码出宽高比后再配对
+  buildPairing()
+  renderCache.clear()
+  redrawAll()
+  toast(`已加入 ${added.length} 张照片，配对已重算`)
+  el.upload.value = ''
+})
+el.sampleBtn.addEventListener('click', () => {
+  useSamplePhoto = !useSamplePhoto
+  el.sampleBtn.classList.toggle('on', useSamplePhoto)
+  renderCache.clear()
+  redrawAll()
+  toast(useSamplePhoto ? '卡片改用各模板自带样张' : '卡片改用所选照片')
+})
+el.infoBtn.addEventListener('click', () => el.infoPop.classList.toggle('open'))
+el.exportBtn.addEventListener('click', async () => {
+  const groups = { keep: [], maybe: [], drop: [] }
+  for (const d of all) {
+    const v = verdictOf(d.id)
+    if (groups[v]) groups[v].push(d.id)
+  }
+  const text = [
+    `入选（${groups.keep.length}）：${groups.keep.join(', ') || '无'}`,
+    `待定（${groups.maybe.length}）：${groups.maybe.join(', ') || '无'}`,
+    `淘汰（${groups.drop.length}）：${groups.drop.join(', ') || '无'}`,
+  ].join('\n')
+  try {
+    await navigator.clipboard.writeText(text)
+    toast('甄选清单已复制到剪贴板')
+  } catch {
+    const ta = document.createElement('textarea')
+    ta.value = text
+    document.body.appendChild(ta)
+    ta.select()
+    document.execCommand('copy')
+    ta.remove()
+    toast('甄选清单已复制（降级方式）')
+  }
+})
+
+/* 列数（卡片密度）持久化 */
+const COLS_KEY = 'frame-gallery-cols'
+try { el.cols.value = localStorage.getItem(COLS_KEY) ?? '4' } catch { el.cols.value = '4' }
+document.documentElement.style.setProperty('--cols', el.cols.value)
+el.cols.addEventListener('input', () => {
+  document.documentElement.style.setProperty('--cols', el.cols.value)
+  try { localStorage.setItem(COLS_KEY, el.cols.value) } catch { /* ignore */ }
+})
+el.infoApply.addEventListener('click', () => {
+  infoText.cameraModel = el.fModel.value.trim()
+  infoText.brand = el.fBrand.value.trim()
+  infoText.lensText = el.fLens.value.trim()
+  infoText.exifText = el.fExif.value.trim()
+  infoText.dateText = el.fDate.value.trim()
+  el.infoPop.classList.remove('open')
+  renderCache.clear()
+  redrawAll()
+  toast('INFO 文案已更新')
+})
+window.addEventListener('keydown', (e) => {
+  if (!el.modal.classList.contains('open')) {
+    if (e.key === 'Escape') el.infoPop.classList.remove('open')
+    return
+  }
+  const cur = previewList[previewIndex]
+  if (e.key === 'Escape') closePreview()
+  else if (e.key === 'ArrowLeft') step(-1)
+  else if (e.key === 'ArrowRight') step(1)
+  else if (e.key === '1' && cur) setVerdict(cur.id, 'keep', true)
+  else if (e.key === '2' && cur) setVerdict(cur.id, 'maybe', true)
+  else if (e.key === '3' && cur) setVerdict(cur.id, 'drop', true)
+  else if (e.key === '0' && cur) { setVerdict(cur.id, ''); showPreview() }
+})
+
+/* ============================ 启动 ============================ */
+renderPhotoPicker()
+buildPairing() // 同步：基于离线尺寸表按画幅配对，首屏即各用各的图、无解码等待
+render()
+renderVstats()
+</script>
+</body>
+</html>

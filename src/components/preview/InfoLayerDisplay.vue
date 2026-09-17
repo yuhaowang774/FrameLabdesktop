@@ -7,6 +7,7 @@
 import { onMounted, onBeforeUnmount, ref, watch, nextTick } from 'vue'
 import { useFrameConfig } from '../../composables/useFrameConfig'
 import { drawInfoLayer } from '../../core/infoRenderer'
+import { logoAutoColor } from '../../core/colorUtils'
 import { applyShowToggles } from '../../core/showToggles'
 import { modelAlias } from '../../core/modelAlias'
 import { DESIGN_CONTAINER } from '../../core/constants'
@@ -49,7 +50,9 @@ function render(): void {
     eqFocal: state.eqFocal,
     cropFactor: state.cropFactor,
     outerMatrix,
-    canvasCenter: { x: DESIGN_CONTAINER / 2, y: h / 2 },
+    // 画布中轴 X = 画布总宽 / 2（内容区居中于「内容区 + 两侧边框留白」的画布），与导出同源；
+    // 此前写死 DESIGN_CONTAINER/2 会让 center 锚点元素在含边框留白的模板里整体左移 inset。
+    canvasCenter: { x: (DESIGN_CONTAINER + 2 * inset) / 2, y: h / 2 },
     // 画布设计总宽/高与内容区内缩：供边缘锚点元素（报头行/底部签名条）精确贴边（与导出同参）
     canvasH: h,
     canvasW: DESIGN_CONTAINER + 2 * inset,
@@ -57,6 +60,10 @@ function render(): void {
     dateText: state.dateText,
     unitScale: 1,
     forPreview: true,
+    // 字标元素着色 + 当前品牌：与导出端同规则（浅底近黑 / 深底白；'brand' → 当前品牌），
+    // 两端必须一致否则预览/成片字标颜色或内容不同
+    logoColor: logoAutoColor(state.logoColor, state.bgMode, state.bgColor),
+    brand: state.brand,
   })
 }
 

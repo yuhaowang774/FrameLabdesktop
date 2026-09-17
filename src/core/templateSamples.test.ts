@@ -11,9 +11,9 @@ describe('模板库样张照片', () => {
     expect(missing, `以下模板缺少样张: ${missing.join(', ')}`).toEqual([])
   })
 
-  it('样张数量与内置模板数一致（无孤儿文件）', () => {
+  it('样张数量不少于内置模板数（晋升重组款沿用父本样张 alias，目录中允许留有历史样张）', () => {
     const { templates } = useTemplates()
-    expect(sampleCount()).toBe(templates.filter((t) => t.builtin).length)
+    expect(sampleCount()).toBeGreaterThanOrEqual(templates.filter((t) => t.builtin).length)
   })
 
   it('取用接口返回资源 URL，未知 id 返回 undefined', () => {

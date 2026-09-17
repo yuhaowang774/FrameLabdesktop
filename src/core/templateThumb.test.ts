@@ -87,10 +87,10 @@ describe('templateThumb dataURL', () => {
 })
 
 describe('内置模板清单', () => {
-  it('初代 10 套模板名与顺序保持不变（用户样例复刻 + 水印审美样张风格）', () => {
+  it('初代 9 套模板名与顺序保持不变（用户样例复刻 + 水印审美样张风格；复古CCD 已于 09-16 甄选淘汰）', () => {
     const { templates } = useTemplates()
     const builtin = templates.filter((t) => t.builtin).map((t) => t.name)
-    expect(builtin.slice(0, 10)).toEqual([
+    expect(builtin.slice(0, 9)).toEqual([
       '白框参数卡',
       '圆角悬浮·模糊延展',
       '白卡装裱·衬线字标',
@@ -99,22 +99,22 @@ describe('内置模板清单', () => {
       '银灰测绘·等宽参数',
       '胶片暗房·黑框',
       '轻量悬浮·型号水印',
-      '复古CCD·日期戳',
       '杂志编辑·标题色卡',
     ])
   })
 
-  it('扩充批模板全部就位（共 79 套）且每套带分组标签', () => {
+  it('扩充批模板全部就位（共 98 套）且每套带分组标签', () => {
     const { templates } = useTemplates()
     const builtin = templates.filter((t) => t.builtin)
-    expect(builtin.length).toBe(79)
+    expect(builtin.length).toBe(106)
     for (const t of builtin) {
       expect(t.group, `${t.id} 缺少分组`).toBeTruthy()
       expect(t.desc, `${t.id} 缺少一句话说明`).toBeTruthy()
     }
-    // 分组 chips 覆盖：全部归入设计语言组之一
+    // 分组 chips 覆盖：全部归入设计语言组之一（2026-09-16 范式重写第 1 批补上「水印署名」；
+    // 运动边框/设备样机两组暂空）
     const groups = new Set(builtin.map((t) => t.group))
-    for (const g of ['经典', '极简轻量', '杂志编辑', '胶片复古', '暗调影廊', '联名卡', '社交尺寸', '水印署名', '创意排版', '多彩色卡', '大师水印', '日历边框', '运动边框', '设备样机', '纸品印刷']) {
+    for (const g of ['经典', '极简轻量', '杂志编辑', '胶片复古', '暗调影廊', '联名卡', '社交尺寸', '创意排版', '多彩色卡', '大师水印', '日历边框', '纸品印刷', '水印署名']) {
       expect(groups.has(g), `分组「${g}」没有模板`).toBe(true)
     }
   })
@@ -125,7 +125,9 @@ describe('内置模板清单', () => {
     const has = (pred: (c: Partial<FrameConfig>) => boolean) => builtin.some(pred)
     expect(has((c) => c.infoLayout === 'card')).toBe(true)
     expect(has((c) => c.infoLayout === 'vertical')).toBe(true)
-    expect(has((c) => c.overlayAnchor === 'top')).toBe(true)
+    // overlayAnchor 'top' 与 infoLayout 'magazine' 的部分变体：承载模板在 09-16 甄选中被淘汰，
+    // 引擎能力仍在（用户可手动设置），暂不强制内置模板覆盖
+    expect(has((c) => (c.grain ?? 0) > 0)).toBe(true)
     expect(has((c) => (c.grain ?? 0) > 0)).toBe(true)
     expect(has((c) => (c.vignette ?? 0) > 0)).toBe(true)
     expect(has((c) => c.showWatermark === true)).toBe(true)

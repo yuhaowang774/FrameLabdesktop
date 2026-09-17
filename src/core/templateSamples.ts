@@ -15,14 +15,27 @@ for (const [path, url] of Object.entries(SAMPLE_MODS)) {
   if (m) BY_ID.set(m[1], url)
 }
 
+// 晋升的重组款沿用父本样张（尚未拍专属样张；父本文件保留在目录中即为 alias 服务）
+const ALIAS: Record<string, string> = {
+  rc_ccd_wall: 'm_ccd_stamp',
+  rc_slide_blur: 'm_slide_mount',
+  rc_poem_autumn: 'm_poem_card',
+  rc_ticket_guide: 'm_ticket_horizontal',
+  rc_leica_black: 'm_vertical_leica',
+}
+
+function resolve(templateId: string): string | undefined {
+  return BY_ID.get(templateId) ?? (ALIAS[templateId] ? BY_ID.get(ALIAS[templateId]) : undefined)
+}
+
 /** 该模板是否有配套样张（测试/调试用） */
 export function hasSample(templateId: string): boolean {
-  return BY_ID.has(templateId)
+  return resolve(templateId) != null
 }
 
 /** 取模板的样张照片 URL；没有配套样张时返回 undefined（调用方回退默认示例图 / SVG 示意） */
 export function sampleForTemplate(templateId: string): string | undefined {
-  return BY_ID.get(templateId)
+  return resolve(templateId)
 }
 
 /** 样张总数（测试用） */

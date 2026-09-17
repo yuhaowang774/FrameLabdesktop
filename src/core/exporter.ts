@@ -35,6 +35,9 @@ import {
   MAG_SWATCH_COUNT,
   MAG_SWATCH_W,
   MAG_SWATCH_H,
+  MAG_HEX_SIZE,
+  MAG_HEX_LETTER_SPACING,
+  MAG_HEX_OFFSET_Y,
   CAL_COL_PITCH,
   CAL_CELL_W,
   CAL_DAY_SIZE,
@@ -260,6 +263,23 @@ function drawMagazineFooter(
         MAG_SWATCH_H * s,
       )
       ctx.restore()
+    }
+    // 色卡 hex 色号（paletteHex）：每块色卡正下方一行小字，居中；与预览 FooterInfo 几何一致
+    // （审查补：此前仅预览与 SVG 缩略图绘制，导出端缺失 → 预览/导出不同源）
+    if (config.paletteHex) {
+      for (let i = 0; i < MAG_SWATCH_COUNT; i++) {
+        drawText(
+          L.palette.x + i * MAG_SWATCH_W + MAG_SWATCH_W / 2,
+          L.palette.y + MAG_SWATCH_H + MAG_HEX_OFFSET_Y,
+          palette[i % palette.length].toUpperCase(),
+          MAG_HEX_SIZE,
+          secondary,
+          500,
+          config.fontFamily,
+          MAG_HEX_LETTER_SPACING,
+          'center',
+        )
+      }
     }
   }
 
@@ -1181,9 +1201,16 @@ export async function exportFrame(
 
   // 3.5) 顶层 INFO 多元素容器层（自由拖拽排版）：与预览 InfoLayerDisplay 一致
   if (infoVisible && config.infoLayer?.enabled && config.showInfo) {
-    // 预载内置品牌 Logo，确保导出拿到完整画布
-    await preloadInfoLogos(config.infoLayer)
-    const canvasCenter = { x: DESIGN_CONTAINER / 2, y: designCanvasH / 2 }
+    // 字标元素着色：与页脚 Logo 同规则（浅底近黑 / 深底白），否则白字标压白底不可见
+    const infoLogoColor = logoAutoColor(config.logoColor, config.bgMode, config.bgColor)
+    // 预载内置品牌 Logo（含着色），确保导出拿到完整画布而非占位
+    await preloadInfoLogos(config.infoLayer, infoLogoColor, config.brand)
+    // 画布中轴：内容区（DESIGN_CONTAINER 宽）居中于「画布 = 内容区 + 两侧边框留白」，
+    // 因此中轴 X = 画布总宽 / 2，而不是内容区半宽 600。此前写死 600 使所有 center 锚点
+    // 元素在含 padding/bgExpand 的模板里整体左移 (effectivePad + bgExpand)：
+    // x=-600 本意是内容区左缘、x=+600 是右缘、x=0 是内容区中轴，全部对不齐。
+    const infoCanvasW = DESIGN_CONTAINER + 2 * (effectivePad + bgExpand)
+    const canvasCenter = { x: infoCanvasW / 2, y: designCanvasH / 2 }
     // 照片变换矩阵（设计 px 空间，未含 unitScale）：先平移到照片中心（含 pad + 背景扩展），再旋转
     const photoCx = effectivePad + bgExpand + photoContentX + photoDesignW / 2
     const photoCy = effectivePad + bgExpand + photoContentY + photoDesignH / 2
@@ -1201,10 +1228,12 @@ export async function exportFrame(
       canvasCenter,
       // 画布设计总宽/高与内容区内缩：供边缘锚点元素（报头行/底部签名条）精确贴边
       canvasH: designCanvasH,
-      canvasW: DESIGN_CONTAINER + 2 * (effectivePad + bgExpand),
+      canvasW: infoCanvasW,
       contentInset: effectivePad + bgExpand,
       dateText: config.dateText,
       unitScale: 1, // 已通过 ctx.scale 处理
+      logoColor: infoLogoColor,
+      brand: config.brand,
     })
     ctx.restore()
   }

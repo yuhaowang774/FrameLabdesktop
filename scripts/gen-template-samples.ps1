@@ -10,7 +10,9 @@ param(
   [string]$SrcDir = 'C:\Users\Administrator\Desktop\模版照片',
   [string]$OutDir = 'd:\A\FrameLab\src\assets\template-samples',
   [int]$MaxEdge = 1000,
-  [int]$Quality = 80
+  [int]$Quality = 80,
+  # 只生成指定模板 id 的样张（新增模板时用，避免把历史映射全部重刷一遍）
+  [string[]]$Only = @()
 )
 Add-Type -AssemblyName System.Drawing
 $ErrorActionPreference = 'Stop'
@@ -98,6 +100,74 @@ $MAP = [ordered]@{
   'm_paper_label'       = 'marcus-ganahl-Z2-lnDiixBM'      # 蛛网与树枝
   'm_autumn_bookmark'   = 'noppadon-manadee-4CFbtKdHch8'   # 金色草穗
   'm_exhibit_guide'     = 'roman-akash-W6eYAf2eoJ8'        # 看展人群与名画
+  # ===== 第四批：FrameElf 范式重写 第 1 批 6 套（2026-09-16）=====
+  # 优先选「尚未被现有模板占用」的照片，按画幅方向匹配（铺满款配深一点的照片便于压白字）
+  'm_wm_signature_edge' = 'francesco-ungaro-EKakGSDJGCs'   # 沙丘暖橙（横幅，铺满压白字）
+  'm_wm_date_corner'    = 'kristians-greckis-zqVOhpb6yK4'  # 金色夕阳云（方形，配方形画幅）
+  'm_border_left_two'   = 'magdalena-kula-manchee-qGoGz1ui56Y' # 热气球日出（横幅，白框展陈）
+  'm_border_params_four' = 'greg-rosenke-uWGfchsnYD4'      # 金色岩纹（竖幅，四行参数）
+  'm_palette_note_band' = 'alissa-schilling-_tDqbE5U7nw'   # 沙漠红岩（竖幅，色彩浓烈出色卡）
+  'm_ticket_city_strip' = 'semina-psichogiopoulou-hl0iLy1hFo0' # 城市俯瞰人物背影（横幅票根）
+  # ===== 第五批：色卡范式族 5 套（2026-09-16）=====
+  'm_palette_min_edge'  = 'mattia-revelant-Yh3alvVRvRA'    # 荒野山脚（干净自然，窄白边极简）
+  'm_palette_ink_band'  = 'royce-fonseca-JrY8Xq-PgzA'      # 森林公路（暗调，配墨底）
+  'm_palette_square_card' = 'jones-lee-f8FgfDNLg2A'        # 粉色建筑与月亮（色彩有趣，方卡）
+  'm_palette_blur_band' = 'zhen-yao-gxVQDthMksc'           # 胶片条中建筑（配模糊延展带）
+  'm_palette_wide_date' = 'kellen-riggin-hmW3e2hLGP0'      # 金门大桥晨雾（宽幅 3:2）
+  # ===== 第六批：多行文字块范式族 5 套（2026-09-16）=====
+  'm_spec_five_lines'   = 'zixi-lu-28_vmGQw36A'            # 上海天际线（横，规格卡）
+  'm_plate_pairs_five'  = 'bradley-andrews-ndQW-y6Rtbs'    # 玫瑰特写（横，铭牌对照）
+  'm_datacard_four_pairs' = 'steve-gribble-X57NtYldau8'    # 金色麦浪（宽幅，大数值卡）
+  'm_panorama_seven_lines' = 'roman-akash-W6eYAf2eoJ8'     # 看展人群与名画（横，全幅参数条）
+  'm_float_params_right' = 'rafael-garcin-RVc7KCmFRdc'     # 日环食（竖幅暗调，白字浮层）
+  # ===== 第七批：多行文字块族 20 套（2026-09-16）=====
+  # 前 16 张为尚未被占用的照片；后 4 张与既有模板共用（同片不同版式，便于对比构图差异）
+  'm_wb_float_five_left'    = 'clement-proust-XxK9RR09DIU'  # 山湖雪顶（浮层左缘五行）
+  'm_wb_float_top_eight'    = 'gabriela-PtCILZw-e4Y'        # 冰面人物（左上八行）
+  'm_wb_float_six_center'   = 'rafael-peier-8yfCTr6ia18'    # 公路与孤树（居中六行）
+  'm_wb_float_ten_pairs'    = 'garvit-nama-_GXbkkSFcnE'     # 山峰蓝调（五行标签对照）
+  'm_wb_float_top_six'      = 'douglas-schneiders-iO9uHKMFiVU' # 城市街道（顶部刊头六行）
+  'm_wb_float_big_four'     = 'rosalie-gdy-MAm8CTlyeI8'     # 山雾（大字四行）
+  'm_wb_float_right_five'   = 'julie-gaia-guzal-0IT4vwi1hZo' # 湖边城市（右缘五行）
+  'm_wb_band_six_left'      = 'takashi-sakamoto-hXfCmfmUPt0' # 黄墙行人（白边六行）
+  'm_wb_band_numeric_eight' = 'anton-shakirov-K1RmYc5pRks'  # 舷窗云海（居中八行数值）
+  'm_wb_band_date_three'    = 'safiullah-oba-wzhqy-B1zxM'   # 室内彩色光影（日期三行）
+  'm_wb_band_seven_left'    = 'alin-gavriliuc-PZ5HifLJcjo'  # 暗调铁路山谷（七行记录）
+  'm_wb_band_pairs_six'     = 'tsuyoshi-kozu-ukSDSF2oRA8'   # 城市高楼（六组字段）
+  'm_wb_credit_logo_five'   = 'b-s-Q2Z6BnGn0ys'             # 白墙粉玫瑰（品牌行五行）
+  'm_wb_credit_logo_six'    = 'marcus-ganahl-Z2-lnDiixBM'   # 蛛网与树枝（品牌行六行）
+  'm_wb_credit_logo_right'  = 'noppadon-manadee-4CFbtKdHch8' # 金色草穗（右对齐品牌行）
+  'm_wb_master_seven_center' = 'tanya-prodaan-qB1dSYDISeA'  # 雪地近白（居中七行）
+  'm_wb_master_five_serif'  = 'mattia-revelant-Yh3alvVRvRA' # 荒野山脚（衬线五行，与窄白边款同片）
+  'm_wb_top_five_center'    = 'francesco-ungaro-EKakGSDJGCs' # 沙丘暖橙（顶部五行，与署名款同片）
+  'm_wb_top_big_two'        = 'zixi-lu-28_vmGQw36A'         # 上海天际线（顶部大字，与规格卡同片）
+  'm_wb_blur_five_left'     = 'greg-rosenke-uWGfchsnYD4'    # 金色岩纹（模糊底五行，与参数四行同片）
+  # ===== 第八批：相机机身壳 8 套（2026-09-17，照片均为复用——图库照片已全部被占用，同片看版式差异）
+  'm_cam_shell_dark'        = 'douglas-schneiders-iO9uHKMFiVU' # 城市街道（黑银机身壳全幅）
+  'm_cam_shell_silver'      = 'gabriela-PtCILZw-e4Y'         # 冰面人物（银黑机身壳全幅）
+  'm_cam_shell_square'      = 'anton-shakirov-K1RmYc5pRks'   # 舷窗云海（方画幅机身壳）
+  'm_cam_shell_brand3'      = 'b-s-Q2Z6BnGn0ys'              # 白墙粉玫瑰（机身壳 + 品牌三行）
+  'm_cam_shell_param8'      = 'tsuyoshi-kozu-ukSDSF2oRA8'    # 城市高楼（机身壳 + 参数八行）
+  'm_cam_shell_mark4'       = 'julie-gaia-guzal-0IT4vwi1hZo' # 湖边城市（机身壳 + 左上四行）
+  'm_cam_shell_sign6'       = 'clement-proust-XxK9RR09DIU'   # 山湖雪顶（机身壳 + 左缘六行）
+  'm_cam_shell_port8'       = 'rosalie-gdy-MAm8CTlyeI8'      # 山雾（机身壳 + 带下八行）
+  # ===== 第九批：胶片壳 / 拍立得 / 特效 / 票根 7 套（2026-09-17，照片同样复用）
+  'm_film_dark_caps'        = 'rosalie-gdy-MAm8CTlyeI8'      # 山雾（黑片基胶片壳）
+  'm_film_warm_three'       = 'clement-proust-XxK9RR09DIU'   # 山湖雪顶（暖褐片基）
+  'm_pola_sign_one'         = 'julie-gaia-guzal-0IT4vwi1hZo' # 湖边城市（拍立得署名一行）
+  'm_pola_four_lines'       = 'mattia-revelant-Yh3alvVRvRA'  # 荒野山脚（拍立得带下四行）
+  'm_effect_strip_logo'     = 'douglas-schneiders-iO9uHKMFiVU' # 城市街道（特效厚带品牌）
+  'm_ticket_guide'          = 'tsuyoshi-kozu-ukSDSF2oRA8'    # 城市高楼（票根竖长卡）
+  'm_ticket_stub'           = 'noppadon-manadee-4CFbtKdHch8' # 金色草穗（票根存根）
+  # ===== 第十批：手机壳 / 社交尺寸 8 套（2026-09-17，照片复用）=====
+  'm_ph_three_center'       = 'rosalie-gdy-MAm8CTlyeI8'
+  'm_ph_five_left'          = 'clement-proust-XxK9RR09DIU'
+  'm_ph_six_left'           = 'tsuyoshi-kozu-ukSDSF2oRA8'
+  'm_ph_seven_center'       = 'julie-gaia-guzal-0IT4vwi1hZo'
+  'm_ph_nine_caps'          = 'douglas-schneiders-iO9uHKMFiVU'
+  'm_ph_pairs_six'          = 'marcus-ganahl-Z2-lnDiixBM'
+  'm_ph_night_five'         = 'alin-gavriliuc-PZ5HifLJcjo'
+  'm_social_story_two'      = 'anton-shakirov-K1RmYc5pRks'
 }
 
 $files = @(Get-ChildItem -LiteralPath $SrcDir -File | Where-Object { $_.Extension -match '\.(jpe?g|png|webp)$' } | Sort-Object Name)
@@ -110,7 +180,14 @@ $ep.Param[0] = New-Object System.Drawing.Imaging.EncoderParameter([System.Drawin
 
 $totalKB = 0
 $missing = 0
-foreach ($k in $MAP.Keys) {
+$keys = @($MAP.Keys)
+if ($Only.Count -gt 0) {
+  # 兼容两种传参：-Only a,b（整体字符串）与 -Only a b（数组）
+  $want = @($Only -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+  $keys = @($keys | Where-Object { $want -contains $_ })
+  if ($keys.Count -eq 0) { Write-Output ('未匹配到任何模板 id: ' + ($want -join ', ')); exit 1 }
+}
+foreach ($k in $keys) {
   $needle = $MAP[$k]
   $hit = @($files | Where-Object { $_.BaseName -like "*$needle*" })
   if ($hit.Count -eq 0) { Write-Output ("MISS: {0} <- {1}" -f $k, $needle); $missing++; continue }
@@ -133,4 +210,4 @@ foreach ($k in $MAP.Keys) {
   $totalKB += $kb
   Write-Output ("{0,-22} <- {1,-34} {2}x{3} {4}KB" -f $k, $hit[0].BaseName, $w, $h, $kb)
 }
-Write-Output ("完成：{0} 张（缺失 {1}）/ 共 {2} KB" -f $MAP.Count, $missing, $totalKB)
+Write-Output ("完成：{0} 张（缺失 {1}）/ 共 {2} KB" -f $keys.Count, $missing, $totalKB)

@@ -82,6 +82,8 @@ export function measureElement(
   switch (el.type) {
     case 'divider':
       return { width: el.width, height: el.thickness }
+    case 'sprocket':
+      return { width: el.width, height: Math.max(el.holeSize, el.thickness) }
     case 'logo': {
       const c = logoCanvas
       if (!c || c.width <= 1) return { width: el.baseWidth, height: el.baseWidth * 0.4 }
@@ -147,6 +149,14 @@ export function drawInfoLayer(
     /** 预览模式（审查报告 R9）：绘制全部 enable 元素（含 exportable=false 的“仅预览”元素）；
      *  导出模式仍仅绘制 exportable=true 的元素 */
     forPreview?: boolean
+    /** 字标元素着色（logoId 为品牌时使用）：调用方按底色明暗传入（logoAutoColor）。
+     *  缺省 undefined → useLogoStore 内部按默认色（白）取色——浅底模板上会「白字标压白底」不可见，
+     *  故导出/预览两端都必须传。 */
+    logoColor?: string
+    /** 当前品牌 id（sony/canon/…）：logoId === 'brand' 的元素解析成它。
+     *  types.ts 里 'brand' 是「跟随当前品牌」的约定值，但 useLogoStore 只认具体品牌 id——
+     *  不传时 'brand' 会被当成品牌 id 去找 SVG，找不到就退化成把「brand」这个词画出来。 */
+    brand?: string
   } = {},
 ): void {
   if (!layer.enabled) return
@@ -198,7 +208,15 @@ export function drawInfoLayer(
 function drawElementContent(
   ctx: CanvasRenderingContext2D,
   el: InfoElement,
-  opts: { exifRaw?: ExifRaw | null; model?: string; eqFocal?: boolean; cropFactor?: number; dateText?: string },
+  opts: {
+    exifRaw?: ExifRaw | null
+    model?: string
+    eqFocal?: boolean
+    cropFactor?: number
+    dateText?: string
+    logoColor?: string
+    brand?: string
+  },
 ): void {
   switch (el.type) {
     case 'divider': {
@@ -209,8 +227,27 @@ function drawElementContent(
       ctx.fillRect(x0, -el.thickness / 2, el.width, el.thickness)
       break
     }
+    case 'sprocket': {
+      // 齿孔线（票根/胶片撕线）：一排冲孔沿宽度均布 + 中间一道横线；水平锚点同 divider
+      const x0 = el.anchorX === 'left' ? 0 : el.anchorX === 'right' ? -el.width : -el.width / 2
+      const cy = 0
+      ctx.fillStyle = el.color
+      ctx.fillRect(x0, cy - el.thickness / 2, el.width, el.thickness)
+      const r = Math.max(0.5, el.holeSize / 2)
+      const pitch = r * 2.4
+      const n = Math.max(2, Math.floor(el.width / pitch))
+      const step = el.width / n
+      for (let i = 0; i < n; i++) {
+        ctx.beginPath()
+        ctx.arc(x0 + step * (i + 0.5), cy, r, 0, Math.PI * 2)
+        ctx.fill()
+      }
+      break
+    }
     case 'logo': {
-      const c = resolveLogo(el.logoId)
+      const id = logoElementId(el.logoId, opts.brand)
+      if (!id) break
+      const c = resolveLogo(id, opts.logoColor)
       if (c && c.width > 1) {
         const ratio = c.height / c.width
         const h = el.baseWidth * ratio
@@ -298,8 +335,18 @@ function drawSpacedText(
   ctx.textAlign = align
 }
 
-/** 导出前预载所有内置品牌 Logo，确保拿到完整画布而非占位 */
-export async function preloadInfoLogos(layer: InfoLayerConfig): Promise<void> {
-  const ids = layer.elements.filter((e) => e.type === 'logo').map((e) => (e as any).logoId as string)
-  await Promise.all(ids.map((id) => preloadBrandLogo(id)))
+/** 导出前预载所有内置品牌 Logo，确保拿到完整画布而非占位（color 必须与绘制时一致，否则缓存落空） */
+export async function preloadInfoLogos(layer: InfoLayerConfig, color?: string, brand?: string): Promise<void> {
+  const ids = layer.elements
+    .filter((e) => e.type === 'logo')
+    .map((e) => logoElementId((e as any).logoId as string, brand))
+    .filter((id): id is string => !!id)
+  await Promise.all(ids.map((id) => preloadBrandLogo(id, color)))
+}
+
+/** 字标元素 id 解析：'brand' = 跟随当前品牌；'none'/空 = 不绘制；其余（含 custom:）= 原样 */
+export function logoElementId(logoId: string, brand?: string): string | undefined {
+  if (!logoId || logoId === 'none') return undefined
+  if (logoId === 'brand') return brand && brand !== '自定义' ? brand : undefined
+  return logoId
 }

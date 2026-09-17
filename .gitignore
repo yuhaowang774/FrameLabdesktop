@@ -30,3 +30,9 @@ _archive/
 
 # 宣发素材与工作文档（仅本地，不入库）
 marketing/
+
+# 模板画廊本地评审照片（桌面「模版照片」同步，约 200MB，仅本地不入库）
+src/assets/gallery/
+
+# 软件模板库同步快照（「我的模板」，仅本地评审用）
+src/core/appTemplatesSync.ts

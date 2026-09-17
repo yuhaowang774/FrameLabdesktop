@@ -462,6 +462,9 @@ export const MAG_BOTTOM_INSET = 26 // 色卡距内容区左缘/下缘基准
 export const MAG_SWATCH_W = 88 // 单个色块宽
 export const MAG_SWATCH_H = 30 // 色块高
 export const MAG_SWATCH_COUNT = 5 // 色块数
+export const MAG_HEX_SIZE = 10 // 色卡 hex 色号字号（设计 px）
+export const MAG_HEX_LETTER_SPACING = 0.4 // 色卡 hex 色号字距（设计 px）
+export const MAG_HEX_OFFSET_Y = 3 // hex 色号距色卡下缘（设计 px）
 export const MAG_RIGHT_INSET = 26 // 右侧文字块距内容区右缘
 export const MAG_ROW_GAP = 12 // 右侧文字块行距
 

@@ -27,6 +27,9 @@ import {
   MAG_SWATCH_COUNT,
   MAG_SWATCH_W,
   MAG_SWATCH_H,
+  MAG_HEX_SIZE,
+  MAG_HEX_LETTER_SPACING,
+  MAG_HEX_OFFSET_Y,
   CAL_COL_PITCH,
   CAL_CELL_W,
   CAL_DAY_SIZE,
@@ -916,11 +919,13 @@ function absStyle(key: ItemKey) {
           :style="{ background: c, width: MAG_SWATCH_W + 'px', height: MAG_SWATCH_H + 'px' }"
         />
         <template v-if="state.paletteHex">
+          <!-- hex 色号：.mag-hex 是 .mag-palette 的绝对定位子元素，坐标须相对容器（此前误用
+               整页坐标 → 5 个标签重叠在色卡带外侧、看不见）；几何与导出端 drawMagazineFooter 一致 -->
           <span
             v-for="(c, i) in magazinePalette.slice(0, MAG_SWATCH_COUNT)"
             :key="'hex-' + i"
             class="mag-hex"
-            :style="{ left: magazinePos(magazineLayout.palette).left, top: magazineLayout.palette.y + pad + bgExpand + MAG_SWATCH_H + 3 + 'px', width: MAG_SWATCH_W + 'px', color: magazineSecondary }"
+            :style="{ left: i * MAG_SWATCH_W + 'px', top: MAG_SWATCH_H + MAG_HEX_OFFSET_Y + 'px', width: MAG_SWATCH_W + 'px', fontSize: MAG_HEX_SIZE + 'px', letterSpacing: MAG_HEX_LETTER_SPACING + 'px', color: magazineSecondary }"
           >{{ c.toUpperCase() }}</span>
         </template>
       </div>
@@ -1300,8 +1305,6 @@ function absStyle(key: ItemKey) {
 .mag-hex {
   position: absolute;
   text-align: center;
-  font-size: 10px;
-  letter-spacing: 0.4px;
   pointer-events: none;
 }
 /* vertical 竖排装裱：writing-mode 内联绑定；nowrap 防换列（换列会向左生长破坏列序） */

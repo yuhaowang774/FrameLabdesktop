@@ -98,6 +98,13 @@ const lastEmit = (arr: unknown[][] | undefined) => arr?.[(arr?.length ?? 0) - 1]
 const mountModal = (modelValue = true) =>
   mount(TemplatePickerModal, { props: { modelValue }, global: { stubs: { teleport: true } } })
 
+// jsdom 未实现元素的 scrollTo（真实浏览器均有）：补一个最小实现，让「点目录 → 跳段」可断言
+if (typeof Element.prototype.scrollTo !== 'function') {
+  Element.prototype.scrollTo = function (this: HTMLElement, options?: ScrollToOptions | number) {
+    this.scrollTop = typeof options === 'object' && options ? (options.top ?? 0) : Number(options ?? 0)
+  } as typeof Element.prototype.scrollTo
+}
+
 describe('TemplatePickerModal 骨架', () => {
   it('modelValue=false 时不渲染，true 时渲染标题/搜索/返回箭头', async () => {
     const closed = mountModal(false)
@@ -145,50 +152,64 @@ describe('TemplatePickerModal 骨架', () => {
 })
 
 describe('分区与渲染（瀑布流）', () => {
-  it('全部视图 = 按侧栏分类顺序分段（本例「经典」）+「我的模板」，卡片走 masonry 容器', async () => {
+  it('列表恒为完整分段（最近使用 → 风格分组 → 我的模板），卡片走 masonry 容器', async () => {
     const w = mountModal(true)
     const titles = w.findAll('.tp-sec-title').map((g) => g.text())
-    expect(titles).toEqual(['经典', '我的模板'])
+    expect(titles).toEqual(['最近使用', '经典', '我的模板'])
     expect(w.findAll('.tp-card').length).toBe(3)
     expect(w.find('.tp-masonry').exists()).toBe(true)
     w.unmount()
   })
 
-  it('侧栏渲染工作区（最近使用/我的模板）+ 风格分类（全部 + 九组，带计数）', async () => {
+  it('侧栏目录：最近使用 / 我的模板 + 风格分组（带计数），不再有「全部」项', async () => {
     const w = mountModal(true)
     const items = w.findAll('.tp-item').map((i) => i.text())
     expect(items[0]).toContain('最近使用')
     expect(items[1]).toContain('我的模板')
-    expect(items.join(' ')).toContain('全部')
     expect(items.join(' ')).toContain('经典')
     expect(items.join(' ')).toContain('创意排版')
-    // 计数：全部 = 2 套内置
+    expect(items.join(' ')).not.toContain('全部')
+    // 计数：经典 = 2 套内置
     expect(items[2]).toContain('2')
     w.unmount()
   })
 
-  it('点击侧栏分组只显示该组内置模板', async () => {
+  it('点击侧栏分组 = 跳到该段（不筛选）：列表分段不变，滚过去后还能继续下滚', async () => {
     const w = mountModal(true)
-    const classic = w.findAll('.tp-item').find((i) => i.text().includes('经典'))
-    await classic!.trigger('click')
-    const titles = w.findAll('.tp-sec-title').map((g) => g.text())
-    expect(titles).toEqual(['经典'])
-    expect(w.findAll('.tp-card').length).toBe(2)
+    const before = w.findAll('.tp-sec-title').map((g) => g.text())
+    // jsdom 下重渲染会替换元素，故每次都重新查询侧栏项；跳转调用也按当前元素记录
+    const item = (label: string) => w.findAll('.tp-item').find((i) => i.text().includes(label))!
+    const armJumpSpy = () => {
+      const spy = vi.fn()
+      ;(w.find('.tp-main').element as HTMLElement).scrollTo = spy as unknown as HTMLElement['scrollTo']
+      return spy
+    }
+
+    const classicJump = armJumpSpy()
+    await item('经典').trigger('click')
+    // 段结构与卡片数都不变——没有退化成「单分类列表」
+    expect(w.findAll('.tp-sec-title').map((g) => g.text())).toEqual(before)
+    expect(w.findAll('.tp-card').length).toBe(3)
+    expect(classicJump).toHaveBeenCalledTimes(1)
+    expect(item('经典').classes()).toContain('active')
+    expect(item('最近使用').classes()).not.toContain('active')
+
+    const customJump = armJumpSpy()
+    await item('我的模板').trigger('click')
+    expect(customJump).toHaveBeenCalledTimes(1)
+    expect(item('我的模板').classes()).toContain('active')
     w.unmount()
   })
 
-  it('点击「我的模板」只显示自定义模板；「最近使用」按记录排序', async () => {
+  it('「最近使用」段在列表首位且按最近使用顺序排列', async () => {
+    mock.recentIds.push('b1', 'b2') // recentIds[0] 为最近一次使用
     const w = mountModal(true)
-    await w.findAll('.tp-item').find((i) => i.text().includes('我的模板'))!.trigger('click')
-    expect(w.findAll('.tp-card').length).toBe(1)
-    // 卡片不再渲染文字（模板信息只在预览弹窗里），按 img alt 断言模板归属
-    expect(w.find('.tp-card img').attributes('alt')).toBe('我的预设')
-
-    mock.recordMock('b2')
-    await w.findAll('.tp-item').find((i) => i.text().includes('最近使用'))!.trigger('click')
-    const cards = w.findAll('.tp-card')
-    expect(cards.length).toBe(1)
-    expect(cards[0].find('img').attributes('alt')).toBe('圆角悬浮·模糊延展')
+    await flushPromises()
+    const titles = w.findAll('.tp-sec-title').map((g) => g.text())
+    expect(titles[0]).toBe('最近使用')
+    expect(titles[titles.length - 1]).toBe('我的模板')
+    const recentAlts = w.findAll('.tp-sec')[0].findAll('.tp-card img').map((i) => i.attributes('alt'))
+    expect(recentAlts).toEqual(['白框参数卡', '圆角悬浮·模糊延展'])
     w.unmount()
   })
 
@@ -198,6 +219,56 @@ describe('分区与渲染（瀑布流）', () => {
     const cards = w.findAll('.tp-card')
     expect(cards.length).toBe(1)
     expect(cards[0].find('img').attributes('alt')).toContain('圆角悬浮·模糊延展')
+    w.unmount()
+  })
+})
+
+describe('滚动行为（2026-09-16：目录跳段 + 滚轮转发）', () => {
+  // jsdom 无布局，且列表重建时 .tp-main 会被替换（真实浏览器里是同一个元素、保留 scrollTop），
+  // 故这里每次重新查询元素，只断言「可观察契约」。
+  const mainTop = (w: ReturnType<typeof mountModal>) => (w.find('.tp-main').element as HTMLElement).scrollTop
+
+  it('搜索词变化时列表回到顶部（结果集变了，位置不再有效）', async () => {
+    const w = mountModal(true)
+    ;(w.find('.tp-main').element as HTMLElement).scrollTop = 500
+    await w.find('.tp-search').setValue('圆角')
+    await nextTick()
+    expect(mainTop(w)).toBe(0)
+    w.unmount()
+  })
+
+  it('指针停在左侧分类栏时滚轮转发给右侧瀑布流（侧栏自身不可滚动）', async () => {
+    const w = mountModal(true)
+    await flushPromises() // 缩略图异步合成完成，避免元素重建把写入冲掉
+    // jsdom 下侧栏 scrollHeight/clientHeight 均为 0 → 视作不可滚动，应直接转发增量
+    await w.find('.tp-side').trigger('wheel', { deltaY: 120, deltaMode: 0 })
+    expect(mainTop(w)).toBe(120)
+    w.unmount()
+  })
+
+  it('侧栏自身在该方向还能滚时不抢滚动（增量留给侧栏）', async () => {
+    const w = mountModal(true)
+    await flushPromises()
+    const side = w.find('.tp-side').element as HTMLElement
+    Object.defineProperty(side, 'scrollHeight', { value: 900, configurable: true })
+    Object.defineProperty(side, 'clientHeight', { value: 400, configurable: true })
+    side.scrollTop = 100
+    await w.find('.tp-side').trigger('wheel', { deltaY: 120, deltaMode: 0 })
+    expect(mainTop(w)).toBe(0)
+    expect(side.scrollTop).toBe(100)
+    w.unmount()
+  })
+
+  it('侧栏滚到边界时只吃掉余量、其余接力给瀑布流（不留白吞一格滚轮）', async () => {
+    const w = mountModal(true)
+    await flushPromises()
+    const side = w.find('.tp-side').element as HTMLElement
+    Object.defineProperty(side, 'scrollHeight', { value: 900, configurable: true })
+    Object.defineProperty(side, 'clientHeight', { value: 400, configurable: true })
+    side.scrollTop = 450 // 距底部仅剩 50
+    await w.find('.tp-side').trigger('wheel', { deltaY: 200, deltaMode: 0 })
+    expect(side.scrollTop).toBe(500)
+    expect(mainTop(w)).toBe(150)
     w.unmount()
   })
 })
@@ -321,16 +392,23 @@ describe('批量与删除', () => {
     w.unmount()
   })
 
-  it('我的模板分区带导入/导出按钮，无自定义模板时该分区不渲染', async () => {
+  it('「我的模板」段恒有导入/导出按钮；无自定义模板时给引导文案且「导出全部」禁用', async () => {
     const w = mountModal(true)
-    const btns = w.findAll('.tp-sec-btn').map((b) => b.text())
-    expect(btns).toEqual(['导入', '导出全部'])
+    const btns = w.findAll('.tp-sec-btn')
+    expect(btns.map((b) => b.text())).toEqual(['导入', '导出全部'])
+    expect(btns[1].attributes('disabled')).toBeUndefined() // 有 1 套自定义 → 可导出
     w.unmount()
 
     // mock 数组非响应式（真实 app 中 templates 为 reactive），重新挂载验证空自定义分支
     seed([...BUILTIN])
     const w2 = mountModal(true)
-    expect(w2.findAll('.tp-sec-btn').length).toBe(0)
+    const btns2 = w2.findAll('.tp-sec-btn')
+    expect(btns2.map((b) => b.text())).toEqual(['导入', '导出全部'])
+    expect(btns2[1].attributes('disabled')).toBeDefined()
+    // 空段（最近使用 / 我的模板）各自的引导文案
+    const hints = w2.findAll('.tp-sec-empty').map((p) => p.text())
+    expect(hints.join(' ')).toContain('还没有最近使用的模板')
+    expect(hints.join(' ')).toContain('还没有自定义模板')
     w2.unmount()
   })
 })

@@ -86,22 +86,38 @@ function ratioStyle(value: string): Record<string, string> {
       </div>
     </ControlGroup>
 
-    <!-- 设备样机：照片裁切进设备轮廓（手机壳边框环 + 灵动岛），预览/导出/缩略图三端同源 -->
+    <!-- 设备样机：照片裁切进设备轮廓（手机壳 / 相机机身壳），预览/导出/缩略图三端同源 -->
     <ControlGroup title="设备样机">
       <div class="color-row">
         <span class="lbl">机身</span>
         <select
           class="select"
           :value="state.deviceMockup"
-          @change="patch({ deviceMockup: ($event.target as HTMLSelectElement).value as 'none' | 'phone-dark' | 'phone-light' })"
+          @change="
+            patch({
+              deviceMockup: ($event.target as HTMLSelectElement).value as
+                | 'none'
+                | 'phone-dark'
+                | 'phone-light'
+                | 'camera-dark'
+                | 'camera-silver',
+            })
+          "
         >
           <option value="none">无</option>
           <option value="phone-dark">手机 · 深空灰</option>
           <option value="phone-light">手机 · 银色</option>
+          <option value="camera-dark">相机 · 黑机身银顶盖</option>
+          <option value="camera-silver">相机 · 银色机身</option>
+          <option value="film-dark">胶片 · 黑片基</option>
+          <option value="film-warm">胶片 · 暖褐片基</option>
         </select>
       </div>
       <p v-if="state.deviceMockup !== 'none'" class="mockup-hint">
         样机沿照片边缘内收绘制：建议照片圆角 48–72 观感最佳；配合无边框全幅或小留白使用。
+        <template v-if="state.deviceMockup.startsWith('camera')">
+          相机机身较厚（长边约 4.8%），照片相当于机身背面 LCD，建议全幅无留白使用。
+        </template>
       </p>
     </ControlGroup>
   </div>

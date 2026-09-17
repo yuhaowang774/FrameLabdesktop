@@ -166,9 +166,10 @@ export interface FrameConfig {
   /** 运动遥测数据（GPX 导入解析，属照片自身数据，不进模板）：null = 未导入 */
   telemetry: TelemetryData | null
   // ===== 设备样机（照片裁切进设备轮廓） =====
-  /** 设备样机样式：none=无（默认）；phone-dark=深空灰手机壳；phone-light=银色手机壳。
-   *  样机直接画在照片层内（边框环内收覆盖照片边缘 + 顶部灵动岛），预览/导出/缩略图三端同源 */
-  deviceMockup: 'none' | 'phone-dark' | 'phone-light'
+  /** 设备样机样式：none=无（默认）；phone-dark/phone-light=手机壳（边框环 + 顶部灵动岛）；
+   *  camera-dark/camera-silver=相机机身壳（照片当机身背面 LCD，环上绘金属顶盖/皮革握把/按钮）。
+   *  样机一律画在照片层内（环从照片边缘向内收），预览/导出/缩略图三端同源 */
+  deviceMockup: 'none' | 'phone-dark' | 'phone-light' | 'camera-dark' | 'camera-silver' | 'film-dark' | 'film-warm'
   fontFamily: string
   fontSize: number
   textWeight: number
@@ -409,7 +410,7 @@ export const defaultFrameConfig: FrameConfig = {
 // ============================================================================
 // 顶层 INFO 多元素数据结构定义
 // ============================================================================
-export type InfoElementType = 'text' | 'exif' | 'logo' | 'divider'
+export type InfoElementType = 'text' | 'exif' | 'logo' | 'divider' | 'sprocket'
 
 /** info 子元素公共字段 */
 export interface InfoElementBase {
@@ -485,11 +486,24 @@ export interface DividerInfoElement extends InfoElementBase {
   color: string
 }
 
+/** 齿孔线元素：一排冲孔 + 中间横线（票根/胶片的撕线），宽高按 scale 缩放 */
+export interface SprocketInfoElement extends InfoElementBase {
+  type: 'sprocket'
+  /** 基准宽度（设计 px，再乘 scale） */
+  width: number
+  /** 冲孔直径（设计 px） */
+  holeSize: number
+  /** 横线粗细（设计 px） */
+  thickness: number
+  color: string
+}
+
 export type InfoElement =
   | TextInfoElement
   | ExifInfoElement
   | LogoInfoElement
   | DividerInfoElement
+  | SprocketInfoElement
 
 /** 顶层 info 容器层配置 */
 export interface InfoLayerConfig {

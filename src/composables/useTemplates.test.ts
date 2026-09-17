@@ -1,5 +1,5 @@
 // 模板应用：info 缺失回填（二次应用不丢信息）+ 颜色随模板背景自适应
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { applyTemplateToState, useTemplates, sanitizeTemplateConfig } from './useTemplates'
 import { useFrameConfig } from './useFrameConfig'
 
@@ -111,12 +111,12 @@ describe('applyTemplateToState 层显示开关保留', () => {
 })
 
 describe('内置模板清单结构校验', () => {
-  it('79 套内置模板：id 唯一、名称非空、config 经 sanitize 无损往返', () => {
+  it('106 套内置模板：id 唯一、名称非空、config 经 sanitize 无损往返', () => {
     const { templates, toTemplateConfig } = useTemplates()
     const builtin = templates.filter((t) => t.builtin)
-    expect(builtin.length).toBe(79)
+    expect(builtin.length).toBe(106)
     const ids = new Set(builtin.map((t) => t.id))
-    expect(ids.size).toBe(79)
+    expect(ids.size).toBe(106)
     for (const t of builtin) {
       expect(t.name.trim().length).toBeGreaterThan(0)
       expect(t.category).toBe('frame')
@@ -130,9 +130,16 @@ describe('内置模板清单结构校验', () => {
   it('效果字段不用时显式归零：非颗粒/水印模板不带残留效果', () => {
     const { templates } = useTemplates()
     for (const t of templates.filter((x) => x.builtin)) {
-      const usesGrain = t.id === 'm_kodak_years' || t.id === 'm_polaroid' || t.id === 'm_darkroom_contact' || t.id === 'm_film_edge' || t.id === 'm_park_sign' || t.id === 'm_film_still'
-      const usesVignette = usesGrain || t.id === 'm_edge_vertical' || t.id === 'm_finder_cross' || t.id === 'm_credit_block' || t.id === 'm_cover_masthead' || t.id === 'm_cover_exhibit' || t.id === 'm_gps_coord' || t.id === 'm_sport_dark' || t.id === 'm_gallery_bar' || t.id === 'm_gilt_frame' || t.id === 'm_widescreen_sub' || t.id === 'm_long_exposure' || t.id === 'm_paper_label'
-      const usesWatermark = t.id === 'm_darkroom_contact' || t.id === 'm_watermark_tile' || t.id === 'm_watermark_corner' || t.id === 'm_ticket_horizontal' || t.id === 'm_ticket_vertical'
+      // 特效厚带品牌（2026-09-17）：按语料「特效边框」显式带颗粒 + 暗角，属有意为之
+      const usesGrain =
+        t.id === 'm_kodak_years' ||
+        t.id === 'm_polaroid' ||
+        t.id === 'm_darkroom_contact' ||
+        t.id === 'm_park_sign' ||
+        t.id === 'm_film_still' ||
+        t.id === 'm_effect_strip_logo'
+      const usesVignette = usesGrain || t.id === 'm_cover_masthead' || t.id === 'm_cover_exhibit' || t.id === 'm_gallery_bar' || t.id === 'm_gilt_frame' || t.id === 'm_widescreen_sub' || t.id === 'rc_ccd_wall' || t.id === 'rc_leica_black'
+      const usesWatermark = t.id === 'm_darkroom_contact' || t.id === 'rc_ticket_guide'
       if (!usesGrain) expect(t.config.grain ?? 0, t.id).toBe(0)
       if (!usesVignette) expect(t.config.vignette ?? 0, t.id).toBe(0)
       if (!usesWatermark) expect(t.config.showWatermark ?? false, t.id).toBe(false)
@@ -166,12 +173,17 @@ describe('全量内置模板应用冒烟（逐套过真实应用链路）', () =
     const { state, loadConfig } = useFrameConfig()
     loadConfig({ exifRaw: RAW, canvasH: 920 })
     for (const t of builtin) applyTemplateToState(t.config)
-    // 收尾应用报头式·顶部题注：状态处于顶锚 classic 且可渲染
-    const masthead = templates.find((t) => t.id === 'm_masthead_top')
-    expect(masthead).toBeTruthy()
-    applyTemplateToState(masthead!.config)
-    expect(state.infoLayout).toBe('classic')
-    expect(state.overlayAnchor).toBe('top')
+    // 收尾再应用最后一套内置模板（原 m_masthead_top 已在 09-16 甄选中淘汰）。
+    // 先重锚基线（模拟有照片的状态：内容高 800），避免前面大留白模板把 contentH 压缩后
+    // 全幅款（padding 0）在无照片环境下算出 canvasH 0。
+    loadConfig({ exifRaw: RAW, canvasH: 920, padding: 60, borderRatio: 0 })
+    const last = builtin[builtin.length - 1]
+    applyTemplateToState(last.config)
+    expect(
+      ['classic', 'duo', 'inline', 'card', 'magazine', 'vertical', 'poster', 'calendar', 'sport'],
+      `${last.id} 布局值非法: ${state.infoLayout}`,
+    ).toContain(state.infoLayout)
+    expect(['bottom', 'top'], `${last.id} 锚点值非法: ${state.overlayAnchor}`).toContain(state.overlayAnchor)
     expect(state.canvasH).toBeGreaterThan(0)
   })
 })
@@ -207,6 +219,24 @@ describe('sanitizeTemplateConfig 可空字段保留（回归 2026-09-12）', () 
     expect(out.dateFontSize).toBeNull()
     expect(out.exifFontFamily).toBeNull()
     expect(out.frameRatio).toBeNull()
+  })
+})
+
+describe('内置清单在「本地已有自定义模板」时仍完整（回归 2026-09-16）', () => {
+  it('localStorage 存过自定义模板时，内置模板数量与全新状态一致（含各独立批次数组）', async () => {
+    // 复现桌面端场景：本地存过自定义模板 → load() 走「合并自定义」分支。
+    // 曾因该分支漏加文字块族数组，导致桌面端看不到新批次而全新浏览器正常。
+    vi.resetModules()
+    localStorage.setItem(
+      'frame-templates',
+      JSON.stringify([{ id: 'my-custom', name: '我的模板', category: 'frame', config: { bgMode: 'solid' } }]),
+    )
+    const mod = await import('./useTemplates')
+    const list = mod.useTemplates().templates
+    expect(list.filter((t) => t.builtin).length).toBe(106)
+    expect(list.filter((t) => !t.builtin).length).toBe(1)
+    localStorage.removeItem('frame-templates')
+    vi.resetModules()
   })
 })
 

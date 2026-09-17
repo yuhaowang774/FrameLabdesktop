@@ -359,6 +359,45 @@ export function templateThumbSvg(config: Partial<FrameConfig>, opts: ThumbOption
     mockup =
       `<path fill-rule="evenodd" fill="${bezel}" d="${svgRoundRect(photoX, photoY, photoW, photoH, outerR)} ${svgRoundRect(photoX + t, photoY + t, photoW - t * 2, photoH - t * 2, Math.max(0, outerR - t))}"/>`
       + `<rect x="${r2(ix)}" y="${r2(iy)}" width="${r2(iw)}" height="${r2(ih)}" rx="${r2(ih / 2)}" fill="#101013"/>`
+  } else if (c.deviceMockup === 'film-dark' || c.deviceMockup === 'film-warm') {
+    // 胶片壳（同 drawFilmShell）：片基环（上下厚）+ 齿孔行 + 底部三角记号
+    const base = Math.max(photoW, photoH)
+    const side = Math.min(28, Math.max(6, base * 0.022))
+    const long = Math.min(64, Math.max(12, side * 2.2))
+    const outerR = Math.max(0, Math.min(photoR, Math.min(photoW, photoH) / 2))
+    const baseC = c.deviceMockup === 'film-dark' ? '#16140F' : '#2A211A'
+    const holeW = Math.max(2.4, side * 0.5)
+    const holeH = Math.max(1.8, long * 0.2)
+    let holes = ''
+    for (let x = holeW * 1.05; x < photoW - holeW; x += holeW * 2.1) {
+      for (const y of [photoY + long * 0.22, photoY + photoH - long * 0.22 - holeH]) {
+        holes += `<rect x="${r2(photoX + x)}" y="${r2(y)}" width="${r2(holeW)}" height="${r2(holeH)}" rx="${r2(holeH * 0.35)}" fill="#ffffff" fill-opacity="0.15"/>`
+      }
+    }
+    mockup = `<path fill-rule="evenodd" fill="${baseC}" d="${svgRoundRect(photoX, photoY, photoW, photoH, outerR)} ${svgRoundRect(photoX + side, photoY + long, photoW - side * 2, photoH - long * 2, Math.max(0, outerR - side))}"/>` + holes
+  } else if (c.deviceMockup === 'camera-dark' || c.deviceMockup === 'camera-silver') {
+    // 相机机身壳（与 drawCameraShell 同比例）：机身环 + 金属顶盖 + 皮革握把 + 按钮（细节裁在环内）
+    const dark = c.deviceMockup === 'camera-dark'
+    const base = Math.max(photoW, photoH)
+    const t = Math.min(96, Math.max(20, base * 0.048))
+    const outerR = Math.max(0, Math.min(photoR, Math.min(photoW, photoH) / 2))
+    const innerR2 = Math.max(0, outerR - t)
+    const body = dark ? '#1B1C1F' : '#CFD2D7'
+    const plate = dark ? '#C6CAD1' : '#E3E5E9'
+    const grip = dark ? '#232428' : '#2A2B2F'
+    const plateH = t * 0.74
+    const gripW = Math.min(t * 1.02, photoW * 0.16)
+    const clipId = `${gid}mk`
+    mockup =
+      `<clipPath id="${clipId}"><path fill-rule="evenodd" d="${svgRoundRect(photoX, photoY, photoW, photoH, outerR)} ${svgRoundRect(photoX + t, photoY + t, photoW - t * 2, photoH - t * 2, innerR2)}"/></clipPath>`
+      + `<path fill-rule="evenodd" fill="${body}" d="${svgRoundRect(photoX, photoY, photoW, photoH, outerR)} ${svgRoundRect(photoX + t, photoY + t, photoW - t * 2, photoH - t * 2, innerR2)}"/>`
+      + `<g clip-path="url(#${clipId})">`
+      + `<rect x="${r2(photoX)}" y="${r2(photoY)}" width="${r2(photoW)}" height="${r2(plateH)}" fill="${plate}"/>`
+      + `<rect x="${r2(photoX + photoW - gripW)}" y="${r2(photoY + plateH)}" width="${r2(gripW)}" height="${r2(photoH - plateH)}" fill="${grip}"/>`
+      + `<rect x="${r2(photoX)}" y="${r2(photoY + plateH)}" width="${r2(Math.min(t * 0.62, photoW * 0.12))}" height="${r2(photoH - plateH)}" fill="${grip}"/>`
+      + `<circle cx="${r2(photoX + photoW - gripW / 2)}" cy="${r2(photoY + photoH * 0.72)}" r="${r2(Math.max(2.4, t * 0.3))}" fill="#0E0F11"/>`
+      + `<rect x="${r2(photoX + photoW / 2 - Math.min(photoW * 0.14, t * 1.7) / 2)}" y="${r2(photoY + plateH * 0.17)}" width="${r2(Math.min(photoW * 0.14, t * 1.7))}" height="${r2(plateH * 0.4)}" rx="${r2(t * 0.05)}" fill="#0E0F11"/>`
+      + `</g>`
   }
 
   const bgInner =

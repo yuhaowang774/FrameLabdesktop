@@ -1,12 +1,13 @@
 <!-- src/components/controls/TemplatePickerModal.vue -->
 <script setup lang="ts">
-// 模板选择弹窗（2026-09-13 改版）：左侧分类侧栏（最近使用/我的模板/风格分组）+ 3 列瀑布流
-// 卡片网格（最多 3 列，窄屏递减 2/1；按模板真实比例展示）+ 底部操作栏（当前模板动态提示）。
-// 无右栏大预览（设计决策见 AGENTS.md）：点击卡片即实时应用并保持弹窗打开，hover 浮层
-// 显示名称/说明，底部操作栏跟随 hover/选中动态提示。卡片缩略图用**该模板自己的样张照片**
-// 真实合成（core/templateSamples.ts，55 套各一张；自定义模板无样张时回退当前照片/内置示例图），
-// 卡片高度随样张比例自然错落。
-// 界面不使用彩色 Emoji（AGENTS.md UI 设计要求），图标用纯文本符号。
+// 模板选择弹窗：左侧**分类目录**（最近使用/我的模板/风格分组）+ 右侧完整分段瀑布流
+// （多列，窄屏递减；卡片按模板真实比例展示，高度自然错落）+ 底部操作栏。
+// 交互（2026-09-16 用户要求，取代 09-13 的「点分类=筛选单类」）：右栏恒为完整列表，
+// 点左栏分类只把列表滚到对应段，滚过去之后还能继续往下滑到下一个分类区域；
+// 滚动时左栏对应项高亮，指示「当前所在分类」。
+// 点卡片先出预览确认层（2026-09-15 用户拍板），满意「确认应用」才应用并返回编辑。
+// 卡片缩略图用**该模板自己的样张照片**真实合成（core/templateSamples.ts；自定义模板无样张时
+// 回退当前照片/内置示例图）。界面不使用彩色 Emoji（AGENTS.md UI 设计要求），图标用纯文本符号。
 import { ref, computed, reactive, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useTemplates, applyTemplateToState, recordRecentUsage } from '../../composables/useTemplates'
 import { useAppState } from '../../composables/useAppState'
@@ -41,11 +42,11 @@ const list = computed(() => {
     : templates.templates.filter((t) => t.category === props.category)
 })
 
-// ===== 视图状态：侧栏分类（recent / custom / all / 组名）+ 搜索 =====
+// ===== 视图状态：搜索 + 左侧目录（2026-09-16 用户要求）=====
+// 左栏是**目录索引**而不是筛选器：右侧恒为完整的分段列表（段顺序 = 侧栏顺序），
+// 点左侧分类只把列表滚到对应段，滚到该段后还能继续往下滑到下一个分类区域。
 // 界面不使用彩色 Emoji（AGENTS.md）：搜索框无图标，用途由 placeholder 表达。
 const TEMPLATE_GROUPS = ['经典', '极简轻量', '杂志编辑', '胶片复古', '暗调影廊', '联名卡', '社交尺寸', '水印署名', '多彩色卡', '大师水印', '日历边框', '运动边框', '设备样机', '纸品印刷', '创意排版'] as const
-type SideView = 'recent' | 'custom' | 'all' | (typeof TEMPLATE_GROUPS)[number]
-const activeView = ref<SideView>('all')
 const search = ref('')
 
 const customAll = computed(() => list.value.filter((t) => !t.builtin))
@@ -58,83 +59,137 @@ const groupCounts = computed<Record<string, number>>(() => {
   return counts
 })
 
-const filtered = computed(() => {
-  let out: typeof list.value
-  if (props.customOnly || activeView.value === 'custom') {
-    out = customAll.value
-  } else if (activeView.value === 'recent') {
-    const order = new Map(templates.recentIds.map((id, i) => [id, i]))
-    out = builtinAll.value
-      .filter((t) => order.has(t.id))
-      .sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0))
-  } else if (activeView.value !== 'all') {
-    out = builtinAll.value.filter((t) => t.group === activeView.value)
-  } else {
-    out = list.value
-  }
-  const q = search.value.trim().toLowerCase()
-  if (q) {
-    out = out.filter((t) => t.name.toLowerCase().includes(q) || (t.desc ?? '').toLowerCase().includes(q))
-  }
-  return out
-})
+/** 搜索关键词（名称 / 说明）命中判断 */
+const q = computed(() => search.value.trim().toLowerCase())
+const hit = (t: { name: string; desc?: string }) =>
+  !q.value || t.name.toLowerCase().includes(q.value) || (t.desc ?? '').toLowerCase().includes(q.value)
 
-/** 主区分区：全部视图 = 内置 + 我的模板两段；其余视图单段 */
+/** 我的模板（自定义模板，经搜索过滤） */
+const customItems = computed(() => customAll.value.filter(hit))
+/** 最近使用（按最近使用顺序排列的内置模板；用记录里属于本库的模板，徽标与段计数一致） */
+const recentAll = computed(() => {
+  const order = new Map(templates.recentIds.map((id, i) => [id, i]))
+  return builtinAll.value.filter((t) => order.has(t.id)).sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0))
+})
+const recentItems = computed(() => recentAll.value.filter(hit))
+
+/**
+ * 主列表分段：段顺序 = 侧栏顺序（最近使用 → 风格分组 → 其他 → 我的模板）。
+ * 「最近使用」「我的模板」两段恒在（无内容时给引导文案），保证侧栏每一项都有落点；
+ * 搜索时只保留有命中的段。
+ */
 const sections = computed(() => {
-  if (props.customOnly || activeView.value === 'custom') {
-    return [{ key: 'custom', title: '我的模板', items: filtered.value }]
-  }
-  if (activeView.value === 'recent') {
-    return [{ key: 'recent', title: '最近使用', items: filtered.value }]
-  }
-  if (activeView.value !== 'all') {
-    return [{ key: activeView.value, title: activeView.value, items: filtered.value }]
-  }
-  // 全部视图（2026-09-15 用户拍板）：**按左侧侧栏分类顺序分段**，每个分类一段，
-  // 段与段之间留出明显间隙；未在侧栏登记的分组收尾为「其他」，自定义模板最后一段。
   const out: Array<{ key: string; title: string; items: typeof list.value }> = []
+  if (props.customOnly) {
+    if (customItems.value.length) out.push({ key: 'custom', title: '我的模板', items: customItems.value })
+    return out
+  }
+  if (recentItems.value.length || !q.value) out.push({ key: 'recent', title: '最近使用', items: recentItems.value })
   for (const g of TEMPLATE_GROUPS) {
-    const items = filtered.value.filter((t) => t.builtin && t.group === g)
+    const items = builtinAll.value.filter((t) => t.group === g && hit(t))
     if (items.length) out.push({ key: `g:${g}`, title: g, items })
   }
-  const rest = filtered.value.filter((t) => t.builtin && !(TEMPLATE_GROUPS as readonly string[]).includes(t.group ?? ''))
+  const rest = builtinAll.value.filter((t) => !(TEMPLATE_GROUPS as readonly string[]).includes(t.group ?? '') && hit(t))
   if (rest.length) out.push({ key: 'g:其他', title: '其他', items: rest })
-  const custom = filtered.value.filter((t) => !t.builtin)
-  if (custom.length) out.push({ key: 'custom', title: '我的模板', items: custom })
+  if (customItems.value.length || !q.value) out.push({ key: 'custom', title: '我的模板', items: customItems.value })
   return out
 })
 
+/** 渲染用分段：整库为空 / 搜索无命中时不渲染任何段，改显示空态文案 */
+const visibleSections = computed(() => (sections.value.some((s) => s.items.length) ? sections.value : []))
+
+/** 顶栏计数：当前可见模板套数（「最近使用」段是重复展示，不计入） */
+const filtered = computed(() =>
+  props.customOnly ? customItems.value : [...builtinAll.value, ...customAll.value].filter(hit),
+)
+
+/** 段内空态引导（仅「最近使用 / 我的模板」两段可能为空） */
+const sectionHints: Record<string, string> = {
+  recent: '还没有最近使用的模板，点击应用后会出现在这里。',
+  custom: '还没有自定义模板，可在左侧「我的模板」里把当前配置存下来。',
+}
+
 const emptyText = computed(() => {
-  if (search.value.trim()) return '没有匹配的模板，换个分类或关键词试试。'
-  if (activeView.value === 'recent') return '还没有最近使用的模板，点击应用后会出现在这里。'
-  if (props.customOnly || activeView.value === 'custom') return '还没有自定义模板。调好样式后点上方按钮保存。'
+  if (q.value) return '没有匹配的模板，换个关键词试试。'
+  if (props.customOnly) return '还没有自定义模板。调好样式后点上方按钮保存。'
   return '暂无模板。'
 })
 
 // ===== 选中：应用后卡片带「当前」标签；底栏为固定提示 =====
 // （2026-09-15 用户拍板：卡片不再有 hover 信息浮层，模板信息统一在预览弹窗里呈现）
-// 滚动联动「预选高亮」（用户 2026-09-15）：侧栏本体固定不动，右侧列表滑到哪个分类，
-// 左侧对应分类项即轻微高亮（预选态 spy），与「当前视图」高亮（active）区分。
 const selectedId = ref<string | null>(null)
-const spyGroup = ref('')
+/** 右侧瀑布流滚动容器 */
+const mainEl = ref<HTMLElement | null>(null)
+/** 左栏目录当前所在段：点击跳转后立即更新，滚动时由 spy 跟随 */
+const currentSection = ref('recent')
 let spyRaf = 0
+
+/**
+ * 点击左栏目录：把右侧列表滚到对应段——**不筛选**，因此跳过去之后仍可继续往下
+ * 滑到下一个分类区域（2026-09-16 用户要求）。段头对齐滚动容器顶部（留 8px 呼吸位）。
+ */
+function jumpTo(key: string) {
+  const main = mainEl.value
+  if (!main) return
+  currentSection.value = key
+  const sec = main.querySelector<HTMLElement>(`[data-sec="${key}"]`)
+  if (!sec) return
+  const top = main.scrollTop + (sec.getBoundingClientRect().top - main.getBoundingClientRect().top) - 8
+  main.scrollTo({ top: Math.max(0, top), behavior: 'smooth' })
+}
+
+// 改搜索词：结果集变化后列表回到顶部，目录高亮回到首段（flush:'post' 保证在 DOM 更新之后写）
+watch(
+  [search, () => props.customOnly],
+  () => {
+    if (mainEl.value) mainEl.value.scrollTop = 0
+    currentSection.value = sections.value[0]?.key ?? 'recent'
+  },
+  { flush: 'post' },
+)
+
+/**
+ * 侧栏滚轮转发：点完左侧分类后指针通常还停在左栏，而左栏在常见窗口尺寸下装得下全部分类
+ * （自身不可滚动），滚轮事件便石沉大海——用户感知即「右侧瀑布流不能滚动」。
+ * 规则（同浏览器原生滚动链，只是把「祖先」换成同级的瀑布流）：
+ * ① 侧栏能吃下这次增量 → 交回原生，保持侧栏自身滚动手感；
+ * ② 增量会被侧栏边界截断（含侧栏本就不可滚动 / 已到头）→ 侧栏滚到边界，**余量**转给瀑布流，
+ *    避免在边界处白吞一整格滚轮（左栏只剩十几像素可滚时最明显）。
+ */
+function onSideWheel(e: WheelEvent) {
+  const main = mainEl.value
+  if (!main) return
+  const side = e.currentTarget as HTMLElement
+  // deltaMode：0=像素 1=行 2=页（与 Filmstrip 的换算口径一致）
+  const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? side.clientHeight : 1
+  const dy = e.deltaY * unit
+  if (!dy) return
+  const max = Math.max(0, side.scrollHeight - side.clientHeight)
+  const start = side.scrollTop
+  const target = Math.min(Math.max(start + dy, 0), max)
+  if (target === start + dy) return // ①
+  side.scrollTop = target
+  main.scrollTop += start + dy - target
+  e.preventDefault()
+}
+
+/** 滚动联动：右侧列表滑到哪个段，左栏对应项即高亮（目录指向「当前位置」） */
 function onMainScroll(e: Event) {
   const main = e.target as HTMLElement
   if (spyRaf) return
   spyRaf = requestAnimationFrame(() => {
     spyRaf = 0
     const top = main.getBoundingClientRect().top
-    let g = ''
-    for (const c of main.querySelectorAll<HTMLElement>('.tp-card')) {
-      if (c.getBoundingClientRect().bottom - 60 > top) {
-        g = c.dataset.group || ''
-        break
+    for (const sec of main.querySelectorAll<HTMLElement>('.tp-sec')) {
+      if (sec.getBoundingClientRect().bottom - 60 > top) {
+        const key = sec.dataset.sec
+        if (key) currentSection.value = key
+        return
       }
     }
-    spyGroup.value = g
   })
 }
-const footHint = '点击卡片预览效果，满意后「确认应用」返回编辑'
+const footHint = '点击左侧分类可跳到该分组（继续下滚即进入下一个分类）；点击卡片预览效果'
 
 // ===== 保存当前配置为模板（customOnly 模式：保存表单内嵌弹窗顶部） =====
 const saveName = ref('')
@@ -426,37 +481,26 @@ onBeforeUnmount(() => {
         />
 
         <div class="tp-body">
-          <!-- 左：分类侧栏（customOnly 模式无侧栏） -->
-          <div v-if="!customOnly" class="tp-side">
+          <!-- 左：分类目录（customOnly 模式无侧栏）。点击 = 跳到该段（不筛选，滚下去即下一个分类）；
+               滚轮转发见 onSideWheel，滚动联动高亮见 onMainScroll -->
+          <div v-if="!customOnly" class="tp-side" @wheel="onSideWheel">
             <div class="tp-cap">工作区</div>
-            <button
-              class="tp-item"
-              :class="{ active: activeView === 'recent' }"
-              @click="activeView = activeView === 'recent' ? 'all' : 'recent'"
-            >
+            <button class="tp-item" :class="{ active: currentSection === 'recent' }" @click="jumpTo('recent')">
               <span class="tp-item-n">最近使用</span>
-              <span v-if="templates.recentIds.length" class="tp-item-c">{{ templates.recentIds.length }}</span>
+              <span v-if="recentAll.length" class="tp-item-c">{{ recentAll.length }}</span>
             </button>
-            <button
-              class="tp-item"
-              :class="{ active: activeView === 'custom' }"
-              @click="activeView = activeView === 'custom' ? 'all' : 'custom'"
-            >
+            <button class="tp-item" :class="{ active: currentSection === 'custom' }" @click="jumpTo('custom')">
               <span class="tp-item-n">我的模板</span>
               <span v-if="customAll.length" class="tp-item-c">{{ customAll.length }}</span>
             </button>
             <div class="tp-sep" />
             <div class="tp-cap">风格分类</div>
-            <button class="tp-item" :class="{ active: activeView === 'all' }" @click="activeView = 'all'">
-              <span class="tp-item-n">全部</span>
-              <span class="tp-item-c">{{ builtinAll.length || '' }}</span>
-            </button>
             <button
               v-for="g in TEMPLATE_GROUPS"
               :key="g"
               class="tp-item"
-              :class="{ active: activeView === g, spy: spyGroup === g && activeView !== g }"
-              @click="activeView = activeView === g ? 'all' : g"
+              :class="{ active: currentSection === `g:${g}` }"
+              @click="jumpTo(`g:${g}`)"
             >
               <span class="tp-item-n">{{ g }}</span>
               <span class="tp-item-c">{{ groupCounts[g] || '' }}</span>
@@ -464,7 +508,7 @@ onBeforeUnmount(() => {
           </div>
 
           <!-- 中：瀑布流网格 -->
-          <div class="tp-main" @scroll="onMainScroll">
+          <div ref="mainEl" class="tp-main" @scroll="onMainScroll">
             <!-- 我的模板模式：顶部内嵌「保存当前配置」表单 -->
             <div v-if="customOnly" class="tp-save">
               <input
@@ -478,12 +522,12 @@ onBeforeUnmount(() => {
             </div>
             <p v-if="customOnly && savedTip" class="tp-pack-tip">{{ savedTip }}</p>
 
-            <p v-if="sections.length === 0" class="tp-empty">{{ emptyText }}</p>
+            <p v-if="visibleSections.length === 0" class="tp-empty">{{ emptyText }}</p>
             <template v-else>
-              <section v-for="sec in sections" :key="sec.key" class="tp-sec">
+              <section v-for="sec in visibleSections" :key="sec.key" :data-sec="sec.key" class="tp-sec">
                 <div class="tp-sec-head">
                   <h3 class="tp-sec-title">{{ sec.title }}</h3>
-                  <span class="tp-sec-count">{{ sec.items.length }} 套</span>
+                  <span v-if="sec.items.length" class="tp-sec-count">{{ sec.items.length }} 套</span>
                   <template v-if="sec.key === 'custom'">
                     <button class="tp-sec-btn" title="从 .json 模板包批量导入（单模板或打包文件均可）" @click="onPickPackFile">
                       导入
@@ -497,16 +541,17 @@ onBeforeUnmount(() => {
                       导出全部
                     </button>
                   </template>
-                  <span v-if="sec.key !== 'custom'" class="tp-sec-hint">点击卡片预览效果</span>
+                  <span v-else class="tp-sec-hint">点击卡片预览效果</span>
                 </div>
-                <div class="tp-masonry">
+                <!-- 空段（仅「最近使用 / 我的模板」）：给引导文案，保证左栏目录项仍有落点 -->
+                <p v-if="!sec.items.length" class="tp-sec-empty">{{ sectionHints[sec.key] }}</p>
+                <div v-else class="tp-masonry">
                   <div
                     v-for="t in sec.items"
                     :key="t.id"
                     class="tp-card"
                     :class="{ sel: selectedId === t.id }"
                     :data-id="t.id"
-                    :data-group="t.group"
                     @click="openPreview(t)"
                   >
                     <img class="tp-card-thumb" :src="thumbs[t.id]" :alt="t.name" draggable="false" />
@@ -647,12 +692,7 @@ onBeforeUnmount(() => {
   content: ''; position: absolute; left: 5px; top: 9px; bottom: 9px; width: 3px;
   border-radius: 2px; background: var(--slider-thumb);
 }
-/* 滚动联动预选：右侧列表滑到某分类时，左侧对应项轻微高亮（侧栏本身不滚动、文字不动） */
-.tp-item.spy { background: var(--hover); color: var(--text); }
-.tp-item.spy::before {
-  content: ''; position: absolute; left: 5px; top: 12px; bottom: 12px; width: 3px;
-  border-radius: 2px; background: var(--text-num);
-}
+
 .tp-item-n { flex: 1; }
 .tp-item-c {
   flex: none; min-width: 22px; text-align: center;
@@ -675,6 +715,8 @@ onBeforeUnmount(() => {
   border-radius: 10px; padding: 1px 9px;
 }
 .tp-sec-hint { margin-left: auto; font-size: 11.5px; color: var(--text-num); }
+/* 空段（最近使用 / 我的模板）的引导文案：左栏目录项跳过来时能看到为什么是空的 */
+.tp-sec-empty { margin: 0 2px 6px; font-size: 12px; color: var(--text-num); }
 .tp-sec-btn {
   height: 24px; padding: 0 12px; font-size: 11.5px; line-height: 22px;
   border: 1px solid var(--border); border-radius: 6px; background: var(--btn-bg);
