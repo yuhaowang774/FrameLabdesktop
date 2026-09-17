@@ -10,6 +10,7 @@ import Icon from '../common/Icon.vue'
 import LeftLibraryPanel from './LeftLibraryPanel.vue'
 import MediaInfoPanel from './MediaInfoPanel.vue'
 import TemplatePickerModal from '../controls/TemplatePickerModal.vue'
+import { countVisibleBuiltin } from '../../core/templateVisibility'
 
 const app = useAppState()
 const library = useLibrary()
@@ -21,6 +22,8 @@ const P = app.state.leftPanels
 const pickerOpen = ref(false)
 const mineOpen = ref(false)
 const customCount = computed(() => templates.templates.filter((t) => !t.builtin).length)
+/** 与模板库一致的可见套数（隐藏分组不计入，见 core/templateVisibility） */
+const builtinCount = computed(() => countVisibleBuiltin(templates.templates))
 
 // ===== 右边缘拖拽调整宽度（持久化到 useAppState.setLeftWidth） =====
 let startX = 0
@@ -53,6 +56,22 @@ onBeforeUnmount(cleanupResize)
   <aside class="left-panels" :style="{ width: app.leftWidthPx.value }">
     <!-- 右边缘拖拽手柄：向右拖变宽 -->
     <div class="resize-handle" title="拖拽调整左栏宽度" @pointerdown="onResizeDown" />
+
+    <!-- 顶部两个常驻入口（2026-09-17 用户要求放在「我的素材」之上）：
+         相框模板库 = 内置模板；我的模板 = 自定义模板（弹窗内附「保存当前配置」表单） -->
+    <button class="tpl-entry" title="打开相框模板库" @click="pickerOpen = true">
+      <span class="tpl-entry-icon"><Icon name="border" /></span>
+      <span class="tpl-entry-label">相框模板库</span>
+      <span class="tpl-entry-count">共 {{ builtinCount }} 套内置模板</span>
+      <span class="tpl-entry-arrow">▸</span>
+    </button>
+    <button class="tpl-entry" title="打开我的模板" @click="mineOpen = true">
+      <span class="tpl-entry-icon"><Icon name="brand" /></span>
+      <span class="tpl-entry-label">我的模板</span>
+      <span class="tpl-entry-count">{{ customCount }} 套自定义</span>
+      <span class="tpl-entry-arrow">▸</span>
+    </button>
+
     <CollapsiblePanel
       title="我的素材"
       :open="P.library"
@@ -71,21 +90,6 @@ onBeforeUnmount(cleanupResize)
       <MediaInfoPanel />
     </CollapsiblePanel>
 
-    <!-- 相框模板库：显眼图标入口卡片，点击弹出模板选择器 -->
-    <button class="tpl-entry" title="打开相框模板库" @click="pickerOpen = true">
-      <span class="tpl-entry-icon"><Icon name="border" /></span>
-      <span class="tpl-entry-label">相框模板库</span>
-      <span class="tpl-entry-count">共 {{ templates.templates.filter((t) => t.builtin).length }} 套内置模板</span>
-      <span class="tpl-entry-arrow">▸</span>
-    </button>
-
-    <!-- 我的模板：与相框模板库同构的入口卡片，点击弹出「我的模板」弹窗（保存 / 应用 / 删除） -->
-    <button class="tpl-entry" title="打开我的模板" @click="mineOpen = true">
-      <span class="tpl-entry-icon"><Icon name="brand" /></span>
-      <span class="tpl-entry-label">我的模板</span>
-      <span class="tpl-entry-count">{{ customCount }} 套自定义</span>
-      <span class="tpl-entry-arrow">▸</span>
-    </button>
   </aside>
   <TemplatePickerModal v-model="pickerOpen" category="frame" />
   <TemplatePickerModal v-model="mineOpen" custom-only title="我的模板" />
@@ -154,15 +158,19 @@ onBeforeUnmount(cleanupResize)
 }
 .tpl-entry-label {
   flex: 1;
-  font-size: 13px;
-  font-weight: 500;
+  font-size: 14px;
+  font-weight: 600;
   color: var(--text);
   white-space: nowrap;
 }
 .tpl-entry-count {
-  font-size: 11px;
-  color: var(--text);
+  font-size: 12px;
+  color: var(--text-dim);
   white-space: nowrap;
+}
+/* 两个入口上下相邻：不要叠出 2px 双线（各自与面板交界那条保留） */
+.tpl-entry + .tpl-entry {
+  border-top: none;
 }
 .tpl-entry-arrow {
   color: var(--text);

@@ -17,6 +17,7 @@ import { sampleForTemplate } from '../../core/templateSamples'
 import type { ImgSource } from '../../core/bgRenderer'
 import { photoImage } from '../../composables/useUi'
 import GlassModal from '../common/GlassModal.vue'
+import { HIDDEN_TEMPLATE_GROUPS, isTemplateVisible } from '../../core/templateVisibility'
 
 const props = withDefaults(
   defineProps<{
@@ -37,9 +38,12 @@ const { state } = useFrameConfig()
 
 const list = computed(() => {
   if (props.customOnly) return templates.templates.filter((t) => !t.builtin)
-  return props.category === 'frame'
-    ? templates.templates.filter((t) => t.category === 'frame' || t.category === 'all')
-    : templates.templates.filter((t) => t.category === props.category)
+  const byCategory =
+    props.category === 'frame'
+      ? templates.templates.filter((t) => t.category === 'frame' || t.category === 'all')
+      : templates.templates.filter((t) => t.category === props.category)
+  // 隐藏分组（2026-09-18 用户人工审查）在入口处就滤掉：计数、分段、最近使用随之保持一致
+  return byCategory.filter(isTemplateVisible)
 })
 
 // ===== 视图状态：搜索 + 左侧目录（2026-09-16 用户要求）=====
@@ -47,6 +51,8 @@ const list = computed(() => {
 // 点左侧分类只把列表滚到对应段，滚到该段后还能继续往下滑到下一个分类区域。
 // 界面不使用彩色 Emoji（AGENTS.md）：搜索框无图标，用途由 placeholder 表达。
 const TEMPLATE_GROUPS = ['经典', '极简轻量', '杂志编辑', '胶片复古', '暗调影廊', '联名卡', '社交尺寸', '水印署名', '多彩色卡', '大师水印', '日历边框', '运动边框', '设备样机', '纸品印刷', '创意排版'] as const
+/** 实际展示的分组 = 全量顺序去掉隐藏表里的那些（左栏目录与右栏分段都用它） */
+const VISIBLE_GROUPS = TEMPLATE_GROUPS.filter((g) => !HIDDEN_TEMPLATE_GROUPS.includes(g))
 const search = ref('')
 
 const customAll = computed(() => list.value.filter((t) => !t.builtin))
@@ -85,7 +91,7 @@ const sections = computed(() => {
     return out
   }
   if (recentItems.value.length || !q.value) out.push({ key: 'recent', title: '最近使用', items: recentItems.value })
-  for (const g of TEMPLATE_GROUPS) {
+  for (const g of VISIBLE_GROUPS) {
     const items = builtinAll.value.filter((t) => t.group === g && hit(t))
     if (items.length) out.push({ key: `g:${g}`, title: g, items })
   }
@@ -496,7 +502,7 @@ onBeforeUnmount(() => {
             <div class="tp-sep" />
             <div class="tp-cap">风格分类</div>
             <button
-              v-for="g in TEMPLATE_GROUPS"
+              v-for="g in VISIBLE_GROUPS"
               :key="g"
               class="tp-item"
               :class="{ active: currentSection === `g:${g}` }"
