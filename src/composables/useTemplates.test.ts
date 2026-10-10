@@ -2,6 +2,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { applyTemplateToState, useTemplates, sanitizeTemplateConfig } from './useTemplates'
 import { useFrameConfig } from './useFrameConfig'
+import { hexLuminance } from '../core/colorUtils'
 
 const RAW = {
   focalLength: 50,
@@ -124,6 +125,25 @@ describe('内置模板清单结构校验', () => {
       const out = sanitizeTemplateConfig(t.config)
       expect(Object.keys(out).length, `${t.id} 存在非法字段被 sanitize 丢弃`).toBe(Object.keys(t.config).length)
       void toTemplateConfig
+    }
+  })
+
+  it('实底模板显式文字色与底带对比度守护（回归 2026-10-05：白底白字日期不可见）', () => {
+    const { templates } = useTemplates()
+    for (const t of templates.filter((x) => x.builtin)) {
+      const c = t.config
+      if (c.bgMode !== 'solid') continue
+      // classic/duo 等 INFO 行落在边框留白带上，带色 = borderColor（solid 模板 bgColor 与之一致）
+      const bandLum = hexLuminance(c.borderColor ?? c.bgColor ?? null)
+      const keys = ['exifTextColor', 'lensTextColor', 'dateTextColor', 'cameraModelColor', 'logoColor'] as const
+      for (const k of keys) {
+        const v = c[k]
+        if (typeof v !== 'string') continue
+        expect(
+          Math.abs(hexLuminance(v) - bandLum),
+          `${t.id}.${k}="${v}" 与实底（亮度 ${bandLum.toFixed(2)}）对比度过低，应用后文字不可见`,
+        ).toBeGreaterThanOrEqual(0.12)
+      }
     }
   })
 

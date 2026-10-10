@@ -87,20 +87,26 @@ describe('templateThumb dataURL', () => {
 })
 
 describe('内置模板清单', () => {
-  it('初代 9 套模板名与顺序保持不变（用户样例复刻 + 水印审美样张风格；复古CCD 已于 09-16 甄选淘汰）', () => {
+  it('初代 9 套模板名与顺序保持不变（用户样例复刻 + 水印审美样张风格；复古CCD 09-16 淘汰；白底居中 10-06 重做；白卡联名 10-06 由 coBrand 批次同名款取代）', () => {
     const { templates } = useTemplates()
     const builtin = templates.filter((t) => t.builtin).map((t) => t.name)
     expect(builtin.slice(0, 9)).toEqual([
       '白框参数卡',
       '圆角悬浮·模糊延展',
       '白卡装裱·衬线字标',
-      '白底居中·机型参数',
       '全幅白条·铭牌',
       '银灰测绘·等宽参数',
       '胶片暗房·黑框',
       '轻量悬浮·型号水印',
       '杂志编辑·标题色卡',
+      '黑框参数卡',
     ])
+    // 10-06 重做款仍在库：白底居中（经典）/ 白卡联名（联名卡，同名新 id）
+    const reworked = templates.find((t) => t.id === 'm_rw2_center_matte')
+    expect(reworked?.group).toBe('经典')
+    const cardNote = templates.find((t) => t.id === 'm_co3_card_note')
+    expect(cardNote?.name).toBe('白卡联名·水印卡')
+    expect(cardNote?.group).toBe('联名卡')
   })
 
   it('扩充批模板全部就位（共 98 套）且每套带分组标签', () => {
