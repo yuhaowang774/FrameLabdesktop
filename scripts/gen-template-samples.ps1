@@ -168,6 +168,42 @@ $MAP = [ordered]@{
   'm_ph_pairs_six'          = 'marcus-ganahl-Z2-lnDiixBM'
   'm_ph_night_five'         = 'alin-gavriliuc-PZ5HifLJcjo'
   'm_social_story_two'      = 'anton-shakirov-K1RmYc5pRks'
+  # ===== 第十一批：水印署名族重写 10 套（2026-10-06，主流手机水印版式语言）=====
+  # 白底签名带类配干净横幅/建筑，暗调类配夜景，模糊延展配地标，方幅角标配可裁方构图
+  'm_wm2_brand_band'        = 'kellen-riggin-xvHbjk-IaVc'      # 旧金山天际线（横，白带干净）
+  'm_wm2_brand_statement'   = 'hao-wu-22cr2PAg74Q'             # 白色现代建筑（极简留白）
+  'm_wm2_three_zone'        = 'semina-psichogiopoulou-hl0iLy1hFo0' # 城市俯瞰人物背影（地点感）
+  'm_wm2_sign_script'       = 'luise-and-nic-cwmYAVM4mHY'      # 湖畔黄昏人像（诗意签名）
+  'm_wm2_sign_dark'         = 'jahanzeb-ahsan-WDzLTe6ON2k'     # 夜晚街头（暗调）
+  'm_wm2_tech_two_corner'   = 'kellen-riggin-hmW3e2hLGP0'      # 金门大桥晨雾（地标遥测感）
+  'm_wm2_model_label'       = 'roman-akash-W6eYAf2eoJ8'        # 看展人群与名画（展陈装裱）
+  'm_wm2_accent_stack'      = 'fynn-zentner-ZWwoQRR-zWQ'       # 浅色山景（浅调配白带）
+  'm_wm2_zone_two_line'     = 'hameen-reynolds-VkXQOdEWZcI'    # 欧洲街景与骑行者（街拍记录）
+  'm_wm2_serif_corner'      = 'garvit-nama-_GXbkkSFcnE'        # 山峰蓝调（方幅裁切）
+  # ===== 第十二批：第二批质量重做 12 套（2026-10-06，沿用原款配片气质）=====
+  'm_rw2_center_matte'      = 'nicolas-hans-bggoZNpXK28'       # 雪松林（原白底居中款配片）
+  'm_rw2_datacard_pairs'    = 'steve-gribble-X57NtYldau8'      # 金色麦浪（原数据卡配片）
+  'm_rw2_plaque_rows'       = 'bradley-andrews-ndQW-y6Rtbs'    # 玫瑰特写（原铭牌配片）
+  'm_rw2_numeric_hero'      = 'anton-shakirov-K1RmYc5pRks'     # 舷窗云海（原居中八行配片）
+  'm_rw2_pairs_grid'        = 'tsuyoshi-kozu-ukSDSF2oRA8'      # 城市高楼（原六组字段配片）
+  'm_rw2_record_left'       = 'takashi-sakamoto-hXfCmfmUPt0'   # 黄墙行人（原六行记录配片）
+  'm_rw2_archive_rows'      = 'alin-gavriliuc-PZ5HifLJcjo'     # 暗调铁路山谷（原七行记录配片）
+  'm_rw2_border_four'       = 'greg-rosenke-uWGfchsnYD4'       # 金色岩纹（原参数四行配片）
+  'm_rw2_masthead_two'      = 'zixi-lu-28_vmGQw36A'            # 上海天际线（原顶部大字配片）
+  'm_rw2_corner_log'        = 'douglas-schneiders-iO9uHKMFiVU' # 城市街道（街拍配四角记录）
+  'm_rw2_panorama_bar'      = 'roman-akash-W6eYAf2eoJ8'        # 看展人群与名画（原全景配片）
+  'm_rw2_date_edge'         = 'safiullah-oba-wzhqy-B1zxM'      # 室内彩色光影（原日期三行配片）
+  # ===== 第十三批：联名卡 + 大师水印重做 8 套（2026-10-06，两分组恢复展示）=====
+  'm_co3_center_badge'      = 'magdalena-kula-manchee-qGoGz1ui56Y' # 热气球日出（品牌卡气质）
+  'm_co3_dark_left'         = 'diego-padilla-ExuxwWB6hfY'      # 东京塔夜景（黑带）
+  'm_co3_top_card'          = 'dawid-tkocz-CaYZFIHZR_E'        # 欧洲宫殿圆顶（展陈装裱）
+  'm_co3_lockup_row'        = 'julie-gaia-guzal-0IT4vwi1hZo'   # 湖边城市（横向联名条）
+  'm_co3_accent_blue'       = 'rafael-peier-8yfCTr6ia18'       # 公路与孤树（坐标感）
+  'm_mw3_engraved'          = 'valentin-lacoste-BYxJ8C4WIT0'   # 戏剧化人物（大师影调）
+  'm_mw3_paper_statement'   = 'andrey-k-BOe54W1l_uk'           # 白底花枝（纸面静物）
+  'm_mw3_glossy_black'      = 'brooke-balentine-bmSpNZIjmHs'   # 人物剪影（玄黑）
+  'm_co3_card_note'         = 'dawid-tkocz-ttMdFEwlayw'        # 湖边人物（白卡水印）
+  'm_co3_card_dark'         = 'brayden-law-tivSfDwDoq4'        # 夜晚街景（黑卡夜色）
 }
 
 $files = @(Get-ChildItem -LiteralPath $SrcDir -File | Where-Object { $_.Extension -match '\.(jpe?g|png|webp)$' } | Sort-Object Name)
