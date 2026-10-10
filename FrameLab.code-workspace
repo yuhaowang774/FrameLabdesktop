@@ -7,5 +7,8 @@
 			"path": "../frame"
 		}
 	],
-	"settings": {}
+	"settings": {},
+	"trae": {
+		"workspaceId": "b22c3232f3ab8f771c93fb12e99887d6"
+	}
 }
