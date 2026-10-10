@@ -56,3 +56,14 @@ export function logoAutoColor(logoColor: string | null | undefined, bgMode: stri
   if (bgMode === 'solid' && hexLuminance(bgColor) > 0.6) return '#1a1a1a'
   return '#ffffff'
 }
+
+/**
+ * 水印文字自动色（与 logoAutoColor 同一明暗判据）：
+ * - solid 纯色背景：浅底取近黑（水印多落在边框留白带上），深底取白；
+ * - 其余（blur/photo）：白字（照片/模糊背景通常中深调，配合投影保证可读）。
+ * 深浅色都由 drawWatermark 自带柔和投影兜底边缘对比。
+ */
+export function watermarkAutoColor(bgMode: string, bgColor: string | null): string {
+  if (bgMode === 'solid' && hexLuminance(bgColor) > 0.6) return '#1a1a1a'
+  return '#ffffff'
+}

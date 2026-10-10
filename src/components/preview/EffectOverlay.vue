@@ -9,6 +9,7 @@ import {
 } from '../../core/bgRenderer'
 import { useFrameConfig } from '../../composables/useFrameConfig'
 import { DESIGN_CONTAINER } from '../../core/constants'
+import { watermarkAutoColor } from '../../core/colorUtils'
 
 const props = defineProps<{
   /** 容器设计高度（px） */
@@ -60,6 +61,7 @@ function render() {
       tile: state.watermarkTile,
       align: state.watermarkAlign,
       bottom: state.watermarkBottom,
+      color: watermarkAutoColor(state.bgMode, state.bgColor),
     })
   }
 }

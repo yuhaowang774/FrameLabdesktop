@@ -1,6 +1,6 @@
 // 颜色工具测试：文字与 Logo 的明暗自适应规则（浅底黑 / 深底白）
 import { describe, it, expect } from 'vitest'
-import { hexLuminance, footerTextColor, logoAutoColor } from './colorUtils'
+import { hexLuminance, footerTextColor, logoAutoColor, watermarkAutoColor } from './colorUtils'
 
 describe('hexLuminance', () => {
   it('计算相对亮度（Rec.709），黑白两端与非法输入', () => {
@@ -53,5 +53,23 @@ describe('footerTextColor', () => {
     expect(footerTextColor('solid', '#1a1a1a')).toBe('rgba(255,255,255,0.95)')
     expect(footerTextColor('blur', '#ffffff')).toBe('rgba(255,255,255,0.95)')
     expect(footerTextColor('solid', '#ffffff', 0.5)).toBe('rgba(0,0,0,0.5)')
+  })
+})
+
+describe('watermarkAutoColor 水印文字随底自适应（回归 2026-10-05 白底白字不可见）', () => {
+  it('浅色实底取近黑（水印多落在边框留白带上）', () => {
+    expect(watermarkAutoColor('solid', '#ffffff')).toBe('#1a1a1a')
+    expect(watermarkAutoColor('solid', '#F4EFE4')).toBe('#1a1a1a')
+  })
+
+  it('深实底 / 模糊 / 照片背景取白字（配合投影保证可读）', () => {
+    expect(watermarkAutoColor('solid', '#000000')).toBe('#ffffff')
+    expect(watermarkAutoColor('blur', '#ffffff')).toBe('#ffffff')
+    expect(watermarkAutoColor('photo', null)).toBe('#ffffff')
+  })
+
+  it('背景色为空/非法时按深色处理取白字', () => {
+    expect(watermarkAutoColor('solid', null)).toBe('#ffffff')
+    expect(watermarkAutoColor('solid', 'not-a-color')).toBe('#ffffff')
   })
 })

@@ -7,7 +7,7 @@ import { resolveLogo, preloadBrandLogo } from '../composables/useLogoStore'
 import { drawInfoLayer, preloadInfoLogos } from './infoRenderer'
 import { applyShowToggles } from './showToggles'
 import { buildSrgbICC, embedJpegICC } from './icc'
-import { hexLuminance, hexToRgba, logoAutoColor, footerTextColor } from './colorUtils'
+import { hexLuminance, hexToRgba, logoAutoColor, footerTextColor, watermarkAutoColor } from './colorUtils'
 import { DESIGN_CONTAINER, phoneBrandOf } from './constants'
 import {
   computeFooterLayout,
@@ -1252,6 +1252,7 @@ export async function exportFrame(
         tile: config.watermarkTile,
         align: config.watermarkAlign,
         bottom: config.watermarkBottom * unitScale,
+        color: watermarkAutoColor(config.bgMode, config.bgColor),
       })
     }
   }

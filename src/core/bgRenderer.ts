@@ -351,6 +351,9 @@ export function drawWatermark(
     tile: boolean
     align: 'center' | 'left' | 'right'
     bottom: number
+    /** 文字水印颜色：调用方按底色明暗传入（watermarkAutoColor），缺省白色（照片/深底惯例）。
+     *  浅色实底模板若不传，白字压浅底会不可见（回归 2026-10-05）。 */
+    color?: string
   },
 ): void {
   const sizePx = (opts.size / 100) * w
@@ -367,7 +370,7 @@ export function drawWatermark(
       }
     } else if (opts.text) {
       ctx.font = `600 ${Math.max(10, sizePx * 0.16)}px Arial, sans-serif`
-      ctx.fillStyle = '#ffffff'
+      ctx.fillStyle = opts.color ?? '#ffffff'
       ctx.textAlign = 'center'
       ctx.textBaseline = 'middle'
       ctx.shadowColor = 'rgba(0,0,0,0.5)'
